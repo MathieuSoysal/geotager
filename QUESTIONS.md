@@ -717,12 +717,17 @@ non parce que le fichier était mauvais, mais parce que le vérificateur ne sava
   opérations parfaitement saines à cause des limites du second lecteur, pas des nôtres.
 - **C.** Se contenter de la relecture du bloc. Aveugle à une erreur de localisation.
 
-**Retenu provisoirement :** **A**. Reste à trancher la formulation de la page : elle promet
-aujourd'hui « deux moteurs indépendants » sans condition, alors que sur WebP l'indépendance ne vaut
-qu'à l'échelle du bloc. **La phrase doit être corrigée avant la mise en ligne**, ou la garantie
-affichée fichier par fichier.
+**Retenu provisoirement :** **A**, et la page a été reformulée dans le même lot : elle promettait
+« deux lecteurs indépendants » sans condition, alors que sur WebP l'indépendance ne vaut qu'à
+l'échelle du bloc. Elle dit désormais « notre lecteur et un second écrit par d'autres », énumère les
+trois motifs d'échec, et annonce séparément la comparaison octet par octet — qui, elle, vaut sur
+tous les formats sans réserve.
 
-**Bloque :** non pour le code, **oui** pour la formulation de la page d'accueil.
+Reste ouvert : faut-il afficher **fichier par fichier** l'étendue exacte de ce qui a été vérifié,
+plutôt qu'une phrase générale ? Le résultat de l'opération sait déjà le dire ; l'interface ne
+l'expose pas encore.
+
+**Bloque :** non.
 
 ---
 
