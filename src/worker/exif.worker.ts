@@ -7,12 +7,15 @@
  * will be, which is checkable in the public repository.
  */
 import exifr from 'exifr';
+import { readGpsFromJpeg } from '../lib/exif/jpeg.ts';
 import {
-  readGpsFromJpeg,
-  writeGpsToJpeg,
-  deleteGpsFromJpeg,
-  stripAllMetadata,
-} from '../lib/exif/jpeg.ts';
+  type Ecriture,
+  conteneurDe,
+  ecrirePosition,
+  effacerPosition,
+  memesOctetsHorsPlages,
+  toutEffacer,
+} from '../lib/exif/conteneurs.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres } from '../lib/exif/coords.ts';
 import type {
@@ -231,11 +234,20 @@ async function appliquer(
   }
 
   try {
-    let produit: { bytes: Uint8Array; route: 'P1' | 'P2'; sameLength: boolean };
+    const conteneur = conteneurDe(bytes);
+    if (!conteneur) {
+      return echec(
+        'FORMAT_NON_MODIFIABLE',
+        "Ce format n'est pas encore modifiable. Votre fichier n'a pas été touché.",
+      );
+    }
+
+    let produit: Ecriture;
     let attendu: LatLon | null = null;
 
     if (operation.kind === 'set') {
-      produit = writeGpsToJpeg(
+      produit = ecrirePosition(
+        conteneur,
         bytes,
         operation.position.lat,
         operation.position.lon,
@@ -243,9 +255,20 @@ async function appliquer(
       );
       attendu = operation.position;
     } else if (operation.kind === 'erase') {
-      produit = deleteGpsFromJpeg(bytes);
+      produit = effacerPosition(conteneur, bytes);
     } else {
-      produit = stripAllMetadata(bytes);
+      produit = toutEffacer(conteneur, bytes);
+    }
+
+    // "Byte-exact" is not a figure of speech. Comparing sizes proves nothing:
+    // a bug that zeroes 200 KB of MakerNote passes it without a word. The
+    // produced file is required to be identical to the original everywhere
+    // outside the ranges the engine itself declared.
+    if (!memesOctetsHorsPlages(bytes, produit.bytes, produit.changed)) {
+      return echec(
+        'OCTETS_HORS_PLAGE',
+        "Le fichier produit diffère de l'original ailleurs qu'à l'endroit de la position. Nous préférons vous rendre l'original intact.",
+      );
     }
 
     const { verified, drift, croise } = await verifier(produit.bytes, attendu);
@@ -280,7 +303,7 @@ async function appliquer(
       route: produit.route,
       verified,
       driftMetres: attendu ? drift : 0,
-      sameLength: produit.sameLength,
+      sameLength: produit.bytes.length === bytes.length,
     };
   } catch (e) {
     if (e instanceof ExifError) return echec(e.code, e.message);
