@@ -16,7 +16,16 @@ import {
   stripAllMetadata,
 } from '../src/lib/exif/jpeg.ts';
 import { parseTiff, readPosition, degreesToDms } from '../src/lib/exif/tiff.ts';
-import { memesOctetsHorsPlages } from '../src/lib/exif/conteneurs.ts';
+import {
+  conteneurDe,
+  ecrirePosition,
+  effacerPosition,
+  lirePosition,
+  memesOctetsHorsPlages,
+} from '../src/lib/exif/conteneurs.ts';
+import '../src/lib/exif/formats.ts';
+import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
+import { createHash } from 'node:crypto';
 
 // Same default as scripts/fetch-fixtures.mjs: without it the bench looked for
 // the corpus at the root of the repository and failed on an uncaught exception,
@@ -73,6 +82,22 @@ function inventory(file: string): string[] {
     .filter((l) => !/^\[Composite\]\s+GPS/.test(l))
     .filter((l) => !volatils.test(l))
     .sort();
+}
+
+/**
+ * Digest of every item other than the Exif one, for an ISOBMFF file.
+ *
+ * It is the most direct witness that the secondary images survived: it looks at
+ * the bytes, not at what a tool says about them. Since Chromium does not decode
+ * HEIC, it also stands in for a real decode, and does so to advantage:
+ * identical bytes decode identically.
+ */
+function empreintesDesItems(fichier: string): string {
+  const b = new Uint8Array(readFileSync(fichier));
+  return itemsDuFichier(b)
+    .filter((x) => x.type !== 'Exif')
+    .map((x) => `${x.id}:${x.type}:${createHash('sha256').update(b.subarray(x.debut, x.debut + x.longueur)).digest('hex').slice(0, 16)}`)
+    .join('|');
 }
 
 /** Number of entries actually present in the MakerNote, according to ExifTool. */
@@ -344,6 +369,163 @@ scenario('Rien ne change hors des plages annoncées', () => {
   check('un allongement annoncé passe',
     memesOctetsHorsPlages(a, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]), [[8, 9]]));
 });
+
+// HEIC and AVIF
+//
+// Every operation here is strictly length-preserving: the
+// item's length does not change, so the location table does
+// not change, so no other item's offset becomes wrong.
+// We prove it every time rather than assert it.
+
+const AVIGNON = { lat: 43.9493, lon: 4.8055 };
+
+function conteneurOuEchec(src: Uint8Array) {
+  const c = conteneurDe(src);
+  if (!c) throw new Error('aucun conteneur ne reconnaît ce fichier');
+  return c;
+}
+
+for (const [nom, etiquette] of [
+  ['iphone.heic', 'photo iPhone'],
+  ['photo.avif', 'photo AVIF'],
+] as const) {
+  const chemin = join(FIXTURES, nom);
+
+  scenario(`${nom} — lecture`, () => {
+    const src = new Uint8Array(readFileSync(chemin));
+    const nous = lirePosition(conteneurOuEchec(src), src);
+    const eux = exifPosition(chemin);
+    check('une position est lue', nous !== null && eux !== null);
+    if (nous && eux) {
+      const d = distanceMetres(nous, eux);
+      check('accord avec ExifTool à moins de 0,1 m', d < 0.1, `écart ${d.toFixed(4)} m`);
+    }
+  });
+
+  scenario(`${nom} — correction de la position`, () => {
+    const src = new Uint8Array(readFileSync(chemin));
+    const avantInv = inventory(chemin);
+    const avantItems = empreintesDesItems(chemin);
+    const avantIloc = empreinteDesEmplacements(src);
+
+    const res = ecrirePosition(conteneurOuEchec(src), src, AVIGNON.lat, AVIGNON.lon);
+    const out = join(tmp, `set-${nom}`);
+    writeFileSync(out, res.bytes);
+
+    check('voie P1 (édition sur place)', res.route === 'P1');
+    check('taille identique à l\'octet près', res.bytes.length === src.length,
+      `${src.length} -> ${res.bytes.length}`);
+    check('rien n\'a changé hors des plages annoncées',
+      memesOctetsHorsPlages(src, res.bytes, res.changed));
+
+    const relu = exifPosition(out);
+    check('ExifTool relit la position demandée',
+      relu !== null && distanceMetres(relu, AVIGNON) < 0.1,
+      relu ? `écart ${distanceMetres(relu, AVIGNON).toFixed(4)} m` : 'aucune position relue');
+
+    const apresInv = inventory(out);
+    check('tout le reste est préservé', JSON.stringify(avantInv) === JSON.stringify(apresInv),
+      diffResume(avantInv, apresInv));
+    check('la table des emplacements est intacte',
+      empreinteDesEmplacements(res.bytes) === avantIloc);
+    check('les items secondaires sont intacts au bit près',
+      empreintesDesItems(out) === avantItems);
+    check('l\'image reste de même taille pour ExifTool',
+      exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+        exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+  });
+
+  scenario(`${nom} — effacement de la position`, () => {
+    const src = new Uint8Array(readFileSync(chemin));
+    const avantInv = inventory(chemin);
+    const avantItems = empreintesDesItems(chemin);
+    const avantIloc = empreinteDesEmplacements(src);
+
+    const res = effacerPosition(conteneurOuEchec(src), src);
+    const out = join(tmp, `del-${nom}`);
+    writeFileSync(out, res.bytes);
+
+    check('taille identique à l\'octet près', res.bytes.length === src.length);
+    check('rien n\'a changé hors des plages annoncées',
+      memesOctetsHorsPlages(src, res.bytes, res.changed));
+    check('ExifTool ne trouve plus de position', exifPosition(out) === null);
+
+    const residus = exif(['-a', '-G1', '-s', '-GPS:all', out]).trim();
+    check('aucun tag GPS résiduel', residus === '', residus.slice(0, 160));
+
+    const apresInv = inventory(out);
+    check('tout le reste est préservé', JSON.stringify(avantInv) === JSON.stringify(apresInv),
+      diffResume(avantInv, apresInv));
+    check('la table des emplacements est intacte',
+      empreinteDesEmplacements(res.bytes) === avantIloc);
+    check('les items secondaires sont intacts au bit près',
+      empreintesDesItems(out) === avantItems);
+  });
+}
+
+// This Nokia's block sits 4.4 kB from the end of the file, with nobody having
+// rearranged the container: it is a device's own layout, not a regression file
+// built for the occasion.
+scenario('bloc-en-queue.heif — un bloc rangé en fin de fichier', () => {
+  const chemin = join(FIXTURES, 'bloc-en-queue.heif');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+
+  check('la position est lue malgré l\'agencement inhabituel', lirePosition(c, src) !== null);
+
+  const res = effacerPosition(c, src);
+  const out = join(tmp, 'del-queue.heif');
+  writeFileSync(out, res.bytes);
+  check('taille identique', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  check('plus aucune position', exifPosition(out) === null);
+  check('les items secondaires sont intacts', empreintesDesItems(out) === empreintesDesItems(chemin));
+});
+
+scenario('iphone-sans-lieu.heic — l\'ajout est refusé, pas tenté', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'iphone-sans-lieu.heic')));
+  const c = conteneurOuEchec(src);
+  check('aucune position au départ', lirePosition(c, src) === null);
+
+  let code = '';
+  try {
+    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  } catch (e: any) {
+    code = e.code;
+  }
+  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+
+  // Erasing a file with no position succeeds without touching anything.
+  const res = effacerPosition(c, src);
+  check('l\'effacement ne touche rien', res.bytes.length === src.length &&
+    memesOctetsHorsPlages(src, res.bytes, []));
+});
+
+for (const [nom, quoi] of [
+  ['gps-degenere.heic', 'des rationnels 0/0 d\'un Galaxy S10'],
+  ['lieu-purge.avif', 'des coordonnées purgées par GIMP'],
+] as const) {
+  scenario(`${nom} — ${quoi} ne font pas une position`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const c = conteneurOuEchec(src);
+    check('notre lecteur n\'annonce aucune position', lirePosition(c, src) === null);
+
+    // ExifTool does display 0: that is what is written in the file. The
+    // question is not who is right about the bytes, but what we show somebody
+    // asking "where was this photo taken?". "Nowhere" is the only honest
+    // answer.
+    const res = effacerPosition(c, src);
+    const out = join(tmp, `del-${nom}`);
+    writeFileSync(out, res.bytes);
+    check('l\'effacement reste possible et à longueur constante',
+      res.bytes.length === src.length);
+    check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+    check('plus aucun tag GPS après effacement',
+      exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+    check('les items secondaires sont intacts', empreintesDesItems(out) === empreintesDesItems(chemin));
+  });
+}
 
 console.log(`\n${passed} réussis, ${failed} échoués`);
 process.exit(failed === 0 ? 0 : 1);
