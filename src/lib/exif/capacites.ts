@@ -69,7 +69,15 @@ export const MATRICE: LigneMatrice[] = [
     // adding is safe. It is the only format here in that position.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
-  { formats: ['webp'], libelle: 'WebP', capacites: LECTURE_SEULE },
+  {
+    formats: ['webp'],
+    libelle: 'WebP',
+    // The simple form has no slot for a location: there is nothing to read or
+    // correct there, and creating one is out of reach. The interface says so
+    // file by file, before the action.
+    mention: 'forme étendue',
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
+  },
   { formats: ['tiff'], libelle: 'TIFF', capacites: LECTURE_SEULE },
   { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },
 ];

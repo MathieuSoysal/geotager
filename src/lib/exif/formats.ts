@@ -9,6 +9,7 @@ import { enregistrer } from './conteneurs.ts';
 import { conteneurJpeg } from './jpeg.ts';
 import { conteneurIsobmff } from './isobmff.ts';
 import { conteneurPng } from './png.ts';
+import { conteneurRiff } from './riff.ts';
 
 let fait = false;
 
@@ -18,6 +19,7 @@ export function enregistrerLesFormats(): void {
   enregistrer(conteneurJpeg);
   enregistrer(conteneurIsobmff);
   enregistrer(conteneurPng);
+  enregistrer(conteneurRiff);
 }
 
 enregistrerLesFormats();

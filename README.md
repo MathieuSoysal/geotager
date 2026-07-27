@@ -7,8 +7,10 @@ statiques&nbsp;; le traitement des images a lieu dans un Web Worker, sur votre m
 
 ## État
 
-**V1 — JPEG, HEIC, AVIF et PNG.** Lecture de la position et des métadonnées sur JPEG, HEIC, AVIF,
-PNG, WebP, TIFF et vidéos. Correction et effacement sur **JPEG, HEIC, AVIF et PNG**. Sur une photo d'iPhone,
+**V1 — JPEG, HEIC, AVIF, PNG et WebP.** Lecture de la position et des métadonnées sur JPEG, HEIC,
+AVIF, PNG, WebP, TIFF et vidéos. Correction et effacement sur **JPEG, HEIC, AVIF, PNG et WebP**.
+Un WebP de forme simple n'a aucun emplacement prévu pour un lieu&nbsp;: il reste en lecture seule,
+et l'interface le dit avant toute action. Sur une photo d'iPhone,
 ces deux opérations ne déplacent pas un octet&nbsp;: le fichier produit a exactement la taille de
 l'original, et seuls les octets de la position changent. Ajouter un lieu à une photo qui n'en porte
 aucune ferait grandir le fichier&nbsp;; cela reste hors de portée sur HEIC et AVIF, et l'interface
@@ -19,7 +21,7 @@ le dit *avant* toute action plutôt que de traiter le cas approximativement.
 | JPEG | oui | oui | oui | oui |
 | HEIC, AVIF | oui | oui | pas encore | oui |
 | PNG | oui | oui | oui | oui |
-| WebP | oui | pas encore | pas encore | pas encore |
+| WebP *(forme étendue)* | oui | oui | oui | oui |
 | TIFF | oui | pas encore | pas encore | pas encore |
 | Vidéos (MOV, MP4) | oui | pas encore | pas encore | pas encore |
 

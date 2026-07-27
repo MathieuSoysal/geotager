@@ -81,6 +81,13 @@ export interface Conteneur {
   reconstruire?(b: Uint8Array, vise: Emplacement | null, tiff: Uint8Array): Pose;
 
   /**
+   * Refines `reconstruire` file by file, when the format itself does not
+   * settle it: an extended WebP tolerates growing, the simple form does not,
+   * and it is the same format.
+   */
+  accepteAjout?(b: Uint8Array): boolean;
+
+  /**
    * Ranges the container must itself rewrite to keep the file coherent: a PNG
    * chunk checksum, a RIFF overall size, extended header flags. They lie
    * outside the TIFF block, and without this declaration the byte-exact check
