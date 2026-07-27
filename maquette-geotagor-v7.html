@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#FF3385">
+<title>Modifier la géolocalisation d'une photo — Geotagor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#17161B;--panel:rgba(31,29,37,.82);--text:#F4F1F5;--muted:#9E96A6;
+  --pink:#FF3385;--teal:#00D3C5;--amber:#FFB020;--indigo:#4A46C9;
+  --display:"Bricolage Grotesque",Georgia,serif;--sans:"Outfit",Arial,sans-serif;--mono:"DM Mono",monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.55;overflow-x:hidden}
+.blobs{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;filter:blur(70px)}
+.blob{position:absolute;mix-blend-mode:screen}
+.b1{width:64vw;height:64vw;left:-18vw;top:-22vw;background:var(--pink);opacity:.5;border-radius:62% 38% 44% 56%/58% 46% 54% 42%;animation:m1 21s ease-in-out infinite}
+.b2{width:54vw;height:54vw;right:-14vw;top:6vh;background:var(--indigo);opacity:.5;border-radius:44% 56% 62% 38%/42% 58% 42% 58%;animation:m2 26s ease-in-out infinite}
+.b3{width:46vw;height:46vw;left:30vw;bottom:-24vw;background:var(--teal);opacity:.28;border-radius:58% 42% 36% 64%/50% 62% 38% 50%;animation:m1 31s ease-in-out infinite reverse}
+@keyframes m1{0%,100%{border-radius:62% 38% 44% 56%/58% 46% 54% 42%;transform:translate(0,0) scale(1)}50%{border-radius:38% 62% 58% 42%/44% 58% 42% 56%;transform:translate(4vw,4vh) scale(1.1)}}
+@keyframes m2{0%,100%{border-radius:44% 56% 62% 38%/42% 58% 42% 58%;transform:translate(0,0) scale(1)}50%{border-radius:64% 36% 38% 62%/58% 44% 56% 42%;transform:translate(-5vw,6vh) scale(1.13)}}
+@media (prefers-reduced-motion:reduce){.blob,.dropblob{animation:none!important}}
+.wrap{max-width:1200px;margin:0 auto;padding:0 1.25rem;position:relative;z-index:1}
+:focus-visible{outline:2.5px solid var(--pink);outline-offset:3px;border-radius:10px}
+
+.mockbar{position:relative;z-index:4;background:rgba(23,22,27,.9);backdrop-filter:blur(14px);border-bottom:1px solid rgba(244,241,245,.09);padding:.55rem 1.25rem;font-size:.76rem;color:var(--muted);display:flex;gap:1rem;justify-content:space-between;flex-wrap:wrap;align-items:center}
+.mockbar b{color:var(--text)}
+.mockbar button{font:inherit;font-family:var(--sans);font-size:.76rem;background:none;border:1.5px solid rgba(244,241,245,.24);color:var(--text);padding:.26rem .85rem;border-radius:999px;cursor:pointer}
+.mockbar button:hover{background:rgba(255,51,133,.2);border-color:var(--pink)}
+
+/* ===== THE APP IS THE HERO ===== */
+.app{min-height:100svh;display:flex;flex-direction:column;position:relative;z-index:1}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:1rem 0 .4rem}
+.brand{display:flex;align-items:center;gap:.55rem;font-family:var(--display);font-weight:800;font-size:1.2rem;letter-spacing:-.025em}
+.mark{width:32px;height:32px;flex:none}
+nav.main{display:flex;gap:.25rem;flex-wrap:wrap}
+nav.main a{font-size:.86rem;color:var(--muted);text-decoration:none;padding:.36rem .8rem;border-radius:999px}
+nav.main a:hover{background:rgba(255,51,133,.16);color:var(--pink)}
+.stage{flex:1;display:flex;flex-direction:column;justify-content:center;padding:.6rem 0 1.2rem}
+
+/* EMPTY STATE = une bulle, rien d'autre */
+.drop{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:1.1rem;padding:1.5rem 1.25rem 2rem}
+.bubble{
+  width:clamp(210px,30vw,290px);aspect-ratio:1;border:none;cursor:pointer;padding:1.5rem;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.7rem;
+  background:var(--pink);color:#1A0A12;font-family:var(--sans);
+  border-radius:58% 42% 46% 54%/52% 58% 42% 48%;
+  animation:m1 16s ease-in-out infinite;
+  box-shadow:0 0 110px -14px rgba(255,51,133,.85);
+  transition:transform .22s ease;
+}
+.bubble:hover,.bubble:focus-visible{transform:scale(1.045)}
+.bubble svg{width:46px;height:46px}
+.bubble b{font-size:1.22rem;font-weight:600;line-height:1.15;display:block}
+.bubble small{font-size:.9rem;font-weight:400;opacity:.72;display:block;margin-top:.15rem}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(1.5rem,3.6vw,2.25rem);
+  line-height:1.06;letter-spacing:-.035em;margin:.3rem 0 0;max-width:22ch}
+h1 em{font-style:normal;color:var(--pink)}
+.sub{margin:0;color:var(--muted);max-width:40ch;font-weight:300;font-size:.95rem}
+.formats{font-family:var(--mono);font-size:.72rem;color:var(--muted);margin:.2rem 0 0}
+
+/* ACTIVE STATE = fills the same hero space */
+.steps{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:.6rem}
+.step{display:flex;align-items:center;gap:.45rem;padding:.36rem .85rem .36rem .44rem;border-radius:999px;font-size:.83rem;color:var(--muted);background:rgba(244,241,245,.05)}
+.step .no{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:.68rem;background:rgba(244,241,245,.1);flex:none}
+.step.done{color:var(--pink)}.step.done .no{background:rgba(255,51,133,.24);color:var(--pink)}
+.step.on{color:#1A0A12;background:var(--pink);font-weight:600}
+.step.on .no{background:rgba(26,10,18,.26);color:#1A0A12}
+
+.island{flex:1;background:var(--panel);backdrop-filter:blur(26px);border:1px solid rgba(255,51,133,.2);
+  border-radius:42px 30px 38px 26px;overflow:hidden;box-shadow:0 32px 90px -34px rgba(255,51,133,.4);
+  display:flex;flex-direction:column}
+.island-hd{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.85rem 1.3rem;flex-wrap:wrap}
+.filename{display:flex;align-items:center;gap:.55rem;min-width:0;font-size:.92rem;font-weight:500}
+.filename .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font-size:.74rem;border-radius:999px;padding:.22rem .74rem;flex:none;font-family:var(--mono);background:rgba(244,241,245,.08);color:var(--muted)}
+.pill.hot{background:rgba(255,51,133,.22);color:var(--pink)}
+.split{flex:1;display:grid;grid-template-columns:1.6fr 1fr}
+@media(max-width:920px){.split{grid-template-columns:1fr}}
+.canvas{position:relative;margin:0 0 0 1.3rem;border-radius:28px 0 0 28px;overflow:hidden;background:#131118;min-height:400px}
+@media(max-width:920px){.canvas{margin:0 1.3rem;border-radius:28px;min-height:300px}}
+.canvas svg{display:block;width:100%;height:100%;min-height:400px}
+@media(max-width:920px){.canvas svg{min-height:300px}}
+.maptip{position:absolute;left:50%;transform:translateX(-50%);bottom:.9rem;background:rgba(23,22,27,.78);backdrop-filter:blur(10px);border-radius:999px;padding:.38rem 1rem;font-size:.8rem;white-space:nowrap}
+.panel{padding:1rem 1.3rem 1.3rem;display:flex;flex-direction:column;gap:.85rem}
+.search label{display:block;font-size:.86rem;font-weight:500;margin-bottom:.4rem}
+.search .box{display:flex;align-items:center;gap:.55rem;background:rgba(244,241,245,.06);border:1.5px solid var(--pink);border-radius:18px;padding:.65rem .9rem}
+.search .box svg{width:18px;height:18px;flex:none;color:var(--pink)}
+.search input{flex:1;min-width:0;border:none;background:none;color:var(--text);font-family:var(--sans);font-size:.98rem;outline:none}
+.sugg{margin-top:.35rem;background:#231F2B;border:1px solid rgba(255,51,133,.2);border-radius:16px;overflow:hidden}
+.sugg button{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);font:inherit;font-size:.88rem;padding:.55rem .9rem;cursor:pointer}
+.sugg button:hover,.sugg button.sel{background:rgba(255,51,133,.18)}
+.sugg button small{display:block;color:var(--muted);font-size:.76rem}
+.privacy{font-size:.75rem;color:var(--muted);margin:.5rem 0 0;font-weight:300;line-height:1.45}
+.privacy b{color:var(--teal);font-weight:500}
+.orline{display:flex;align-items:center;gap:.65rem;color:var(--muted);font-size:.78rem}
+.orline::before,.orline::after{content:"";flex:1;height:1px;background:rgba(244,241,245,.12)}
+.coords{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}
+.coords input{width:100%;font-family:var(--mono);font-size:.92rem;padding:.55rem .8rem;border:1px solid rgba(244,241,245,.13);border-radius:14px;background:rgba(244,241,245,.05);color:var(--text)}
+.coords input:focus{border-color:var(--pink);background:rgba(255,51,133,.09)}
+.result{border-radius:30px 20px 26px 18px;padding:.85rem 1.05rem;color:#1A0A12;background:var(--pink);box-shadow:0 14px 34px -14px rgba(255,51,133,.65)}
+.result .n{font-family:var(--display);font-weight:800;font-size:1.5rem;line-height:1.05;letter-spacing:-.03em;display:block}
+.result .l{font-size:.83rem;opacity:.78}
+.btn{font-family:var(--sans);font-size:.9rem;font-weight:500;padding:.7rem 1.2rem;border-radius:999px;border:none;cursor:pointer;background:rgba(244,241,245,.09);color:var(--text)}
+.btn:hover{background:rgba(244,241,245,.16)}
+.btn.primary{background:var(--pink);color:#1A0A12;font-weight:600;width:100%;font-size:.98rem;padding:.8rem 1.2rem}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.ghost{background:none;border:1.5px solid rgba(244,241,245,.2)}
+.btn.xs{font-size:.8rem;padding:.38rem .9rem}
+.minor{display:flex;gap:.45rem;flex-wrap:wrap}
+.minor .btn{flex:1;font-size:.83rem;padding:.5rem .85rem}
+.more{background:none;border:none;color:var(--muted);font:inherit;font-size:.8rem;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:0;align-self:flex-start}
+
+.scrollcue{display:flex;justify-content:center;padding:.2rem 0 1.1rem}
+.scrollcue a{color:var(--muted);font-size:.82rem;text-decoration:none;display:flex;align-items:center;gap:.4rem}
+.scrollcue a:hover{color:var(--pink)}
+
+/* BELOW THE FOLD */
+.pitch{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;padding:2.6rem 0 0}
+@media(max-width:820px){.pitch{grid-template-columns:1fr}}
+.card{background:var(--panel);backdrop-filter:blur(22px);border:1px solid rgba(244,241,245,.1);border-radius:34px 24px 30px 20px;padding:1.4rem}
+.card svg.ill{width:100%;height:92px;margin-bottom:.85rem}
+.card h2{font-family:var(--display);font-weight:800;font-size:1.28rem;letter-spacing:-.025em;margin:0 0 .35rem}
+.card p{margin:0;color:var(--muted);font-size:.91rem;font-weight:300}
+.c1 h2{color:var(--pink)}.c2 h2{color:var(--amber)}.c3 h2{color:var(--teal)}
+.note{background:var(--panel);backdrop-filter:blur(22px);border:1px solid rgba(244,241,245,.1);border-radius:28px;padding:1.15rem 1.4rem;margin:2rem 0 2.4rem;font-size:.9rem;color:var(--muted);font-weight:300}
+.note strong{color:var(--text);font-weight:600}
+.note code{font-family:var(--mono);font-size:.85rem;color:var(--pink)}
+footer{padding:0 0 3rem;font-size:.82rem;color:var(--muted);font-weight:300}
+.hidden{display:none}
+</style>
+</head>
+<body>
+
+<div class="blobs" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+
+<div class="mockbar">
+  <span><b>Maquette v7</b> — l'app occupe le premier écran. Non fonctionnel.</span>
+  <button id="toggle" type="button">Voir l'état actif</button>
+</div>
+
+<!-- ===== L'APP = LE HERO ===== -->
+<div class="app">
+<div class="wrap" style="display:flex;flex-direction:column;flex:1">
+
+  <div class="bar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z" fill="#FF3385"/>
+        <circle cx="20" cy="17.4" r="5.7" fill="#17161B"/>
+      </svg>
+      Geotagor
+    </div>
+    <nav class="main"><a href="#">Supprimer une position</a><a href="#">Voir les métadonnées</a><a href="#">Coordonnées GPS</a></nav>
+  </div>
+
+  <div class="stage">
+
+    <!-- VIDE : c'est la bannière -->
+    <div class="drop" id="state-empty">
+      <button class="bubble" type="button">
+        <svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="22" cy="22" r="8.5"/><circle cx="22" cy="22" r="2" fill="currentColor" stroke="none"/><path d="M22 3v8M22 33v8M3 22h8M33 22h8"/>
+        </svg>
+        <span><b>Déposez une photo</b><small>ou collez-la</small></span>
+      </button>
+      <h1>Changez le lieu <em>d'une photo</em></h1>
+      <p class="sub">Rien n'est envoyé nulle part : tout se passe dans votre navigateur.</p>
+      <p class="formats">JPEG · HEIC · PNG · WebP</p>
+    </div>
+
+    <!-- ACTIF : occupe exactement la même place -->
+    <div class="hidden" id="state-active" style="display:none;flex-direction:column;flex:1">
+      <div class="steps">
+        <div class="step done"><span class="no">✓</span> Photo déposée</div>
+        <div class="step on"><span class="no">2</span> Choisir le lieu</div>
+        <div class="step"><span class="no">3</span> Télécharger</div>
+      </div>
+      <div class="island">
+        <div class="island-hd">
+          <div class="filename">
+            <span class="nm">20240730_162803.jpg</span>
+            <span class="pill">JPEG · 4,2 Mo</span>
+            <span class="pill hot">Actuellement : Montpellier</span>
+          </div>
+          <button class="btn ghost xs" type="button">Changer de photo</button>
+        </div>
+        <div class="split">
+          <div class="canvas">
+            <svg viewBox="0 0 700 430" role="img" aria-label="Carte avec le repère placé sur Avignon">
+              <defs><radialGradient id="halo"><stop offset="0" stop-color="#FF3385" stop-opacity=".55"/><stop offset="1" stop-color="#FF3385" stop-opacity="0"/></radialGradient></defs>
+              <rect width="700" height="430" fill="#131118"/>
+              <g fill="none" stroke="#FF3385" stroke-width="1.4" stroke-opacity=".26">
+                <path d="M150 372c-66-26-86-98-46-148 42-52 136-66 190-30 58 38 62 116 12 158-46 40-108 44-156 20z"/>
+                <path d="M162 346c-48-22-62-76-34-113 31-40 103-49 144-23 44 28 46 86 8 118-35 28-80 35-118 18z"/>
+              </g>
+              <g fill="none" stroke="#4A46C9" stroke-width="1.4" stroke-opacity=".42">
+                <path d="M478 232c-60-24-78-88-44-136 38-50 128-60 180-26 56 36 58 108 10 146-44 34-100 39-146 16z"/>
+                <path d="M490 206c-42-16-54-64-28-97 27-35 92-43 130-21 40 25 42 77 6 104-31 25-71 29-108 14z"/>
+                <path d="M504 182c-27-10-36-42-18-64 17-23 59-28 83-13 26 16 27 50 4 68-20 15-45 18-69 9z"/>
+              </g>
+              <circle cx="200" cy="308" r="5.5" fill="#9E96A6"/>
+              <text x="212" y="312" font-family="Outfit,sans-serif" font-size="12.5" fill="#9E96A6">Position actuelle</text>
+              <circle cx="478" cy="164" r="64" fill="url(#halo)"/>
+              <circle cx="478" cy="164" r="29" fill="none" stroke="#FF3385" stroke-opacity=".5" stroke-width="1.6"/>
+              <path d="M478 137c-9.4 0-17 7.6-17 17 0 12.6 17 27 17 27s17-14.4 17-27c0-9.4-7.6-17-17-17z" fill="#FF3385"/>
+              <circle cx="478" cy="154" r="6" fill="#131118"/>
+              <text x="478" y="204" font-family="Outfit,sans-serif" font-size="14.5" font-weight="600" fill="#FF3385" text-anchor="middle">Avignon</text>
+            </svg>
+            <div class="maptip">Cliquez sur la carte, ou faites glisser le repère</div>
+          </div>
+          <div class="panel">
+            <div class="search">
+              <label for="addr">Où cette photo a-t-elle été prise&nbsp;?</label>
+              <div class="box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
+                <input id="addr" type="text" value="Avignon" placeholder="Commune ou lieu">
+              </div>
+              <div class="sugg" role="listbox">
+                <button type="button" class="sel" role="option" aria-selected="true">Avignon <small>84000 · Vaucluse</small></button>
+                <button type="button" role="option" aria-selected="false">Avignonet-Lauragais <small>31290 · Haute-Garonne</small></button>
+              </div>
+              <p class="privacy">Recherche exécutée dans votre navigateur. <b>Aucune requête ne sort du site.</b></p>
+            </div>
+            <div class="orline">ou saisissez les coordonnées</div>
+            <div class="coords">
+              <input type="text" value="43.9493" aria-label="Latitude">
+              <input type="text" value="4.8055" aria-label="Longitude">
+            </div>
+            <div class="result">
+              <span class="n">Avignon, Vaucluse</span>
+              <span class="l">à 412 km de la position d'origine</span>
+            </div>
+            <button class="btn primary" type="button">Télécharger la photo</button>
+            <div class="minor">
+              <button class="btn ghost" type="button">Effacer la position</button>
+              <button class="btn ghost" type="button">Tout effacer</button>
+            </div>
+            <button class="more" type="button">Voir les autres informations</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="scrollcue"><a href="#en-savoir-plus">Comment ça marche, et pourquoi c'est privé ↓</a></div>
+</div>
+</div>
+
+<!-- ===== SOUS LA LIGNE DE FLOTTAISON ===== -->
+<div class="wrap" id="en-savoir-plus">
+  <div class="pitch">
+    <div class="card c1">
+      <svg class="ill" viewBox="0 0 200 92" fill="none" aria-hidden="true">
+        <rect x="14" y="18" width="72" height="56" rx="14" fill="#FF3385" opacity=".22"/>
+        <path d="M50 32c-7 0-13 6-13 13 0 10 13 21 13 21s13-11 13-21c0-7-6-13-13-13z" fill="#FF3385"/>
+        <circle cx="50" cy="45" r="4.6" fill="#1F1D25"/>
+        <path d="M96 46h30" stroke="#9E96A6" stroke-width="2" stroke-dasharray="3 5" stroke-linecap="round"/>
+        <rect x="132" y="18" width="54" height="56" rx="14" fill="#FF3385" opacity=".12"/>
+        <path d="M148 38l22 22M170 38l-22 22" stroke="#FF3385" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+      <h2>Simple</h2>
+      <p>Déposez, choisissez un lieu, téléchargez. Aucun réglage à comprendre avant de commencer.</p>
+    </div>
+    <div class="card c2">
+      <svg class="ill" viewBox="0 0 200 92" fill="none" aria-hidden="true">
+        <g stroke="#FFB020" stroke-width="1.8" fill="none" opacity=".5">
+          <path d="M46 80c-24-10-32-38-16-58 16-20 52-25 72-11 22 15 23 44 4 58-18 14-40 17-60 11z"/>
+          <path d="M56 66c-14-6-19-23-9-35 10-12 32-15 44-7 13 9 14 27 2 35-11 9-24 10-37 7z"/>
+        </g>
+        <path d="M100 24c-9.4 0-17 7.6-17 17 0 12.6 17 27 17 27s17-14.4 17-27c0-9.4-7.6-17-17-17z" fill="#FFB020"/>
+        <circle cx="100" cy="41" r="6" fill="#1F1D25"/>
+      </svg>
+      <h2>Précis</h2>
+      <p>Cherchez une commune, puis affinez au clic. Décimal, DMS ou collage Google Maps.</p>
+    </div>
+    <div class="card c3">
+      <svg class="ill" viewBox="0 0 200 92" fill="none" aria-hidden="true">
+        <path d="M62 52c-10 0-18-8-18-18s8-18 18-18c3-9 12-15 22-15 13 0 24 10 25 23 10 1 17 9 17 19 0 11-9 20-20 20H62z" fill="#00D3C5" opacity=".2"/>
+        <circle cx="100" cy="50" r="26" fill="none" stroke="#00D3C5" stroke-width="3"/>
+        <path d="M82 32l36 36" stroke="#00D3C5" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+      <h2>Privé</h2>
+      <p>Votre photo ne quitte jamais le navigateur. Même la recherche de lieu tourne en local.</p>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Frontière de l'îlot.</strong> Le bloc outil du premier écran est hydraté (<code>client:idle</code>).
+    Le <code>h1</code> vit à l'intérieur de la zone de dépôt : il porte le mot-clé et reste présent dans le HTML servi.
+    Tout ce qui suit est statique.
+  </div>
+
+  <footer>L'app occupe le premier écran · le contenu commence sous la ligne de flottaison · rose #FF3385 relevé sur squoosh.app.</footer>
+</div>
+
+<script>
+const t=document.getElementById('toggle'),a=document.getElementById('state-active'),e=document.getElementById('state-empty');
+let active=false;
+t.addEventListener('click',()=>{
+  active=!active;
+  a.style.display=active?'flex':'none';
+  e.style.display=active?'none':'flex';
+  t.textContent=active?"Voir l'état vide":"Voir l'état actif";
+});
+</script>
+</body>
+</html>
