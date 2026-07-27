@@ -73,6 +73,21 @@ export function parseJpegSegments(bytes: Uint8Array): Segment[] {
   return segments;
 }
 
+const ICC_SIGNATURE = [0x49, 0x43, 0x43, 0x5f, 0x50, 0x52, 0x4f, 0x46, 0x49, 0x4c, 0x45, 0x00]; // "ICC_PROFILE\0"
+
+/**
+ * True if this segment carries the colour profile.
+ *
+ * A large ICC profile is split across several consecutive APP2 segments, all
+ * carrying the same signature; recognising them one by one keeps them all
+ * without having to reassemble anything.
+ */
+function estProfilIcc(bytes: Uint8Array, seg: Segment): boolean {
+  if (seg.marker !== 0xe2) return false;
+  if (seg.dataStart + ICC_SIGNATURE.length > seg.dataEnd) return false;
+  return ICC_SIGNATURE.every((b, k) => bytes[seg.dataStart + k] === b);
+}
+
 /** Finds the APP1 segment carrying the EXIF block, if there is one. */
 export function findExifSegment(bytes: Uint8Array, segments: Segment[]): Segment | null {
   for (const seg of segments) {
@@ -177,9 +192,19 @@ export const conteneurJpeg: Conteneur = {
     return { bytes, changed: [[seg.start, Math.max(bytes.length, b.length)]] };
   },
 
+  /**
+   * Removes descriptive information and keeps the colour profile.
+   *
+   * Losing the profile visibly shifts colours in any colour-managed
+   * application: that would degrade the image, when the user asked to remove
+   * information. `png.ts` and `riff.ts` already kept it; JPEG was the only
+   * one out of step.
+   */
   toutEffacer(b): Pose {
     const segments = parseJpegSegments(b);
-    const drop = segments.filter((s) => (s.marker >= 0xe0 && s.marker <= 0xef) || s.marker === 0xfe);
+    const drop = segments.filter(
+      (s) => ((s.marker >= 0xe0 && s.marker <= 0xef) || s.marker === 0xfe) && !estProfilIcc(b, s),
+    );
     if (drop.length === 0) return { bytes: b, changed: [] };
     const keep: Array<[number, number]> = [];
     let cursor = 0;

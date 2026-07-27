@@ -193,6 +193,27 @@ if (existsSync(headers)) {
   }
 }
 
+// 6. The deployment guard rail is in place
+
+/*
+ * A build once promoted to production from a working branch, because a
+ * dashboard setting asked for it and nothing in the repository objected.
+ * `scripts/deploy.mjs` puts the decision back in the repository; this check
+ * verifies it has not been taken out again since. A guard rail you can delete
+ * with nothing protesting is not a guard rail.
+ */
+{
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+  if (!/scripts\/deploy\.mjs/.test(pkg.scripts?.deploy ?? '')) {
+    echecs.push('package.json : le script « deploy » ne passe plus par scripts/deploy.mjs');
+  }
+  if (!existsSync('scripts/deploy.mjs')) {
+    echecs.push('scripts/deploy.mjs est absent : plus rien ne protège de la promotion en production');
+  }
+  const branche = (process.env.WORKERS_CI_BRANCH ?? '').trim();
+  if (branche) infos.push(`branche construite : « ${branche} »`);
+}
+
 // Output
 
 for (const i of infos) console.log(`  ${i}`);
