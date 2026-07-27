@@ -1,0 +1,41 @@
+# Continuous integration.
+#
+# The Cloudflare build only runs `npm run build`: it never replays the tests,
+# and its image has no ExifTool. Without this workflow nothing automatic checks
+# the format by operation matrix in the README, when the project's rule is that
+# a cell only turns to yes once its test is green. It is also the only guard for
+# outside contributions, which get no Cloudflare preview.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # ExifTool is the independent oracle: an engine that reads itself back
+      # proves nothing. It is never used by the application itself.
+      - name: Installer ExifTool
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libimage-exiftool-perl
+          exiftool -ver
+
+      - run: npm ci
+
+      # The end-to-end run drives a real Chromium.
+      - name: Installer Chromium
+        run: npx playwright install chromium --with-deps
+
+      # fixtures -> engine -> build (blocking checks) -> end to end.
+      - run: npm run test:all
