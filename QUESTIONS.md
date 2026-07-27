@@ -368,6 +368,26 @@ recherche INPI + EUIPO, et vérification du statut premium des domaines chez un 
 
 **Retenu provisoirement :** `geotagor.fr` principal + `geotagor.com` défensif en 301.
 
+**TRANCHÉ le 27/07/2026 par Mathieu : le nom est « Geotager ».** Le dépôt et le Worker portaient
+déjà ce nom, mais la prose, le titre de la page, le balisage et le domaine disaient « Geotagor » —
+173 occurrences contre 30. Le code, le contenu et la configuration sont alignés sur **Geotager** et
+**geotager.fr**, y compris l'URL canonique, le sitemap, le balisage `SoftwareApplication`, la liste
+d'hôtes autorisés du contrôle de build et les noms des fichiers rendus à l'utilisateur.
+
+`PLAN-GATE1.md` et `docs/gate1/` **ne sont pas réécrits** : ce sont des pièces datées, et corriger
+rétroactivement un dossier de preuves reviendrait à le falsifier. Ils continuent donc de dire
+« Geotagor », ce qui est exact pour la date qu'ils portent. Même raison pour le nom du fichier de
+maquette.
+
+Le domaine retenu n'est **ni `.fr` ni `.com` mais `geotager.app`** : il est déjà acheté, sa zone
+existe, et il est rattaché au Worker en production (constaté au tableau de bord le 27/07/2026, et
+`https://geotager.app/` répond 200). L'URL canonique, le sitemap, le balisage et la liste d'hôtes
+autorisés du contrôle de build pointent donc sur `geotager.app`.
+
+Ce qui reste ouvert : la recherche d'antériorité INPI et EUIPO, et l'opportunité d'un domaine
+défensif. La similarité phonétique avec « geotagger », terme générique, est plus forte avec cette
+graphie qu'avec la précédente : c'est le prix de la lisibilité, et il est assumé.
+
 **Bloque :** **oui** pour l'achat et le dépôt, non pour le développement.
 
 ---
@@ -886,3 +906,53 @@ conteneurs.
 silencieux que tout le projet cherche à empêcher.
 
 **Bloque :** non.
+
+---
+
+## [V1] Q-038 — Les branches de travail ne produisaient aucune prévisualisation
+
+**Contexte :** le §7.7 bis du plan fait reposer le Gate 2 sur l'alias de prévisualisation de branche,
+et note *« Configuration confirmée le 27/07/2026 — branche de production `main`, builds de branches
+non-production activés »*. Sur la première PR de la V1, aucune des deux URL de prévisualisation n'est
+publiée : le commentaire annonce « Deployment successful! » et pointe vers le chemin `production`.
+
+Le tableau de bord montre que **Branch control est correct** — production `main`, builds de branches
+non-production activés — et que le sous-domaine `mathieu-soysal.workers.dev` existe, avec production
+et prévisualisations toutes deux activées et publiques. Les deux suspects évidents sont donc hors de
+cause. Le défaut est dans **Build configuration** :
+
+```
+Deploy command:   npx wrangler deploy
+Version command:  npx wrangler deploy      ← devrait être « npx wrangler versions upload »
+```
+
+La « Version command » est celle qu'emploient les branches non-production. Doc verbatim : *« The
+non-production branch deploy command … defaults to `npx wrangler versions upload`, producing a
+preview URL. »* Remplacée par `npx wrangler deploy`, elle demande une promotion en production au lieu
+d'un simple téléversement de version — donc aucune prévisualisation n'est publiée, et le Gate 2
+n'est pas exécutable.
+
+**Ce qui n'a PAS eu lieu, et qu'il faut dire :** la production n'a pas été écrasée. Vérifié en
+comparant les empreintes des fichiers servis — `geotager.app` sert une build antérieure à cette PR,
+avec l'ancien tableau à trois colonnes. Une première lecture de cet incident concluait que du code
+non relu était en ligne ; c'était faux, et c'est retiré. Pourquoi la promotion n'a pas abouti malgré
+la commande n'est pas établi depuis le dépôt, et n'est pas supposé ici.
+
+**Options :**
+- **A.** Rétablir la « Version command » à `npx wrangler versions upload`. Réglage de tableau de
+  bord : ni Wrangler ni le dépôt ne peuvent le porter, et l'interface d'administration disponible ne
+  l'expose pas non plus.
+- **B.** `npx wrangler versions deploy`. **Écarté, et c'est un piège** : cette commande *promeut* une
+  version déjà téléversée vers la production. Elle produirait exactement l'accident que le §7.7 bis
+  décrit, au lieu de l'empêcher.
+- **C.** Laisser en l'état. Écarté : sans prévisualisation, rien de ce que le §7.7 fait reposer
+  dessus n'est vérifiable avant la mise en production.
+
+**Retenu provisoirement :** **A**.
+
+Ce que l'épisode apprend, au-delà du réglage : le §7.7 bis notait déjà *« rien dans le dépôt ne
+protège de ce réglage »*, et c'est vérifié — une confirmation datée dit ce qui a été vu un jour, pas
+ce qui tient. Un garde-fou dans le dépôt, qui échouerait si une build promouvait en production depuis
+une branche autre que `main`, a été proposé et n'a pas été retenu dans ce lot.
+
+**Bloque :** **oui** pour le Gate 2, non pour la revue de la PR.

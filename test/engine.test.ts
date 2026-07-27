@@ -32,7 +32,7 @@ import { createHash } from 'node:crypto';
 // cherchait le corpus à la racine du dépôt et échouait par une exception non
 // rattrapée, ce qui donnait l'impression que le moteur était en cause.
 const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
-const tmp = mkdtempSync(join(tmpdir(), 'geotagor-'));
+const tmp = mkdtempSync(join(tmpdir(), 'geotager-'));
 
 let passed = 0;
 let failed = 0;
