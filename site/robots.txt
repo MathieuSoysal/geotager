@@ -1,9 +1,0 @@
-# Geotagor — phase d'amorçage.
-# Rien n'est publié : on interdit tout crawl le temps que le site existe.
-#
-# À REMPLACER AU DÉMARRAGE DE LA V0 par un robots.txt permissif avec le
-# Sitemap. Le plan (§7.2) l'exige : un « Disallow: / » empêcherait Google de
-# lire le moindre noindex, ce qui est exactement l'inverse du but recherché
-# une fois le site en ligne.
-User-agent: *
-Disallow: /

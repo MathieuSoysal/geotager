@@ -7,11 +7,10 @@
   "name": "geotager",
   "compatibility_date": "2026-07-27",
 
-  // Bootstrap: the directory currently points at "./site", which is committed,
-  // so the deployment works with no build step. Once Astro produces "./dist"
-  // this line becomes "./dist" and "site/" disappears.
+  // Astro produces "./dist". The dashboard build command must be
+  // "npm run build", which chains astro build and then the blocking checks.
   "assets": {
-    "directory": "./site"
+    "directory": "./dist"
   },
 
   // Removes the geotager.<subdomain>.workers.dev host. Without it the site
