@@ -229,7 +229,7 @@ const CHEVAUCHEMENT = () =>
     "Ce fichier a une structure inhabituelle : le modifier risquerait d'abîmer d'autres informations. Nous préférons ne pas y toucher.",
   );
 
-const AJOUT_IMPOSSIBLE = () =>
+export const AJOUT_IMPOSSIBLE = () =>
   new ExifError(
     'AJOUT_IMPOSSIBLE',
     "Ce fichier ne porte pas de lieu, et nous ne savons pas encore lui en ajouter un sans risquer de l'abîmer.",

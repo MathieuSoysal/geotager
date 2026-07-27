@@ -32,6 +32,20 @@ export function lireEntierBE(b: Uint8Array, off: number, taille: number): number
   return v;
 }
 
+/**
+ * Symétrique de `lireEntierBE` : écrit sur la largeur exacte que la table des
+ * emplacements déclare pour ses champs, sans jamais la supposer.
+ *
+ * Division plutôt que décalage, pour la même raison que ci-dessus.
+ */
+export function ecrireEntierBE(b: Uint8Array, off: number, taille: number, v: number): void {
+  let reste = v;
+  for (let i = taille - 1; i >= 0; i--) {
+    b[off + i] = reste % 256;
+    reste = Math.floor(reste / 256);
+  }
+}
+
 export function writeU16(b: Uint8Array, off: number, v: number, e: Endian): void {
   if (e === 'LE') {
     b[off] = v & 0xff;

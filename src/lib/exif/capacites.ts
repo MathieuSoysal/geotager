@@ -58,10 +58,12 @@ export const MATRICE: LigneMatrice[] = [
     formats: ['heic', 'avif'],
     libelle: 'HEIC, AVIF',
     mention: 'iPhone',
-    // « Ajouter » reste fermé : c'est la seule opération qui ferait grandir le
-    // bloc, donc bouger la table des emplacements. Tout le reste est à longueur
-    // strictement constante et ne déplace pas un octet.
-    capacites: { lire: true, corriger: true, ajouter: false, effacer: true, effacerTout: false },
+    // « Ajouter » n'agrandit rien sur place : le nouveau bloc va dans une boîte
+    // ajoutée en fin de fichier, et la seule entrée de la table des emplacements
+    // qui le concerne est repointée. Le fichier grandit, aucun octet existant ne
+    // bouge. Reste fermé fichier par fichier quand il n'y a aucun emplacement à
+    // repointer — le conteneur le dit avant l'action.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
   {
     formats: ['png'],
