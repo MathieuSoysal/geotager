@@ -75,6 +75,13 @@ dérivées : à honorer dans le pied de page et dans `public/geo/LICENSE`.
 | `@vite-pwa/astro` 1.2.0 | MIT, mais sa peerDep plafonne à `astro ^5` alors qu'Astro est en 7.1.3, sans version plus récente publiée. Service worker écrit à la main |
 | `fst` (Rust) | Écarté sur le fond, pas sur la licence : un automate de préfixes ne fait pas de recherche par sous-chaîne (`PLAN-GATE1.md` §3) |
 
+## Hébergement
+
+Cloudflare Pages, en intégration Git. Aucun code Cloudflare n'entre dans le produit : le rôle de
+l'hébergeur est de servir des fichiers statiques, rien de plus. Trois fonctionnalités qui injectent
+du script ou modifient le HTML sont **actives par défaut** et doivent être coupées — voir
+`QUESTIONS.md`, entrée Q-020. Le contrôle post-déploiement qui le vérifie fait partie des gates.
+
 ## Inspiration
 
 La valeur `#FF3385` de la couleur principale est relevée sur la `theme-color` de

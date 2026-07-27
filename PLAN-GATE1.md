@@ -16,7 +16,9 @@ peut être factuellement le meilleur plutôt qu'« encore un outil ».
 4 de conception, 5 de contradiction. Tout chiffre ci-dessous est marqué **MESURÉ** (relevé),
 **DOCUMENTÉ** (la source l'affirme) ou **ESTIMÉ** (calculé). Rapports complets en annexe : [`docs/gate1/`](docs/gate1/).
 
-**Ce plan corrige le cahier des charges sur onze points.** Chacun est signalé par ⚠️ et ouvre une
+Une vérification complémentaire (3 agents) a couvert l'hébergement après la décision d'utiliser l'intégration Git de Cloudflare Pages ; sa passe adverse a été bloquée par un classifieur, ce qui est signalé au §7.
+
+**Ce plan corrige le cahier des charges sur quatorze points.** Chacun est signalé par ⚠️ et ouvre une
 entrée `QUESTIONS.md`. Aucun n'a été tranché en silence.
 
 ---
@@ -515,7 +517,173 @@ un actif sort non compressé ou dépasse son budget).
 
 ---
 
-## 7. Corpus de test — sources publiques uniquement
+## 7. Déploiement — Cloudflare Pages en intégration Git
+
+Décision de Mathieu : le dépôt GitHub est connecté à Cloudflare Pages, build et déploiement
+automatiques à chaque push. Conséquences vérifiées sur la documentation officielle.
+
+⚠️ **Cette section n'a pas subi de passe adverse** — l'agent contradicteur a été bloqué par un
+classifieur de sécurité. Les trois points marqués « à tester » ci-dessous sont donc à trancher sur
+pièces au premier déploiement, pas à croire sur parole.
+
+### 7.1 Ce que Cloudflare injecte tout seul — trois interrupteurs actifs par défaut
+
+C'est le point le plus grave de la section : **le produit promet zéro requête tierce et zéro
+télémétrie, et la configuration par défaut d'une zone Cloudflare gratuite viole les deux.**
+
+| Fonctionnalité | Par défaut | Ce qu'elle fait |
+|---|---|---|
+| **Web Analytics / RUM** | **ACTIVE** sur les domaines Free depuis le 15 octobre 2025 | Injecte `<script src="https://static.cloudflareinsights.com/beacon.min.js">` — **requête tierce ET télémétrie** |
+| **Speed Brain** | **ACTIVE** en Free | Ajoute un en-tête `Speculation-Rules` qui fait préfetcher des pages |
+| **Email Address Obfuscation** | **ACTIVE dès l'inscription** | Réécrit les `mailto:` et injecte `email-decode.min.js` |
+| Rocket Loader | à vérifier (`GET /zones/$ID/settings/rocket_loader`) | Réécrit les `<script>` et injecte son loader |
+| Bot Fight Mode → JS Detections | à vérifier (`GET /zones/$ID/bot_management`) | Injecte un script `/cdn-cgi/challenge-platform/…` **et dépose un cookie `cf_clearance`** |
+| Page Shield | opt-in | Ajoute un `content-security-policy-report-only` sur un échantillon de réponses |
+
+Auto Minify (déprécié le 5 août 2024) et Mirage (déprécié le 15 septembre 2025) n'existent plus.
+Early Hints est actif sur Pages mais **inoffensif** : il génère ses `Link` depuis nos propres
+`<link>`, donc rien de tiers.
+
+**Garantie retenue : une Configuration Rule unique, expression `true`**, qui force *Disable RUM* +
+*Disable Zaraz* + *Email Obfuscation Off* + *Rocket Loader Off* + *Browser Integrity Check Off*.
+Une règle survit à un changement de défaut côté Cloudflare ; un interrupteur coché une fois, non.
+
+**Cookies — réponse franche.** Aucun cookie Cloudflare n'est inconditionnel : `__cf_bm` exige Bot
+Management ou Bot Fight Mode, `cf_clearance` exige les JS Detections, `__cfruid` exige le Rate
+Limiting. Bot Fight Mode coupé + aucune Rate Limiting Rule ⇒ **zéro cookie, et la bannière de
+consentement est légitimement inutile**. Une réserve doit néanmoins figurer dans la page vie privée :
+la protection DDoS peut servir un challenge en cas d'attaque, et poser alors un `cf_clearance`.
+Formulation retenue : « aucun cookie déposé en fonctionnement normal ; un cookie technique de
+sécurité peut être posé par notre hébergeur uniquement pour repousser une attaque ». **Mieux vaut
+dire cela que prétendre l'impossible** — c'est exactement le genre de détail qu'un lecteur méfiant
+vérifie.
+
+### 7.2 L'indexation de `pages.dev` — le risque SEO créé par l'intégration Git
+
+Les déploiements de **prévisualisation** reçoivent `X-Robots-Tag: noindex` automatiquement, c'est
+documenté. Mais **`geotagor.pages.dev` (production) est indexable par défaut** : le site entier
+existerait en double sur un sous-domaine, sur un projet dont le seul canal est le SEO.
+
+Le piège apparent — « le même `_headers` est déployé partout, un `noindex` frapperait aussi la
+production » — **n'en est pas un** : `_headers` accepte des motifs scopés par hôte, avec des
+placeholders dans le nom d'hôte. Cloudflare documente exactement ce cas :
+
+```
+https://:project.pages.dev/*
+	X-Robots-Tag: noindex
+
+https://:version.:project.pages.dev/*
+	X-Robots-Tag: noindex
+```
+
+La première règle couvre le domaine canonique du projet, la seconde les hashes et les alias de
+branche. Aucune ne touche `geotagor.fr`.
+
+⚠️ **Corollaire à ne jamais enfreindre** : les règles `_headers` **se cumulent**, et *« if a header
+is applied twice, the values are joined with a comma separator »*. Un `X-Robots-Tag` sur un motif
+relatif produirait `index, follow, noindex` sur `pages.dev` — comportement indéfini. **Contrôle de
+build bloquant** : échouer si un `X-Robots-Tag` apparaît sous un motif ne commençant pas par
+`https://`. C'est le garde-fou contre la régression qui désindexerait le site du jour au lendemain.
+
+Défense en profondeur : une **Bulk Redirect 301** de `geotagor.pages.dev` vers `geotagor.fr`
+(*Include subdomains* **désactivé**, sinon les prévisualisations sont redirigées et deviennent
+inutilisables). Les Bulk Redirects s'exécutent avant le projet Pages, donc le 301 gagne et le
+`noindex` reste le filet si la règle saute.
+
+**`robots.txt` doit rester permissif.** Un `Disallow: /` empêcherait Google de lire le `noindex` —
+et le même fichier est servi sur tous les hôtes de toute façon.
+
+### 7.3 Redirections
+
+`_redirects` **ne sait pas faire de redirection au niveau du domaine** (la doc le liste
+explicitement en ❌). Il matche un chemin, pas un hôte.
+
+| Depuis | Vers | Mécanisme | Code |
+|---|---|---|---|
+| `geotagor.pages.dev/*` | `geotagor.fr` | Bulk Redirect (compte) | 301 |
+| `www.geotagor.fr/*` | `geotagor.fr` | Single Redirect (zone) | 301 |
+| `geotagor.com/*`, `www.geotagor.com/*` | `geotagor.fr` | Single Redirect (zone `.com`) | 301 |
+| chemins internes | — | `public/_redirects` | **301 écrit à la main** (le défaut est 302) |
+
+Prérequis souvent oublié : `geotagor.com` n'a aucune origine, il faut un enregistrement DNS
+**proxifié** (`A 192.0.2.0` ou `AAAA 100::`, adresses réservées pour les montages sans origine) pour
+que Cloudflare intercepte. Et le domaine **apex** `geotagor.fr` doit être géré par Cloudflare DNS
+(CNAME flattening). Toujours ajouter le domaine dans l'interface Pages **avant** de toucher au DNS,
+sinon 522.
+
+### 7.4 La build tourne chez Cloudflare — quatre conséquences
+
+**a. Aucune toolchain Rust dans l'image de build.** L'image v3 (Ubuntu 22.04, Node 22.16.0, Python,
+Go, Ruby, Bun) ne contient ni `cargo`, ni `rustup`, ni `wasm-pack`, ni `wasm-opt` — Cloudflare a même
+un ticket de documentation ouvert sur le sujet. **Décision : si le spike valide la voie Rust, le
+`.wasm` est compilé dans GitHub Actions et l'artefact est committé.** Ce n'est pas un pis-aller :
+un binaire committé est diffable, et la chaîne de compilation est publique — donc *reproductible par
+un tiers*, ce qui sert directement l'argument du produit.
+
+**b. Le snapshot de communes devient obligatoire, pas recommandé.** L'accès réseau sortant de
+l'environnement de build **n'est documenté nulle part**. Un script qui appellerait `geo.api.gouv.fr`
+pendant la build rendrait chaque déploiement dépendant d'une API tierce, et deux builds du même
+commit pourraient produire deux sites différents — incompatible avec « le dépôt est public,
+vérifiez vous-même ». Le snapshot committé est l'unique source. Sa mise à jour se fait par un job
+GitHub Actions planifié qui ouvre une **pull request**, donc revue et diffable.
+
+**c. Pages ne lit que le code de sortie de la commande de build.** Verbatim : *« An exit code of 0
+will cause the Pages build to be marked as successful and assets will be uploaded regardless of if
+error logs are written to standard error. »* Donc un `|| true`, un pipe sans `pipefail`, ou un script
+Node qui attrape l'exception sans poser `exitCode = 1` **met un site cassé en production**. Les
+contrôles bloquants doivent sortir en non-zéro, chaînés en `&&`.
+
+**d. Ne pas committer de `wrangler.toml`.** Il ne peut porter ni la commande de build ni le
+répertoire racine, et il rend les champs correspondants **non éditables** dans le tableau de bord.
+
+Limites du plan gratuit : **500 builds/mois**, **1 build à la fois**, **20 min** par build,
+**20 000 fichiers**, **25 MiB** par fichier. Node s'épingle par `.nvmrc` — le champ `engines` de
+`package.json` est explicitement **non supporté** en v3.
+
+Note de workflow : **les PR issues de forks n'obtiennent pas de prévisualisation.** Sur un dépôt
+public, une CI GitHub Actions qui rejoue `npm run build` et les contrôles bloquants n'est donc pas un
+luxe, c'est le seul garde-fou pour les contributions externes.
+
+### 7.5 Compression de l'index — la stratégie se confirme, avec une correction de nommage
+
+Deux constats du Gate 1 semblaient se contredire : « `application/octet-stream` n'est pas compressé
+par Cloudflare » et « on pré-compresse l'index en brotli ». **Ils se réconcilient exactement** : nous
+n'attendons aucune compression du CDN, nous expédions des octets **déjà** compressés (338 010 o) et
+nous les décompressons nous-mêmes par `DecompressionStream`. Un type non compressible est donc
+précisément ce que nous voulons.
+
+⚠️ **Mais il ne faut pas nommer ces fichiers `.br`.** Si quoi que ce soit déduisait
+`Content-Encoding: br` de l'extension, le navigateur décompresserait **notre** couche et
+`DecompressionStream` recevrait des données déjà claires. Retenu : extension **`.bin`**,
+`Content-Type: application/octet-stream`, `Cache-Control: …, immutable, no-transform`, et **jamais**
+de `Content-Encoding` posé à la main. Ici `no-transform` ne coûte rien — contrairement au cas
+généralisé, qui reste proscrit sur `/*`.
+
+À tester au premier déploiement, c'est décisif et non documenté : cinq `curl` avec
+`Accept-Encoding` valant `identity`, `gzip`, `br`, `zstd` puis les trois, et comparaison des
+`sha256sum` au fichier de `dist/`. **Les cinq doivent être identiques.**
+
+### 7.6 En-têtes
+
+Pages envoie déjà `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+strict-origin-when-cross-origin` et `Access-Control-Allow-Origin: *`. À notre charge : durcir le
+`Referrer-Policy` en `no-referrer`, retirer le `Access-Control-Allow-Origin`, et poser une CSP.
+
+Deux directives à ne pas rater : **`script-src 'wasm-unsafe-eval'`** (sans elle, le WebAssembly est
+bloqué — et surtout pas `'unsafe-eval'`, plus large) et **`worker-src`** explicite dès lors que
+`default-src 'none'`. Et **`build: { inlineStylesheets: 'never' }`** dans la config Astro : le défaut
+`'auto'` inline les petites feuilles, qu'une CSP sans `'unsafe-inline'` bloquerait.
+
+### 7.7 Le gain, réel : Gate 2 devient exécutable avant la mise en production
+
+Chaque branche obtient une URL de prévisualisation. La preuve du zéro-tiers, Lighthouse mobile, le
+contrôle de compression octet-pour-octet et le rapport axe-core peuvent donc tourner sur une **URL
+réelle avant tout passage en production** — au lieu d'être repoussés après la mise en ligne, ce que
+le Gate 2 tel qu'écrit supposait implicitement.
+
+---
+
+## 8. Corpus de test — sources publiques uniquement
 
 Conformément à la réponse de Mathieu : aucun fichier personnel. Base **raw.pixls.us** (CC0,
 non retouché, garanti), complétée par les corpus de test des bibliothèques EXIF et par Wikimedia.
@@ -531,7 +699,7 @@ de fichier de test, plutôt que de l'autoriser sans preuve.
 
 ---
 
-## 8. Ordre d'exécution — phasé
+## 9. Ordre d'exécution — phasé
 
 **V0 — 4 à 6 semaines. JPEG seul.** Suppression et correction par P1, une page, aucune carte, aucun
 index, aucun WASM. C'est le cas d'usage n°1, c'est le chemin où `little_exif` compte **0 panic** et
@@ -553,7 +721,7 @@ Séquence immédiate, dans cet ordre :
 
 ---
 
-## 9. Vérification — comment on saura que ça marche
+## 10. Vérification — comment on saura que ça marche
 
 | Contrôle | Commande |
 |---|---|
@@ -568,11 +736,23 @@ Séquence immédiate, dans cet ordre :
 | Vidéo | `exiftool -a "-gps*" -ee video.mp4` (`-ee` pour les pistes temporisées) |
 | Préservation | ICC, `Orientation`, vignette, MakerNote : empreintes identiques avant/après |
 | a11y | axe-core : zéro violation critique ou sérieuse |
-| Perf | Lighthouse mobile, 4 scores, sur le domaine de production |
+| Perf | Lighthouse mobile, 4 scores |
+
+Tout ce qui précède tourne désormais sur **l'URL de prévisualisation de la branche**, avant la mise
+en production. S'y ajoutent quatre contrôles propres à l'hébergement, à rejouer après chaque
+déploiement :
+
+| Contrôle | Commande |
+|---|---|
+| **Rien d'injecté** | `curl -s <url> \| grep -nEi 'cloudflareinsights\|beacon\.min\.js\|/cdn-cgi/\|rocket-\?loader\|email-decode\|challenge-platform\|zaraz'` → doit être **vide** |
+| **Aucun cookie** | `curl -sD - -o /dev/null <url> \| grep -i '^set-cookie'` → **vide** |
+| **Speed Brain coupé** | `curl -sI <url> \| grep -i 'speculation-rules'` → **vide** |
+| **Index intact à l'octet près** | 5 `curl` (`Accept-Encoding` : `identity`, `gzip`, `br`, `zstd`, puis les trois) + `sha256sum`, comparés au fichier de `dist/` → **les cinq identiques** |
+| **Indexation** | `curl -I https://geotagor.pages.dev/` → 301 ; `curl -I https://<branche>.geotagor.pages.dev/` → `x-robots-tag: noindex` ; `curl -I https://geotagor.fr/` → **ni l'un ni l'autre** |
 
 ---
 
-## 10. Questions fermées pour Mathieu
+## 11. Questions fermées pour Mathieu
 
 Aucune n'a été tranchée à sa place ; le comportement le plus conservateur est indiqué.
 

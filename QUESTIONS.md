@@ -369,3 +369,119 @@ recherche INPI + EUIPO, et vérification du statut premium des domaines chez un 
 **Retenu provisoirement :** `geotagor.fr` principal + `geotagor.com` défensif en 301.
 
 **Bloque :** **oui** pour l'achat et le dépôt, non pour le développement.
+
+---
+
+## [GATE1] Q-018 — Le WASM ne peut pas être compilé par Cloudflare
+
+**Contexte :** l'image de build Pages v3 (Ubuntu 22.04, Node 22.16.0, Python, Go, Ruby, Bun) **ne
+contient ni `cargo`, ni `rustup`, ni `wasm-pack`, ni `wasm-opt`**. Le seul langage compilé jamais
+listé était Swift, et il a disparu en v2. Cloudflare a un ticket de documentation ouvert sur
+« document Rust and Swift installation process », ce qui confirme que le sujet est non documenté et
+non supporté. Si le spike valide la voie Rust, il faut donc produire le `.wasm` ailleurs.
+
+**Options :**
+- **A.** Compiler dans **GitHub Actions** (rustup + wasm-pack + wasm-opt s'y installent sans
+  ambiguïté) et **committer l'artefact `.wasm`**. La build Pages ne fait que le copier. Bénéfice
+  aligné sur la promesse du produit : le binaire est diffable et la chaîne de compilation est
+  publique, donc **reproductible par un tiers**.
+- **B.** Installer rustup dans la commande de build. Rapporté comme fonctionnel par la communauté,
+  **non documenté** par Cloudflare, lent (plafond de 20 min par build) et dépendant d'un accès
+  réseau lui aussi non documenté.
+- **C.** Renoncer à la voie Rust indépendamment du résultat du spike.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non — la décision ne se matérialise que si le spike passe.
+
+---
+
+## [GATE1] Q-019 — `geotagor.pages.dev` est indexable par défaut
+
+**Contexte :** les déploiements de **prévisualisation** reçoivent `X-Robots-Tag: noindex`
+automatiquement, c'est documenté. **Le déploiement de production sur `<projet>.pages.dev`, non.**
+Le site entier existerait donc en double sur un sous-domaine, contenu strictement identique — sur un
+projet dont le seul canal d'acquisition est le SEO. Un `robots.txt` avec `Disallow: /` ne résout
+rien : Google ne lirait alors plus le `noindex`, et le même fichier est servi sur tous les hôtes.
+
+**Options :**
+- **A.** Deux règles `_headers` **scopées par hôte** (`https://:project.pages.dev/*` et
+  `https://:version.:project.pages.dev/*`), qui ne touchent pas `geotagor.fr`, **plus** une Bulk
+  Redirect 301 de `pages.dev` vers le domaine canonique (*Include subdomains* désactivé, sinon les
+  prévisualisations sont redirigées et deviennent inutilisables). Défense en profondeur : si la
+  redirection saute, le `noindex` reste.
+- **B.** `_headers` seul. Fonctionne, mais laisse vivre un hôte dupliqué crawlable.
+- **C.** Désactiver les déploiements de prévisualisation. Réponse disproportionnée : on perd tout
+  garde-fou pré-merge alors que les previews sont déjà `noindex`.
+
+**Retenu provisoirement :** **A**, avec un **contrôle de build bloquant** qui échoue si un
+`X-Robots-Tag` apparaît sous un motif ne commençant pas par `https://`. Les règles `_headers` se
+cumulent et les valeurs dupliquées sont jointes par une virgule : un `X-Robots-Tag` sur `/*`
+produirait `index, follow, noindex`. C'est le garde-fou contre la régression qui désindexerait
+`geotagor.fr` du jour au lendemain.
+
+**Bloque :** **oui** pour la mise en ligne.
+
+---
+
+## [GATE1] Q-020 — Trois injecteurs Cloudflare sont actifs par défaut
+
+**Contexte :** le produit promet zéro requête tierce et zéro télémétrie. Sur une zone Cloudflare
+gratuite, **Web Analytics / RUM est activé par défaut depuis le 15 octobre 2025** et injecte
+`<script src="https://static.cloudflareinsights.com/beacon.min.js">` — requête tierce **et**
+télémétrie, double violation. **Speed Brain** est également actif par défaut, et **Email Address
+Obfuscation** l'est « dès l'inscription ». Rocket Loader et Bot Fight Mode ont un état par défaut
+non documenté ; ce dernier injecte un script `/cdn-cgi/challenge-platform/…` **et dépose un cookie
+`cf_clearance`**.
+
+**Options :**
+- **A.** Couper chaque interrupteur dans le tableau de bord, **et** poser une **Configuration Rule**
+  unique d'expression `true` forçant *Disable RUM* + *Disable Zaraz* + *Email Obfuscation Off* +
+  *Rocket Loader Off* + *Browser Integrity Check Off*. Une règle survit à un changement de défaut
+  côté Cloudflare ; un interrupteur coché une fois, non.
+- **B.** Couper les interrupteurs seulement. Suffisant aujourd'hui, fragile demain — c'est
+  exactement ainsi que le RUM est apparu sur des sites qui ne l'avaient jamais demandé.
+- **C.** Poser `Cache-Control: public, no-transform` sur `/*`, ce qui empêche par construction toute
+  injection edge dans le HTML. Documenté et efficace, mais Cloudflare cesse alors de compresser le
+  HTML — coût direct sur le budget de performance.
+
+**Retenu provisoirement :** **A**, plus un contrôle post-déploiement qui `grep` la réponse servie et
+échoue si `cloudflareinsights`, `/cdn-cgi/`, `email-decode`, `challenge-platform` ou `zaraz`
+apparaissent.
+
+**Question annexe, à trancher pour la page vie privée :** la protection DDoS peut servir un challenge
+en cas d'attaque et poser alors un `cf_clearance`. La formulation retenue est « aucun cookie déposé
+en fonctionnement normal ; un cookie technique de sécurité peut être posé par notre hébergeur
+uniquement pour repousser une attaque » — plutôt que de prétendre l'impossible. À faire relire si
+l'enjeu juridique est jugé fort.
+
+**Bloque :** **oui** pour la mise en ligne.
+
+---
+
+## [GATE1] Q-021 — Trois points d'hébergement non documentés, à tester au premier déploiement
+
+**Contexte :** la vérification de l'hébergement n'a pas pu être confirmée par une passe adverse
+(agent contradicteur bloqué par un classifieur de sécurité). Trois points restent non documentés par
+Cloudflare et ne doivent pas être tenus pour acquis.
+
+**Options :** aucune — ce sont des tests à exécuter, chacun de quelques minutes, sur une branche de
+prévisualisation avant toute mise en production.
+
+1. **`Content-Type` est-il réellement surchargeable via `_headers` ?** La doc énonce une règle
+   générale d'écrasement mais ne nomme jamais `Content-Type`. **Bloquant pour la stratégie d'index
+   pré-compressé.** Test : `curl -I` sur un fichier de `/data/` après déploiement.
+2. **Un fichier pré-compressé arrive-t-il intact à l'octet près ?** Le danger est qu'un
+   `Content-Encoding: br` soit déduit de l'extension : le navigateur décompresserait notre couche et
+   `DecompressionStream` recevrait des données déjà claires. Parade préventive retenue : nommer les
+   fichiers **`.bin`** et non `.br`, forcer `application/octet-stream`, ajouter `no-transform`, et
+   ne **jamais** poser de `Content-Encoding` à la main. Test : cinq `curl` avec `Accept-Encoding`
+   valant `identity`, `gzip`, `br`, `zstd` puis les trois, et comparaison des `sha256sum` au fichier
+   de `dist/` — **les cinq doivent être identiques**.
+3. **La build a-t-elle un accès réseau sortant ?** Non documenté. Sans objet si le snapshot committé
+   reste l'unique source, ce que le plan impose désormais.
+
+**Retenu provisoirement :** les trois parades préventives ci-dessus, appliquées **avant** les tests,
+de sorte qu'un résultat négatif ne coûte rien.
+
+**Bloque :** non, mais le point 2 conditionne le budget de l'index.
