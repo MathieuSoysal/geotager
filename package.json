@@ -1,0 +1,11 @@
+{
+  "name": "geotagor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Voir, modifier et supprimer la position GPS d'une photo, entierement dans le navigateur.",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/check-build.mjs"
+  }
+}

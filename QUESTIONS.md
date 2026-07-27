@@ -539,7 +539,26 @@ ligne de code n'est écrite avant validation.
   sans instruction contraire : cela démarrerait l'implémentation avant la validation du plan et
   trancherait au passage `workers_dev`, la date de compatibilité et la chaîne de build.
 
-**Retenu provisoirement :** **A**, parce que c'est le moins engageant. **B** ou **C** relèvent du
-tableau de bord et n'appartiennent qu'à Mathieu.
+**TRANCHÉ le 27/07/2026 par Mathieu : D.** Un scaffold minimal est committé pour passer au vert.
+
+Ce que le scaffold fige, et qu'il faut donc considérer comme décidé :
+- `workers_dev: false` et `preview_urls: true` (cf. Q-022) ;
+- `compatibility_date: 2026-07-27` ;
+- la commande de build est `npm run build`, et elle porte les contrôles bloquants.
+
+Ce que le scaffold **ne** fige pas, délibérément : aucune dépendance n'est installée, `package.json`
+n'en déclare aucune, et rien n'est décidé sur Astro, la carte, l'index ni le noyau EXIF. `CREDITS.md`
+reste donc exact.
+
+Deux dettes explicites, à solder au premier commit de la V0 :
+1. `assets.directory` pointe sur `./site`, committé, pour que le déploiement fonctionne **même si
+   aucune commande de build n'est configurée** dans le tableau de bord — la configuration réelle du
+   Worker n'est pas lisible par l'API. Quand Astro produira `./dist`, cette ligne change et `site/`
+   disparaît.
+2. `site/_headers` porte un `X-Robots-Tag: noindex` sur `/*` et `site/robots.txt` un `Disallow: /`.
+   **Les deux sont contraires au plan** (§7.2) et doivent sauter dès que le site a du contenu réel :
+   un `Disallow: /` empêcherait Google de lire le moindre `noindex`. Ils ne sont là que parce qu'une
+   page d'attente indexée serait pire que pas de page. Le commentaire est écrit dans les deux
+   fichiers.
 
 **Bloque :** non.

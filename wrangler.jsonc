@@ -1,0 +1,28 @@
+{
+  // Geotagor — configuration Workers (assets statiques).
+  //
+  // Pas de champ "main" : le site est un ensemble d'assets seuls, il n'y a
+  // aucun code Worker. C'est la traduction technique de la contrainte
+  // « zéro serveur » du cahier des charges — rien de nous ne s'exécute chez
+  // l'hébergeur, il ne fait que servir des fichiers.
+  "name": "geotager",
+  "compatibility_date": "2026-07-27",
+
+  // AMORÇAGE — voir QUESTIONS.md, entrée Q-023.
+  // Le répertoire pointe aujourd'hui sur "./site", qui est committé, afin que
+  // le déploiement fonctionne sans étape de build. Au démarrage de la V0,
+  // Astro produira "./dist" : cette ligne devient "./dist" et "site/" disparaît.
+  "assets": {
+    "directory": "./site"
+  },
+
+  // Supprime l'hôte geotager.<sous-domaine>.workers.dev. Sans cela, le site
+  // existerait en double sur un domaine indexable — problème que Cloudflare
+  // Pages obligeait à colmater et que Workers permet de supprimer.
+  "workers_dev": false,
+
+  // Depuis Wrangler 4.44.0, preview_urls suit workers_dev par défaut. On le
+  // réactive explicitement : les URL de prévisualisation sont ce qui rend les
+  // contrôles du Gate 2 exécutables avant la mise en production.
+  "preview_urls": true
+}
