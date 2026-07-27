@@ -32,7 +32,6 @@ const RIEN: Capacites = {
   effacer: false,
   effacerTout: false,
 };
-const LECTURE_SEULE: Capacites = { ...RIEN, lire: true };
 
 export interface LigneMatrice {
   /** Formats covered by the row, in display order. */
@@ -90,7 +89,12 @@ export const MATRICE: LigneMatrice[] = [
     // so before the action.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
-  { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },
+  // "Read" long carried a yes here without a line of code reading a video:
+  // the engine returned "no location" without consulting any reader, and the
+  // second reader opens neither MOV nor MP4. The cell was wrong. It stays
+  // wrong until a real video can test it, and no freely-licensed public corpus
+  // provides one.
+  { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: RIEN },
 ];
 
 /** What the tool can do with a format, regardless of the file received. */
@@ -151,7 +155,7 @@ const PHRASES: Record<Motif, string> = {
   'sans-lieu-possible':
     'Cette image n’a pas d’emplacement prévu pour un lieu, et nous ne savons pas encore lui en créer un.',
   video:
-    'Nous savons lire le lieu d’une vidéo, mais pas encore le retirer de façon sûre — une vidéo le range à plusieurs endroits.',
+    'Nous ne savons pas encore travailler sur les vidéos : une vidéo range le lieu à plusieurs endroits, parfois en toutes lettres, et nous préférons ne rien promettre que nous ne tenions.',
   inconnu: 'Nous ne reconnaissons pas ce type de fichier.',
 };
 

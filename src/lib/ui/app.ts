@@ -206,6 +206,10 @@ function majListeLot(statuts: Map<string, string> = new Map()): void {
         row.classList.add('ko');
       } else if (it.read?.can.write) {
         st.textContent = it.read.position ? 'position lue' : 'sans position';
+      } else if (it.read?.can.erase) {
+        // We can remove the location from this file without being able to give
+        // it one. Filing it under "read-only" would suggest a refusal.
+        st.textContent = 'effacement seul';
       } else {
         st.textContent = 'lecture seule';
         row.classList.add('ko');
@@ -293,7 +297,16 @@ async function appliquer(
   operation: Extract<ToWorker, { type: 'apply' }>['operation'],
   prefixe: string,
 ): Promise<void> {
-  const concernes = items.filter((i) => i.read?.can.write);
+  // Filter on the operation actually requested, not on writing. Everything used
+  // to go through `can.write`: on a photo whose location we can remove but not
+  // add, the "Erase" button was active and did nothing at all. A button that
+  // does not act is worse than a greyed one, since it suggests the file was
+  // processed.
+  const permise = (r: PhotoRead): boolean =>
+    operation.kind === 'erase' ? r.can.erase
+      : operation.kind === 'eraseAll' ? r.can.eraseAll
+      : r.can.write;
+  const concernes = items.filter((i) => i.read && permise(i.read));
   if (!concernes.length) return;
 
   el.telecharger.disabled = true;

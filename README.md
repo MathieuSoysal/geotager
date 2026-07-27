@@ -7,25 +7,28 @@ statiques&nbsp;; le traitement des images a lieu dans un Web Worker, sur votre m
 
 ## État
 
-**V1 — tous les formats d'image.** Lecture de la position et des métadonnées sur JPEG, HEIC, AVIF,
-PNG, WebP, TIFF et vidéos. **Correction et effacement sur tous les formats d'image.** Ajouter un
-lieu à un fichier qui n'en porte aucun reste hors de portée sur HEIC, AVIF et TIFF&nbsp;: c'est la
-seule opération qui ferait grandir le fichier, et les trois formats ne le tolèrent pas sans risque.
-Un WebP de forme simple n'a aucun emplacement prévu pour un lieu et reste en lecture seule. Dans
-tous les cas, l'interface annonce ce qu'elle sait faire *avant* toute action. Sur une photo d'iPhone,
-ces deux opérations ne déplacent pas un octet&nbsp;: le fichier produit a exactement la taille de
-l'original, et seuls les octets de la position changent. Ajouter un lieu à une photo qui n'en porte
-aucune ferait grandir le fichier&nbsp;; cela reste hors de portée sur HEIC et AVIF, et l'interface
-le dit *avant* toute action plutôt que de traiter le cas approximativement.
+**V1.1 — les quatre opérations sur tous les formats d'image.** Lire, corriger, ajouter et effacer
+un lieu sur JPEG, HEIC, AVIF, PNG, WebP et TIFF. Ajouter n'agrandit rien sur place&nbsp;: sur une
+photo d'iPhone, le nouveau bloc est ajouté en fin de fichier et une seule adresse est repointée,
+si bien qu'aucun octet existant ne bouge. Corriger et effacer ne déplacent pas un octet du tout&nbsp;:
+le fichier produit a exactement la taille de l'original.
+
+Deux limites, dites *avant* l'action et non après&nbsp;: un WebP de forme simple n'a aucun
+emplacement prévu pour un lieu, et **un négatif numérique — DNG, NEF, CR2 — n'accepte pas qu'on lui
+en ajoute un**, parce qu'un négatif est un TIFF et qu'abîmer un original serait irréparable.
+
+Les vidéos sont hors de portée pour l'instant, y compris en lecture&nbsp;: une vidéo range le lieu
+à plusieurs endroits, parfois en toutes lettres, et aucun corpus public sous licence libre ne
+fournit de vidéo réelle pour l'éprouver.
 
 | Format | Lire | Corriger | Ajouter | Effacer |
 |---|---|---|---|---|
 | JPEG | oui | oui | oui | oui |
-| HEIC, AVIF | oui | oui | pas encore | oui |
+| HEIC, AVIF *(iPhone)* | oui | oui | oui | oui |
 | PNG | oui | oui | oui | oui |
 | WebP *(forme étendue)* | oui | oui | oui | oui |
-| TIFF | oui | oui | pas encore | oui |
-| Vidéos (MOV, MP4) | oui | pas encore | pas encore | pas encore |
+| TIFF *(hors négatifs)* | oui | oui | oui | oui |
+| Vidéos (MOV, MP4) | pas encore | pas encore | pas encore | pas encore |
 
 *« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont
 deux opérations différentes&nbsp;: la première ne change pas la taille du fichier, la seconde si.
@@ -70,13 +73,15 @@ npm run build      # construit dist/ puis exécute les contrôles bloquants
 
 ```bash
 npm run fixtures   # récupère de vraies photos de test (non committées)
-npm test           # moteur EXIF, avec ExifTool comme oracle indépendant — 194 assertions
-npm run test:e2e   # parcours complet dans Chromium, fichiers relus par ExifTool — 39 assertions
+npm test           # moteur EXIF, avec ExifTool comme oracle indépendant — 316 assertions
+npm run test:e2e   # parcours complet dans Chromium, fichiers relus par ExifTool — 52 assertions
 npm run test:all   # la chaîne entière
 ```
 
-Chaque case « oui » du tableau ci-dessus est adossée à un test qui passe&nbsp;; c'est la condition
-pour l'écrire. Le tableau de la page d'accueil est rendu depuis la même constante que celle que lit
+Chaque case du tableau ci-dessus est adossée à un test qui l'exécute réellement sur une vraie photo
+de ce format&nbsp;— y compris les cases à « pas encore », dont le test exige qu'aucun fichier
+témoin n'existe. Ce n'est donc plus une discipline mais une propriété&nbsp;: une case ouverte sans
+preuve fait échouer la chaîne. Le tableau de la page d'accueil est rendu depuis la même constante que celle que lit
 le moteur, et le script de corpus fait échouer la chaîne si un fichier requis manque.
 
 ExifTool est requis pour les tests (`apt install libimage-exiftool-perl`). Il n'est **jamais**

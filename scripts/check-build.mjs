@@ -8,6 +8,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join, extname, relative } from 'node:path';
+import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
 
 const DIR = 'dist';
 const BUDGET_JS_GZIP = 150 * 1024;
@@ -212,6 +213,38 @@ if (existsSync(headers)) {
   }
   const branche = (process.env.WORKERS_CI_BRANCH ?? '').trim();
   if (branche) infos.push(`branche construite : « ${branche} »`);
+}
+
+// 7. The README table says the same thing as the code
+
+/*
+ * The page's table is rendered from capacites.ts, so it cannot drift. The
+ * README's is written by hand, so it can, and it is the first one somebody
+ * discovering the project reads. Cells are compared, not labels: the
+ * parenthesised note stays free.
+ */
+{
+  const readme = readFileSync('README.md', 'utf8');
+  const lignes = readme
+    .split('\n')
+    .filter((l) => /^\|/.test(l) && !/^\|\s*-+/.test(l) && !/\|\s*Format\s*\|/.test(l))
+    .map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
+
+  const attendu = MATRICE.map((r) => cellules(r.capacites));
+  if (lignes.length !== attendu.length) {
+    echecs.push(
+      `README.md : le tableau a ${lignes.length} lignes, capacites.ts en déclare ${attendu.length}`,
+    );
+  } else {
+    lignes.forEach((ligne, i) => {
+      const dites = ligne.slice(1);
+      if (dites.join('|') !== attendu[i].join('|')) {
+        echecs.push(
+          `README.md : « ${ligne[0]} » annonce ${dites.join('/')}, le code dit ${attendu[i].join('/')}`,
+        );
+      }
+    });
+  }
 }
 
 // Output
