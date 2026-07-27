@@ -41,9 +41,22 @@ aussi&nbsp;; il ne peut donc pas dériver de ce que le code sait faire.*
 - **Création sans réécriture.** Ajouter une position à un fichier qui n'en a pas n'insère rien au
   milieu du bloc TIFF : un nouvel IFD0 est ajouté à la fin et l'en-tête est repointé dessus. Les
   offsets absolus existants restent valides — c'est précisément ce qu'une réécriture classique casse.
-- **Vérification après écriture.** Chaque fichier produit est relu par **deux moteurs indépendants**
-  et la position comparée à celle demandée. Un écart de plus d'un mètre, un résidu après effacement,
-  ou un désaccord entre les deux lecteurs font échouer l'opération et rendent l'original intact.
+- **Preuve à l'octet près.** Le moteur annonce les plages qu'il écrit, et le fichier produit est
+  comparé à l'original **partout ailleurs**. Une comparaison de tailles ne prouverait rien&nbsp;: un
+  défaut qui efface 200&nbsp;Ko de données constructeur la passerait sans un mot. C'est aussi ce qui
+  permet d'écrire dans une photo de plusieurs mégaoctets sans jamais la décoder&nbsp;: on ne prouve
+  pas que l'image est restée lisible, on prouve que ses octets n'ont pas bougé.
+- **Vérification après écriture, en trois temps.** Notre lecteur relit le fichier produit en
+  repartant du premier octet. Un **second moteur, écrit par d'autres**, relit le bloc de position —
+  c'est là que vit le défaut d'ordre des octets qu'une auto-relecture ne peut pas voir. Puis il
+  relit le fichier entier, sous réserve qu'il ait su ouvrir l'original&nbsp;: il ne connaît pas tous
+  les formats, et son silence sur un fichier qu'il n'ouvre pas ne prouverait rien. Un écart de plus
+  d'un mètre, un résidu après effacement ou un désaccord annulent l'opération et rendent l'original
+  intact. Voir.
+- **Aucune copie oubliée.** Une image peut ranger le lieu une seconde fois dans un paquet de texte
+  descriptif. Il est purgé — le lieu seul, pas le titre ni l'auteur —, puis **re-balayé**&nbsp;: s'il
+  en subsiste la moindre trace, ou si le paquet est compressé et donc illisible pour ce moteur,
+  l'effacement échoue plutôt que de rendre un fichier qu'on croirait propre.
 
 ## Développement
 
@@ -57,18 +70,33 @@ npm run build      # construit dist/ puis exécute les contrôles bloquants
 
 ```bash
 npm run fixtures   # récupère de vraies photos de test (non committées)
-npm test           # moteur EXIF, avec ExifTool comme oracle indépendant
-npm run test:e2e   # parcours complet dans Chromium, fichier relu par ExifTool
+npm test           # moteur EXIF, avec ExifTool comme oracle indépendant — 194 assertions
+npm run test:e2e   # parcours complet dans Chromium, fichiers relus par ExifTool — 39 assertions
 npm run test:all   # la chaîne entière
 ```
+
+Chaque case « oui » du tableau ci-dessus est adossée à un test qui passe&nbsp;; c'est la condition
+pour l'écrire. Le tableau de la page d'accueil est rendu depuis la même constante que celle que lit
+le moteur, et le script de corpus fait échouer la chaîne si un fichier requis manque.
 
 ExifTool est requis pour les tests (`apt install libimage-exiftool-perl`). Il n'est **jamais**
 utilisé par l'application&nbsp;: il sert d'oracle externe, parce qu'un moteur qui se relit lui-même
 ne prouve rien — un encodeur et un décodeur symétriquement faux s'accordent parfaitement.
 
-Le corpus n'est pas committé et n'est pas fabriqué : ce sont de vraies photos issues du dépôt public
-`ianare/exif-samples`. Un fichier généré pour l'occasion valide le code contre lui-même ; seule une
-photo réellement sortie d'un appareil expose les cas qui cassent.
+Le corpus n'est pas committé et n'est pas fabriqué : ce sont de vraies photos d'appareils réels —
+iPhone 11 Pro Max, iPhone 11 Pro, Nokia 8.3, Galaxy S10, Pixel 4a, HTC Desire, Nikon. Un fichier
+généré pour l'occasion valide le code contre lui-même ; seule une photo réellement sortie d'un
+appareil expose les cas qui cassent, et ce corpus-là en expose plusieurs : ordre des octets inversé,
+bloc rangé en fin de fichier, coordonnées à zéro, préambule parasite. Aucun corpus public ne
+fournissant de PNG ni de TIFF géolocalisé, le lieu de départ y est inscrit par ExifTool — une
+implémentation indépendante de la nôtre — dans un vrai fichier d'appareil. Sources et licences dans
+[`CREDITS.md`](CREDITS.md).
+
+### Intégration continue
+
+`.github/workflows/ci.yml` installe ExifTool et rejoue `npm run test:all` sur chaque proposition de
+modification. Sans cela, la matrice ci-dessus ne serait vérifiée par rien d'automatique : la build
+Cloudflare ne lance que `npm run build`, et son image ne contient pas ExifTool.
 
 ### Contrôles de build
 
