@@ -27,6 +27,7 @@ import {
 import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
 import { createHash } from 'node:crypto';
+import { commandePour } from '../scripts/deploy.mjs';
 
 // Same default as scripts/fetch-fixtures.mjs: without it the bench looked for
 // the corpus at the root of the repository and failed on an uncaught exception,
@@ -286,6 +287,33 @@ scenario('Tout effacer', () => {
   const dims = exif(['-s', '-s', '-s', '-ImageSize', out]).trim();
   check('l\'image reste décodable et de même taille', dims === exif(['-s', '-s', '-s', '-ImageSize', path]).trim(),
     `« ${dims} »`);
+});
+
+// Losing the profile visibly shifts the colours in any colour-managed
+// application: that is a degradation of the image, not a removal of
+// information. PNG and WebP already preserved it; JPEG was the only one out of
+// step.
+scenario('Tout effacer garde le profil de couleurs d\'un JPEG', () => {
+  const path = join(FIXTURES, 'Canon_40D.jpg');
+  const src = new Uint8Array(readFileSync(path));
+  const empreinteProfil = (f: string) =>
+    createHash('sha256').update(exif(['-b', '-ICC_Profile', f])).digest('hex');
+
+  const avant = empreinteProfil(path);
+  check('le fichier de départ porte bien un profil',
+    exif(['-s', '-s', '-s', '-ICC_Profile:ProfileDescription', path]).trim() !== '');
+
+  const res = stripAllMetadata(src);
+  const out = join(tmp, 'strip-icc.jpg');
+  writeFileSync(out, res.bytes);
+
+  check('le fichier a rétréci', res.bytes.length < src.length);
+  const reste = exif(['-a', '-G1', '-s', '-EXIF:all', '-XMP:all', '-IPTC:all', out]).trim();
+  check('aucun tag EXIF, XMP ou IPTC résiduel', reste === '', reste.slice(0, 200));
+  check('le profil de couleurs est intact au bit près', empreinteProfil(out) === avant);
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', path]).trim());
 });
 
 scenario('Fichiers refusés proprement', () => {
@@ -1040,6 +1068,21 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
     exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
   check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
     diffResume(avant, inventory(out)));
+});
+
+// A build once promoted to production from a working branch, because a
+// dashboard setting asked for it and nothing in the repository stood in the
+// way. The decision now lives in the repository; a test still has to exercise
+// it, or the guard rail is only an ornament.
+scenario('Le garde-fou de déploiement ne promeut que depuis main', () => {
+  check('la branche de production promeut',
+    JSON.stringify(commandePour('main')) === JSON.stringify(['wrangler', 'deploy']));
+  for (const branche of ['feature/video-final-cases', 'main-truqué', 'Main', 'mainx']) {
+    check(`« ${branche} » téléverse sans promouvoir`,
+      JSON.stringify(commandePour(branche)) === JSON.stringify(['wrangler', 'versions', 'upload']));
+  }
+  check('une branche inconnue est refusée, pas devinée', commandePour('') === null);
+  check('une branche faite d\'espaces est refusée aussi', commandePour('   ') === null);
 });
 
 scenario('Un TIFF large est refusé plutôt que lu de travers', () => {
