@@ -15,6 +15,8 @@ import {
   deleteGpsFromJpeg,
   stripAllMetadata,
 } from '../src/lib/exif/jpeg.ts';
+import { parseTiff, readPosition, degreesToDms } from '../src/lib/exif/tiff.ts';
+import { memesOctetsHorsPlages } from '../src/lib/exif/conteneurs.ts';
 
 // Même valeur par défaut que scripts/fetch-fixtures.mjs : sans cela, le banc
 // cherchait le corpus à la racine du dépôt et échouait par une exception non
@@ -249,6 +251,101 @@ scenario('Fichiers refusés proprement', () => {
     code2 = e.code;
   }
   check('un fichier tronqué est rejeté', code2 === 'FICHIER_TRONQUE' || code2 === 'EXIF_CORROMPU', code2);
+});
+
+/* ------------------------------------------------------------------ */
+/* Garanties génériques                                                */
+/*                                                                     */
+/* Les blocs TIFF fabriqués ci-dessous servent des chemins de REFUS et  */
+/* un vecteur à valeur connue. La règle « de vraies photos » vise les   */
+/* chemins nominaux : on ne peut pas trouver dans la nature un fichier  */
+/* garanti porteur d'un défaut précis.                                  */
+/* ------------------------------------------------------------------ */
+
+/** Bloc TIFF minimal portant un GPS IFD, aux rationnels imposés. */
+function blocGps(boutisme: 'II' | 'MM', lat: Array<[number, number]>, lon: Array<[number, number]>): Uint8Array {
+  const b = new Uint8Array(128);
+  const le = boutisme === 'II';
+  const u16 = (o: number, v: number) => {
+    if (le) { b[o] = v & 0xff; b[o + 1] = v >>> 8; } else { b[o] = v >>> 8; b[o + 1] = v & 0xff; }
+  };
+  const u32 = (o: number, v: number) => {
+    if (le) { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; b[o + 2] = (v >>> 16) & 0xff; b[o + 3] = (v >>> 24) & 0xff; }
+    else { b[o] = (v >>> 24) & 0xff; b[o + 1] = (v >>> 16) & 0xff; b[o + 2] = (v >>> 8) & 0xff; b[o + 3] = v & 0xff; }
+  };
+  b[0] = le ? 0x49 : 0x4d;
+  b[1] = le ? 0x49 : 0x4d;
+  u16(2, 42);
+  u32(4, 8);
+  u16(8, 1);
+  u16(10, 0x8825); u16(12, 4); u32(14, 1); u32(18, 26); // IFD0 : pointeur GPS
+  u32(22, 0);
+  u16(26, 4); // GPS IFD, 4 entrées
+  const entree = (k: number, tag: number, type: number, count: number, inline: number[] | null, ptr?: number) => {
+    const o = 28 + k * 12;
+    u16(o, tag); u16(o + 2, type); u32(o + 4, count);
+    if (inline) inline.forEach((v, i) => (b[o + 8 + i] = v));
+    else u32(o + 8, ptr!);
+  };
+  entree(0, 0x0001, 2, 2, [0x4e, 0]);   // LatitudeRef « N »
+  entree(1, 0x0002, 5, 3, null, 80);    // Latitude
+  entree(2, 0x0003, 2, 2, [0x45, 0]);   // LongitudeRef « E »
+  entree(3, 0x0004, 5, 3, null, 104);   // Longitude
+  u32(76, 0);
+  lat.forEach(([n, d], i) => { u32(80 + i * 8, n); u32(84 + i * 8, d); });
+  lon.forEach(([n, d], i) => { u32(104 + i * 8, n); u32(108 + i * 8, d); });
+  return b;
+}
+
+scenario('Une position absente n\'est jamais annoncée comme valide', () => {
+  // Un Galaxy S10 sans relevé écrit des rationnels 0/0 ; GIMP laisse 0/1 0/1 0/1
+  // en purgeant les coordonnées. Les deux se lisaient « 0, 0 » — une position
+  // parfaitement valide au large du golfe de Guinée.
+  const zeroSurZero: Array<[number, number]> = [[0, 0], [0, 0], [0, 0]];
+  const zeroSurUn: Array<[number, number]> = [[0, 1], [0, 1], [0, 1]];
+  const vraie: Array<[number, number]> = [[43, 1], [56, 1], [575_000, 10_000]];
+
+  check('des rationnels 0/0 ne font pas une position',
+    readPosition(parseTiff(blocGps('II', zeroSurZero, zeroSurZero))) === null);
+  check('des coordonnées nulles ne font pas une position',
+    readPosition(parseTiff(blocGps('MM', zeroSurUn, zeroSurUn))) === null);
+
+  const lue = readPosition(parseTiff(blocGps('MM', vraie, vraie)));
+  check('une vraie position est toujours lue', lue !== null && Math.abs(lue.lat - 43.9493) < 1e-4,
+    JSON.stringify(lue));
+});
+
+scenario('Vecteur à valeur connue, en II et en MM', () => {
+  // Un encodeur et un décodeur symétriquement faux s'accordent parfaitement.
+  // On compare donc les OCTETS produits dans les deux boutismes, sans relire.
+  const dms = degreesToDms(43.9493);
+  const li = blocGps('II', dms, dms);
+  const be = blocGps('MM', dms, dms);
+  let miroir = true;
+  for (let i = 0; i < 24; i += 4) {
+    for (let k = 0; k < 4; k++) if (li[80 + i + k] !== be[80 + i + (3 - k)]) miroir = false;
+  }
+  check('les 24 octets de latitude sont l\'exact miroir d\'un boutisme à l\'autre', miroir);
+  check('les deux boutismes se relisent à la même valeur',
+    Math.abs(readPosition(parseTiff(li))!.lat - readPosition(parseTiff(be))!.lat) < 1e-12);
+  check('la valeur relue est celle demandée à moins de 0,1 m',
+    Math.abs(readPosition(parseTiff(li))!.lat - 43.9493) * METRES_PAR_DEGRE < 0.1);
+});
+
+scenario('Rien ne change hors des plages annoncées', () => {
+  const a = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+  const memeLongueur = (mod: number[], plages: Array<[number, number]>) =>
+    memesOctetsHorsPlages(a, new Uint8Array(mod), plages);
+
+  check('aucune modification passe', memeLongueur([1, 2, 3, 4, 5, 6, 7, 8], []));
+  check('une modification dans la plage passe', memeLongueur([1, 2, 9, 9, 5, 6, 7, 8], [[2, 4]]));
+  check('une modification hors plage échoue', !memeLongueur([1, 2, 3, 4, 9, 6, 7, 8], [[2, 4]]));
+  check('des plages qui se recouvrent sont fusionnées',
+    memeLongueur([1, 9, 9, 9, 9, 6, 7, 8], [[1, 3], [2, 5]]));
+  check('un allongement non annoncé échoue',
+    !memesOctetsHorsPlages(a, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]), []));
+  check('un allongement annoncé passe',
+    memesOctetsHorsPlages(a, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]), [[8, 9]]));
 });
 
 console.log(`\n${passed} réussis, ${failed} échoués`);

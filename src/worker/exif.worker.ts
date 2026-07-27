@@ -7,12 +7,15 @@
  * fichier, et il n'en émettra jamais — c'est vérifiable dans le dépôt public.
  */
 import exifr from 'exifr';
+import { readGpsFromJpeg } from '../lib/exif/jpeg.ts';
 import {
-  readGpsFromJpeg,
-  writeGpsToJpeg,
-  deleteGpsFromJpeg,
-  stripAllMetadata,
-} from '../lib/exif/jpeg.ts';
+  type Ecriture,
+  conteneurDe,
+  ecrirePosition,
+  effacerPosition,
+  memesOctetsHorsPlages,
+  toutEffacer,
+} from '../lib/exif/conteneurs.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres } from '../lib/exif/coords.ts';
 import type {
@@ -234,11 +237,20 @@ async function appliquer(
   }
 
   try {
-    let produit: { bytes: Uint8Array; route: 'P1' | 'P2'; sameLength: boolean };
+    const conteneur = conteneurDe(bytes);
+    if (!conteneur) {
+      return echec(
+        'FORMAT_NON_MODIFIABLE',
+        "Ce format n'est pas encore modifiable. Votre fichier n'a pas été touché.",
+      );
+    }
+
+    let produit: Ecriture;
     let attendu: LatLon | null = null;
 
     if (operation.kind === 'set') {
-      produit = writeGpsToJpeg(
+      produit = ecrirePosition(
+        conteneur,
         bytes,
         operation.position.lat,
         operation.position.lon,
@@ -246,9 +258,20 @@ async function appliquer(
       );
       attendu = operation.position;
     } else if (operation.kind === 'erase') {
-      produit = deleteGpsFromJpeg(bytes);
+      produit = effacerPosition(conteneur, bytes);
     } else {
-      produit = stripAllMetadata(bytes);
+      produit = toutEffacer(conteneur, bytes);
+    }
+
+    // « À l'octet près » n'est pas une figure de style. Une comparaison de
+    // tailles ne prouve rien : un défaut qui zéroïse 200 Ko de MakerNote la
+    // passe sans un mot. On exige que le fichier produit soit identique à
+    // l'original PARTOUT hors des plages que le moteur a lui-même annoncées.
+    if (!memesOctetsHorsPlages(bytes, produit.bytes, produit.changed)) {
+      return echec(
+        'OCTETS_HORS_PLAGE',
+        "Le fichier produit diffère de l'original ailleurs qu'à l'endroit de la position. Nous préférons vous rendre l'original intact.",
+      );
     }
 
     const { verified, drift, croise } = await verifier(produit.bytes, attendu);
@@ -283,7 +306,7 @@ async function appliquer(
       route: produit.route,
       verified,
       driftMetres: attendu ? drift : 0,
-      sameLength: produit.sameLength,
+      sameLength: produit.bytes.length === bytes.length,
     };
   } catch (e) {
     if (e instanceof ExifError) return echec(e.code, e.message);

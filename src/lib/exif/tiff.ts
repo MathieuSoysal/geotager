@@ -214,7 +214,12 @@ export function degreesToDms(value: number): Array<[number, number]> {
 
 function dmsToDegrees(parts: Array<[number, number]>, ref: string): number | null {
   if (parts.length < 3) return null;
-  const [d, m, s] = parts.map(([n, den]) => (den === 0 ? 0 : n / den));
+  // Un dénominateur nul n'est pas « zéro degré », c'est une valeur qu'on ne
+  // sait pas lire. La remplacer par zéro annoncerait une position au large du
+  // golfe de Guinée pour un fichier qui n'en porte aucune — et un Galaxy S10
+  // écrit exactement cela quand il n'a pas eu de relevé.
+  if (parts.some(([, den]) => den === 0)) return null;
+  const [d, m, s] = parts.map(([n, den]) => n / den);
   const value = d + m / 60 + s / 3600;
   if (!Number.isFinite(value)) return null;
   return ref === 'S' || ref === 'W' ? -value : value;
@@ -254,6 +259,11 @@ export function readPosition(view: TiffView): { lat: number; lon: number } | nul
   const lonDeg = dmsToDegrees(readRationals(view, lon), lonRef ? readAscii(view, lonRef) : 'E');
   if (latDeg === null || lonDeg === null) return null;
   if (Math.abs(latDeg) > 90 || Math.abs(lonDeg) > 180) return null;
+  // Latitude ET longitude exactement nulles : ce n'est pas un lieu, c'est ce
+  // que laisse un logiciel qui a purgé les coordonnées sans retirer les
+  // entrées. Le point (0, 0) est en pleine mer ; aucun appareil ne l'écrit
+  // pour de bon. Mieux vaut annoncer « aucun lieu » que le golfe de Guinée.
+  if (latDeg === 0 && lonDeg === 0) return null;
   return { lat: latDeg, lon: lonDeg };
 }
 
@@ -296,10 +306,17 @@ export function deletePositionInTiff(view: TiffView): Edit {
     const gps = view.gpsIfd;
     const others = claimedRanges(view, gps);
 
-    for (const en of gps.entries) {
-      if (en.valueOffset === null || en.valueLength === 0) continue;
-      const range: [number, number] = [en.valueOffset, en.valueOffset + en.valueLength];
-      if (range[1] > out.length) continue;
+    const zeroiser = (range: [number, number]) => {
+      // Un offset qui sort du bloc signifie que notre lecture de la structure
+      // est fausse quelque part. Poursuivre une zéroïsation avec une carte
+      // partiellement fausse est précisément ce que ce dispositif existe pour
+      // empêcher : on refuse, on ne saute pas.
+      if (range[0] < 0 || range[1] > out.length || range[1] < range[0]) {
+        throw new ExifError(
+          'STRUCTURE_INATTENDUE',
+          "Ce fichier a une structure que nous ne savons pas modifier sans risque. Il n'a pas été touché.",
+        );
+      }
       if (overlaps(range, others)) {
         throw new ExifError(
           'PLAGES_CHEVAUCHANTES',
@@ -308,11 +325,17 @@ export function deletePositionInTiff(view: TiffView): Edit {
       }
       out.fill(0, range[0], range[1]);
       changed.push(range);
+    };
+
+    for (const en of gps.entries) {
+      if (en.valueOffset === null || en.valueLength === 0) continue;
+      zeroiser([en.valueOffset, en.valueOffset + en.valueLength]);
     }
 
-    const ifdRange: [number, number] = [gps.offset, gps.nextPointerOffset + 4];
-    out.fill(0, ifdRange[0], Math.min(ifdRange[1], out.length));
-    changed.push(ifdRange);
+    // La structure du GPS IFD passe par le même contrôle que ses valeurs : sur
+    // un TIFF à plusieurs pages, deux pages peuvent légitimement pointer sur le
+    // même IFD, et la zéroïser sans vérifier détruirait la seconde.
+    zeroiser([gps.offset, gps.nextPointerOffset + 4]);
   }
 
   // Retrait de l'entrée GPSInfo d'IFD0.
