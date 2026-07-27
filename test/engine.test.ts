@@ -565,12 +565,13 @@ scenario('bloc-en-queue.heif — un bloc rangé en fin de fichier', () => {
   check('les items secondaires sont intacts', empreintesDesItems(out) === empreintesDesItems(chemin));
 });
 
-scenario('iphone-sans-lieu.heic — l\'ajout est refusé, pas tenté', () => {
+scenario('iphone-sans-lieu.heic — effacer une photo sans lieu ne touche rien', () => {
   const src = new Uint8Array(readFileSync(join(FIXTURES, 'iphone-sans-lieu.heic')));
   const c = conteneurOuEchec(src);
   check('aucune position au départ', lirePosition(c, src) === null);
 
-  // Erasing a file with no position succeeds without touching anything.
+  // Asking to remove what is not there must return the original, not a
+  // "cleaned" copy with a byte moved along the way.
   const res = effacerPosition(c, src);
   check('l\'effacement ne touche rien', res.bytes.length === src.length &&
     memesOctetsHorsPlages(src, res.bytes, []));
@@ -619,7 +620,16 @@ function verifierAjout(nom: string, chemin: string, src: Uint8Array, etiquette: 
   const validation = exif(['-validate', '-warning', '-a', out]);
   check(`${etiquette} : ExifTool ne signale aucun défaut de structure`,
     !/error|corrupt/i.test(validation), validation.trim().slice(0, 160));
-  check(`${etiquette} : un décodeur tiers ouvre encore le fichier`, seDecodeEncore(out));
+
+  // Symmetry rule, the same one applied to the second reader: if it could open
+  // the input, it must be able to open the output. If it could not, whether
+  // through a missing decoder or a format this install does not handle, its
+  // silence does not count as a failure on our part. An oracle queried without
+  // knowing whether it can answer proves nothing either way.
+  const ouvraitAvant = seDecodeEncore(chemin);
+  check(`${etiquette} : un décodeur tiers ouvre encore le fichier`,
+    !ouvraitAvant || seDecodeEncore(out),
+    ouvraitAvant ? 'libheif refuse la sortie' : "libheif n'ouvrait pas déjà l'entrée — sans objet");
 }
 
 scenario('iphone-sans-lieu.heic — ajout d\'une position', () => {
