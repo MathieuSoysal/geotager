@@ -26,7 +26,7 @@ entrée Q-012) :
 | `exifr` | ^7.1.3 | MIT | Lecture des métadonnées, et **relecture croisée** après écriture |
 | `client-zip` | ^2.5.0 | MIT | Export ZIP en mode lot |
 
-**Poids réel mesuré sur la build : 37 299 o gzip, soit 24,3 % du budget de 150 Ko.**
+**Poids réel mesuré sur la build : 43 130 o gzip, soit 28,1 % du budget de 150 Ko.**
 
 ### Développement seulement
 
@@ -36,6 +36,20 @@ entrée Q-012) :
 
 `exiftool` (Perl, Artistic/GPL) est utilisé comme **oracle de test externe**. Il n'entre pas dans le
 produit : aucune ligne de son code n'est distribuée, et il n'est requis que pour lancer les tests.
+Il sert aussi à **inscrire le lieu de départ** dans les fichiers de test des formats où aucun corpus
+public n'en fournit — voir `QUESTIONS.md`, entrée Q-035.
+
+### Corpus de test — licences
+
+Ces fichiers ne sont **pas committés** et ne sont téléchargés que pour les tests. Trois régimes,
+aucun inventé :
+
+| Source | Licence | Réserve |
+|---|---|---|
+| `ianare/exif-samples` | CC BY-SA 4.0 | Déclaration du `README.rst`, pas de fichier de licence. Dépôt **archivé** depuis avril 2025. |
+| `drewnoakes/metadata-extractor-images` | **indéterminée** | Aucun fichier de licence ; autorisation explicite du dépôt : « You are free to use these media files however you wish. » **Hors de l'allowlist**, voir Q-035. |
+| `AOMediaCodec/libavif` | BSD-2-Clause | — |
+| `gstatic.com/webp/gallery` | CC BY-SA 3.0 | Galerie de démonstration Google. |
 
 ### Écrit à la main plutôt qu'emprunté
 

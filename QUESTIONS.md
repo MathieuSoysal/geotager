@@ -645,3 +645,239 @@ il donne l'impression d'une protection qui n'existe pas.
 À repasser à **B** le jour où `geotagor.fr` est rattaché, si l'on préfère la ceinture aux bretelles.
 
 **Bloque :** non.
+
+---
+
+## [V1] Q-028 — L'ajout d'un lieu reste hors périmètre sur HEIC, AVIF et TIFF
+
+**Contexte :** Q-002 retenait « HEIC : lecture et suppression uniquement ». Le portage montre que
+la **correction** d'un lieu déjà présent est également atteignable, et à longueur strictement
+constante — donc sans aucun des risques qui motivaient l'exclusion. Mesuré sur une photo d'iPhone
+de 833 Ko : corriger touche **15 octets**, effacer **104**, et **zéro octet ailleurs**. L'ajout,
+lui, ferait grandir le bloc, donc bouger la table des emplacements, et c'est la seule opération qui
+demanderait un écrivain de conteneur. Le tableau à trois colonnes ne savait pas exprimer
+« corriger oui, ajouter non ».
+
+**Options :**
+- **A.** Quatre colonnes : Lire, Corriger, Ajouter, Effacer. Chaque case reste un oui ou un non, et
+  le tableau reste l'état réel du code.
+- **B.** Trois colonnes, la case « Modifier » portant « seulement si la photo en a déjà un ». Plus
+  compact, mais une case qui n'est ni oui ni non ouvre la porte aux formulations molles.
+- **C.** Implémenter l'ajout sur HEIC. Écarté : c'est le périmètre que Q-002 a écarté, et rien dans
+  ce portage ne l'a rendu moins risqué.
+
+**Retenu provisoirement :** **A**, parce que la quatrième colonne dit une vérité que la troisième ne
+pouvait pas dire, et parce qu'elle rend le tableau vérifiable case par case par un test.
+
+**Bloque :** non.
+
+---
+
+## [V1] Q-029 — Les photos qui rangent leurs informations autrement sont refusées
+
+**Contexte :** un emplacement d'item peut être décrit de trois façons : un décalage depuis le début
+du fichier, un décalage dans une petite boîte de données interne, ou une position dans un autre
+item. Seule la première est prise en charge. Mesuré sur les six fichiers du corpus : le bloc de
+position est **toujours** décrit de la première façon ; la deuxième ne sert qu'à l'item de grille.
+La troisième n'apparaît nulle part. Aucun fichier public accessible n'exerce donc l'écriture dans
+les deux autres.
+
+**Options :**
+- **A.** Refus explicite des deux autres formes, avec une phrase qui ne promet rien.
+- **B.** Prendre en charge la deuxième, techniquement à portée, mais sans test.
+- **C.** Les trois. Coût sans rapport avec la fréquence réelle.
+
+**Retenu provisoirement :** **A**, parce qu'un chemin d'écriture que nous ne pouvons pas éprouver
+est un chemin que nous ne devons pas livrer, et que celui-là écrirait au milieu d'un fichier de
+plusieurs mégaoctets.
+
+**Bloque :** non.
+
+---
+
+## [V1] Q-030 — La relecture croisée n'est pas indépendante au niveau du fichier
+
+**Contexte :** la page promet que chaque fichier produit est « relu par **deux moteurs
+indépendants** ». Sur JPEG c'est exact. Sur les nouveaux formats, c'est **notre** code qui localise
+le bloc à relire : la seconde lecture est indépendante là où la valeur est *encodée*, pas là où
+elle est *rangée*. Pire, le second lecteur **ne connaît pas le WebP** (vérifié dans sa source :
+`jpeg`, `tiff`, `png`, `heic`, `avif`, et rien d'autre) et refuse certains fichiers pour des raisons
+sans rapport avec nous. Exiger sa relecture du fichier entier faisait échouer toute écriture WebP —
+non parce que le fichier était mauvais, mais parce que le vérificateur ne savait pas l'ouvrir.
+
+**Options :**
+- **A.** Trois étages. Notre relecture repart des octets produits et relocalise le bloc depuis le
+  premier octet. Le second lecteur relit le **bloc extrait** — qui est un fichier valide à lui seul,
+  et qui est exactement la couche où vit le défaut de boutisme —, exigible sur tous les formats.
+  Sa relecture du **fichier entier** est soumise à une règle de symétrie : s'il savait ouvrir
+  l'entrée, il doit savoir ouvrir la sortie et être d'accord ; sinon son silence ne vaut pas échec.
+  La règle est exacte par construction là où nous ne touchons ni en-tête, ni table des
+  emplacements, ni aucune longueur.
+- **B.** Exiger la relecture complète par le second lecteur sur tous les formats. Refuserait des
+  opérations parfaitement saines à cause des limites du second lecteur, pas des nôtres.
+- **C.** Se contenter de la relecture du bloc. Aveugle à une erreur de localisation.
+
+**Retenu provisoirement :** **A**. Reste à trancher la formulation de la page : elle promet
+aujourd'hui « deux moteurs indépendants » sans condition, alors que sur WebP l'indépendance ne vaut
+qu'à l'échelle du bloc. **La phrase doit être corrigée avant la mise en ligne**, ou la garantie
+affichée fichier par fichier.
+
+**Bloque :** non pour le code, **oui** pour la formulation de la page d'accueil.
+
+---
+
+## [V1] Q-031 — Une copie du lieu que nous ne savons pas rouvrir bloque l'effacement
+
+**Contexte :** un fichier peut porter le lieu deux fois : dans le bloc principal, et dans un paquet
+de texte descriptif laissé par un logiciel de retouche. Quand ce paquet est **compressé**, ce moteur
+— synchrone — ne sait pas l'ouvrir : il ne peut donc ni affirmer qu'il porte un lieu, ni affirmer le
+contraire. Effacer le bloc principal en laissant cette copie rendrait un fichier que l'utilisateur
+croirait propre.
+
+**Options :**
+- **A.** Le doute vaut refus : l'effacement échoue, avec une phrase explicite, et l'original est
+  rendu intact.
+- **B.** Décompresser et recompresser avec les fonctions natives du navigateur — aucun poids ajouté,
+  mais le moteur devient asynchrone à cet endroit et cela demande sa propre série de tests et sa
+  propre fixture.
+- **C.** Effacer la copie principale et signaler l'autre. Écarté : c'est exactement l'échec
+  silencieux que le produit existe pour empêcher.
+
+**Retenu provisoirement :** **A** pour cette version, **B** pour la suivante, avec son test.
+
+**Bloque :** non.
+
+---
+
+## [V1] Q-032 — D'une seconde copie, on retire le lieu et rien d'autre
+
+**Contexte :** ce paquet de texte porte le lieu, mais aussi le titre, la légende, l'auteur et
+l'historique de retouche. Q-001 impose de purger le lieu ; elle ne dit pas jusqu'où.
+
+**Options :**
+- **A.** Purge ciblée des seules propriétés de lieu, par remplacement par des espaces — donc à
+  longueur constante, rien ne se déplace —, suivie d'un **re-balayage bloquant** : si un marqueur
+  subsiste, l'opération échoue et l'original est rendu intact.
+- **B.** Retrait du paquet entier. Simple, et détruit ce que l'utilisateur n'a pas demandé de perdre.
+
+**Retenu provisoirement :** **A**. C'est le re-balayage qui rend A honnête : sans lui, une purge
+incomplète serait une fuite ; avec lui, c'est un échec visible.
+
+**Bloque :** non.
+
+---
+
+## [V1] Q-033 — Une image WebP de forme simple n'a pas d'emplacement pour un lieu
+
+**Contexte :** seule la forme étendue du WebP prévoit une place pour ces informations. Lui en créer
+une exigerait de relire les dimensions dans le flux compressé, avec deux décodeurs d'en-tête
+distincts selon le mode d'encodage — pour un fichier où, par construction, il n'y a jamais rien à
+corriger ni à effacer.
+
+**Options :**
+- **A.** Lecture seule, et une phrase qui l'explique sans jargon. La distinction se jouant au niveau
+  du fichier et non du format, elle est annoncée fichier par fichier.
+- **B.** Créer l'emplacement. Deux décodeurs d'en-tête à écrire et à éprouver pour un cas sans
+  contenu à modifier.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non.
+
+---
+
+## [V1] Q-034 — Les drapeaux d'une image WebP peuvent mentir
+
+**Contexte :** l'en-tête étendu déclare ce que le fichier contient. Mesuré sur le corpus : un
+fichier réel porte un paquet de texte descriptif que ses drapeaux **ne déclarent pas**. Un autre
+nomme ce paquet `XMP\0` au lieu de `XMP `. Se fier aux drapeaux ferait manquer une copie du lieu.
+
+**Options :**
+- **A.** Lire la liste réelle des morceaux, jamais les drapeaux seuls ; et ne corriger un drapeau
+  que pour le morceau qu'on ajoute ou retire soi-même.
+- **B.** Corriger tous les drapeaux pour qu'ils décrivent la réalité. Modifierait des octets que
+  l'utilisateur n'a pas demandé de changer, sur un fichier dont l'incohérence lui préexiste.
+
+**Retenu provisoirement :** **A**. Réparer l'incohérence d'autrui n'est pas ce qu'on nous a demandé.
+
+**Bloque :** non.
+
+---
+
+## [V1] Q-035 — Le corpus de test est complété par l'oracle
+
+**Contexte :** la règle du projet interdit les fichiers fabriqués. Or aucun corpus public sous
+licence claire ne fournit de **PNG ni de TIFF géolocalisé** : deux recherches indépendantes de
+l'API de Wikimedia Commons, puis un échantillonnage avec lecture des métadonnées réelles, n'en
+remontent aucun. Commons n'héberge d'ailleurs ni HEIC ni AVIF.
+
+S'y ajoutent deux points de licence à inscrire plutôt qu'à contourner. `ianare/exif-samples`, source
+du corpus depuis la V0, est **archivé** et ses images sont sous **CC BY-SA 4.0** — licence qui ne
+figurait pas dans `CREDITS.md`. `drewnoakes/metadata-extractor-images` n'a **aucun fichier de
+licence**, seulement une autorisation explicite du dépôt (« You are free to use these media files
+however you wish. ») : cela sort de l'allowlist MIT/BSD/Apache-2.0.
+
+**Options :**
+- **A.** Récupérer un vrai fichier d'appareil par format, et y faire écrire le lieu de départ par
+  **ExifTool**. Le conteneur reste une sortie d'appareil réelle ; les octets du lieu viennent d'une
+  implémentation indépendante de la nôtre, donc notre lecteur doit comprendre l'écriture d'un tiers
+  — ce qui est plus exigeant qu'un échantillon trouvé déjà géolocalisé.
+- **B.** Convertir un JPEG réel vers chaque format. Produit une structure d'outil de conversion et
+  non d'appareil : on perd exactement ce que le corpus doit exposer.
+- **C.** Renoncer aux formats sans échantillon. Revient à ne pas livrer PNG ni TIFF.
+
+**Retenu provisoirement :** **A**, et le drapeau `requis` du script de corpus traduit mécaniquement
+la règle du projet : un fichier requis manquant fait échouer toute la chaîne, un fichier facultatif
+manquant n'émet qu'un avertissement et sa ligne du tableau doit rester à « pas encore ».
+
+**Bloque :** non pour le code, **oui** pour la mise à jour de `CREDITS.md`, faite dans ce lot.
+
+---
+
+## [V1] Q-036 — « Tout effacer » retire le profil de couleurs d'un JPEG
+
+**Contexte :** `stripAllMetadata` supprime **tous** les blocs d'en-tête d'un JPEG, profil
+colorimétrique compris. Sur une photo d'iPhone, perdre le profil décale visiblement les couleurs
+dans toute application gérée en couleur. `docs/gate1/att_exif.md` §4 exige l'inverse : profil
+présent avant, présent après. Les conteneurs PNG et WebP écrits dans ce lot conservent le profil ;
+le comportement JPEG, lui, préexiste à ce lot et n'entre pas dans le périmètre demandé.
+
+Point distinct et traité, celui-là : le bouton était actif dès que l'effacement l'était, et serait
+devenu cliquable sur des formats où « tout effacer » n'existe pas, pour échouer **après** le clic.
+
+**Options :**
+- **A.** Le bouton n'est actif que là où l'opération existe — fait dans ce lot —, et le
+  comportement JPEG est corrigé dans un lot dédié, avec un test qui compare l'empreinte du profil
+  avant et après.
+- **B.** Corriger le comportement JPEG ici même. Écarté : élargir le périmètre d'un lot en cours
+  est précisément la dérive par accumulation de bonnes décisions isolées que ce registre existe
+  pour empêcher.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non.
+
+---
+
+## [V1] Q-037 — Une position absente était annoncée comme valide au point (0, 0)
+
+**Contexte :** trois fichiers réels du corpus portent un bloc de position **sans coordonnées
+exploitables** : un Galaxy S10 sans relevé écrit des rationnels `0/0`, un AVIF passé par GIMP garde
+`0/1 0/1 0/1`. Le moteur livré remplaçait un dénominateur nul par zéro, puis validait `|0| ≤ 90` :
+il annonçait donc **une position parfaitement valide au large du golfe de Guinée** pour un fichier
+qui n'en porte aucune. Vérifié en exécutant le lecteur du dépôt sur ces fichiers. Le défaut était
+invisible en V0 — aucun JPEG du corpus ne l'expose — et devient courant dès qu'on ouvre les
+conteneurs.
+
+**Options :**
+- **A.** Un dénominateur nul rend « illisible », et une latitude **et** une longitude exactement
+  nulles rendent « aucune position ». Le point (0, 0) est en pleine mer ; aucun appareil ne
+  l'écrit pour de bon, et annoncer « nulle part » est la seule réponse honnête.
+- **B.** Afficher (0, 0) tel quel, puisque c'est ce que contient le fichier. Écarté : la question
+  posée par l'utilisateur est « où cette photo a-t-elle été prise ? », pas « quels octets porte
+  ce fichier ? ».
+
+**Retenu provisoirement :** **A**. Un fichier sans lieu annoncé comme géolocalisé est l'échec
+silencieux que tout le projet cherche à empêcher.
+
+**Bloque :** non.
