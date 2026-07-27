@@ -82,6 +82,9 @@ export const MATRICE: LigneMatrice[] = [
   {
     formats: ['tiff'],
     libelle: 'TIFF',
+    // In plain words: a camera raw file is a TIFF, and the row would otherwise
+    // announce an add it refuses on those.
+    mention: 'hors fichiers bruts',
     // A digital negative is a TIFF, and adding bytes to one would damage an
     // irreplaceable original. "Add" is therefore only open to files that prove
     // they are ordinary images, from an allowlist tested both ways on real

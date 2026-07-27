@@ -32,7 +32,12 @@ jobs:
       - name: Installer les oracles externes
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libimage-exiftool-perl libheif-examples
+          # On Ubuntu 24.04 libheif decodes nothing on its own: its decoders are
+          # separate packages. Without libde265 it opens no HEIC, without dav1d
+          # no AVIF, and the oracle would report perfectly sound files as
+          # unreadable.
+          sudo apt-get install -y -qq libimage-exiftool-perl libheif-examples \
+            libheif-plugin-libde265 libheif-plugin-dav1d libheif-plugin-aomdec
           exiftool -ver
           heif-info --version || true
 
