@@ -8,28 +8,37 @@
   "name": "geotager",
   "compatibility_date": "2026-07-27",
 
-  // AMORÇAGE — voir QUESTIONS.md, entrée Q-023.
-  // Le répertoire pointe aujourd'hui sur "./site", qui est committé, afin que
-  // le déploiement fonctionne sans étape de build. Au démarrage de la V0,
-  // Astro produira "./dist" : cette ligne devient "./dist" et "site/" disparaît.
+  // Astro produit "./dist". La commande de build du tableau de bord doit être
+  // "npm run build", qui enchaîne astro build puis les contrôles bloquants.
   "assets": {
-    "directory": "./site"
+    "directory": "./dist"
   },
 
-  // Supprime l'hôte geotager.<sous-domaine>.workers.dev. Sans cela, le site
-  // existerait en double sur un domaine indexable — problème que Cloudflare
-  // Pages obligeait à colmater et que Workers permet de supprimer.
-  "workers_dev": false,
+  // L'hôte technique reste ACTIF, et c'est un choix, pas un oubli.
+  //
+  // À « false », la production n'a aucune URL publique tant qu'un domaine
+  // personnalisé n'est pas rattaché : le déploiement réussit et reste
+  // inatteignable. Le risque que « false » écartait — un site indexé en double
+  // sur un domaine technique — est déjà traité par les règles X-Robots-Tag
+  // scopées par hôte dans public/_headers, qui est la parade que Cloudflare
+  // documente lui-même. À repasser à « false » le jour où geotagor.fr est
+  // rattaché, si l'on préfère la ceinture aux bretelles.
+  "workers_dev": true,
 
   // Depuis Wrangler 4.44.0, preview_urls suit workers_dev par défaut. On le
   // réactive explicitement : les URL de prévisualisation sont ce qui rend les
   // contrôles du Gate 2 exécutables avant la mise en production.
   //
-  // ⚠️ NÉCESSAIRE MAIS PAS SUFFISANT. Pour que l'URL de prévisualisation soit
-  // générée et publiée en commentaire de PR, il faut EN PLUS activer les builds
-  // de branches non-production, qui est un réglage de tableau de bord que ce
-  // fichier ne peut pas porter :
-  //   Settings > Build > Branch control > Non-production branch builds
-  // Vérifier au même endroit que la branche de production est bien « main ».
+  // NÉCESSAIRE MAIS PAS SUFFISANT : la génération des URL de prévisualisation
+  // et leur publication en commentaire de PR dépendent aussi de deux réglages
+  // de tableau de bord que ce fichier ne peut pas porter, sous
+  // Settings > Build > Branch control. Configuration confirmée le 27/07/2026 :
+  //   - branche de production : main
+  //   - builds de branches non-production : activés
+  //
+  // Ces réglages avaient d'abord la branche de travail comme branche de
+  // production, ce qui déployait le code non relu directement en ligne et
+  // rendait toute prévisualisation impossible — une branche de production
+  // n'est pas prévisualisée, elle EST la production.
   "preview_urls": true
 }

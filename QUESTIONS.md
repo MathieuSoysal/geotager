@@ -562,3 +562,86 @@ Deux dettes explicites, à solder au premier commit de la V0 :
    fichiers.
 
 **Bloque :** non.
+
+---
+
+## [V0] Q-024 — Polices système au lieu des polices de la maquette
+
+**Contexte :** le §8 fixe Bricolage Grotesque, Outfit et DM Mono, auto-hébergées. Le plan avait déjà
+ramené le compte à deux familles (56 164 o de woff2). La V0 n'en embarque **aucune** et utilise la
+pile système.
+
+**Options :**
+- **A.** Pile système. Zéro octet de police, zéro risque de reflow au basculement, LCP non exposé.
+  L'identité visuelle repose sur la couleur, la forme et la mise en page, qui sont conservées.
+- **B.** Les deux familles auto-hébergées, `font-display: optional`. Fidèle à la maquette, +56 Ko
+  incompressibles sur le chemin critique.
+
+**Retenu provisoirement :** **A** pour la V0, parce que c'est le moins engageant et que le budget
+sert d'abord au moteur. À rouvrir dès que le reste est stable — c'est un choix esthétique autant que
+technique, et il appartient à Mathieu.
+
+**Bloque :** non.
+
+---
+
+## [V0] Q-025 — Ni carte ni recherche de commune en V0
+
+**Contexte :** le plan conclut (§0, C3) que la carte ne peut pas servir de viseur et qu'elle
+*situe* sans permettre de *viser*. La V0 livre donc la saisie de coordonnées et le collage depuis une
+carte tierce, sans carte intégrée ni index de communes.
+
+**Options :**
+- **A.** Coordonnées seules en V0. Le parcours est honnête : on ne montre pas une carte qui ne sait
+  pas faire ce qu'on lui demanderait.
+- **B.** Carte SVG maison dès la V0 (Q-008), sans index.
+- **C.** Carte + index de communes (349,4 Ko), soit le périmètre V1 complet.
+
+**Retenu provisoirement :** **A**. L'index de communes reste le vrai mécanisme de précision et
+mérite d'arriver avec la carte, pas avant.
+
+**Bloque :** non.
+
+---
+
+## [V0] Q-026 — La télémétrie d'Astro était active
+
+**Contexte :** au premier build, Astro a annoncé collecter des données d'usage anonymes. C'est une
+télémétrie de construction, pas d'exécution — elle ne touche pas les visiteurs — mais elle est
+contraire à l'esprit du projet et n'avait été anticipée nulle part dans le plan.
+
+**Retenu :** `ASTRO_TELEMETRY_DISABLED=1` est posé dans le script `build` de `package.json`, donc
+committé et appliqué aussi sur le build Cloudflare. Un réglage global de la machine n'aurait pas
+suivi le dépôt.
+
+**Bloque :** non. Signalé parce que toute dépendance de build mérite la même question.
+
+---
+
+## [V0] Q-027 — L'hôte technique reste actif, avec noindex
+
+**Contexte :** le plan (§7.2) retenait `workers_dev: false` pour supprimer l'hôte technique
+indexable. À l'usage, cette valeur a un effet non anticipé : **tant qu'aucun domaine personnalisé
+n'est rattaché, la production n'a aucune URL publique**. Le déploiement réussit et le site reste
+inatteignable — ni pour Mathieu, ni pour les contrôles du Gate 2.
+
+S'y ajoute une erreur découverte au même moment : les règles `X-Robots-Tag` de `public/_headers`
+utilisaient la syntaxe **Pages** (`https://:project.pages.dev/*`, deux étiquettes). Sur Workers,
+l'hôte est `<worker>.<sous-domaine>.workers.dev`, soit **trois** étiquettes, et un placeholder ne
+traverse pas le point. **Ces règles ne matchaient donc rien** : le domaine technique aurait été
+indexable sans protection si `workers_dev` avait été à `true`.
+
+**Options :**
+- **A.** `workers_dev: true` **plus** les règles `noindex` corrigées à la forme Workers. Le site
+  devient consultable immédiatement, et le domaine technique est protégé par la parade que
+  Cloudflare documente lui-même.
+- **B.** `workers_dev: false` maintenu, et attendre le rattachement de `geotagor.fr`. Rien n'est
+  consultable d'ici là, y compris pour vérifier le travail.
+
+**Retenu : A**, et un contrôle de build bloquant refuse désormais tout motif `workers.dev` comptant
+moins de deux étiquettes avant le domaine. Un motif d'hôte qui ne matche rien est pire qu'absent :
+il donne l'impression d'une protection qui n'existe pas.
+
+À repasser à **B** le jour où `geotagor.fr` est rattaché, si l'on préfère la ceinture aux bretelles.
+
+**Bloque :** non.

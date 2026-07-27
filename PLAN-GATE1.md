@@ -749,7 +749,15 @@ bloqué — et surtout pas `'unsafe-eval'`, plus large) et **`worker-src`** expl
 *« commits made on the production git branch will produce a Workers Build. If you want to take
 advantage of preview URLs and pull request comments, you can additionally enable "non-production
 branch builds" »*. C'est un réglage **de tableau de bord**, que Wrangler ne peut pas porter :
-**Settings > Build > Branch control**.
+**Settings > Build > Branch control**. Configuration confirmée le 27/07/2026 —
+branche de production `main`, builds de branches non-production activés.
+
+⚠️ **Ce que le premier réglage cachait.** Jusque-là, la branche de production était la branche de
+travail. Preuve : `main` ne contenait que la page d'attente quand le site public servait déjà
+l'application. Deux conséquences — aucune prévisualisation n'était possible (une branche de
+production n'est pas prévisualisée, elle *est* la production), et **chaque push mettait du code non
+relu en ligne**. À surveiller si le projet change un jour de dépôt ou de compte : rien dans le
+dépôt ne protège de ce réglage.
 
 Une fois activé, Cloudflare publie automatiquement **deux** URL en commentaire de PR :
 
