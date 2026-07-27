@@ -81,6 +81,13 @@ export interface Conteneur {
   reconstruire?(b: Uint8Array, vise: Emplacement | null, tiff: Uint8Array): Pose;
 
   /**
+   * Affine `reconstruire` fichier par fichier, quand le format lui-même ne
+   * tranche pas : un WebP étendu tolère de grandir, la forme simple non, et
+   * c'est le même format.
+   */
+  accepteAjout?(b: Uint8Array): boolean;
+
+  /**
    * Plages que le conteneur doit lui-même réécrire pour que le fichier reste
    * cohérent : somme de contrôle d'un morceau PNG, taille globale d'un RIFF,
    * drapeaux d'un en-tête étendu. Elles sont hors du bloc TIFF, et sans cette

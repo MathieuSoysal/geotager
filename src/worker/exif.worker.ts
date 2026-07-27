@@ -106,10 +106,15 @@ function sonder(bytes: Uint8Array): Sonde {
   // du bloc principal rendrait un fichier que l'utilisateur croirait propre.
   const copieAilleurs = conteneur.copieDuLieuAilleurs?.(bytes) ?? false;
 
+  // Certains formats ne tranchent pas au niveau du format : un WebP étendu
+  // tolère de grandir, la forme simple non, et c'est le même format.
+  const peutGrandir =
+    statiques.ajouter && Boolean(conteneur.reconstruire) && (conteneur.accepteAjout?.(bytes) ?? true);
+
   const capacites: Capacites = {
     lire: statiques.lire,
-    corriger: statiques.corriger && (surPlace || statiques.ajouter) && !copieAilleurs,
-    ajouter: statiques.ajouter && !copieAilleurs,
+    corriger: statiques.corriger && (surPlace || peutGrandir) && !copieAilleurs,
+    ajouter: peutGrandir && !copieAilleurs,
     effacer: statiques.effacer && !copieAilleurs,
     effacerTout: statiques.effacerTout && !copieAilleurs,
   };
@@ -123,6 +128,9 @@ function sonder(bytes: Uint8Array): Sonde {
     motif = 'ok';
   } else if (blocs.length === 0 && !statiques.ajouter) {
     motif = 'sans-emplacement';
+  } else if (statiques.ajouter) {
+    // Le format saurait grandir, mais pas cette variante-là.
+    motif = 'sans-lieu-possible';
   } else {
     motif = 'sans-lieu';
   }

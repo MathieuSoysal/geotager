@@ -658,5 +658,121 @@ scenario('texte.png — tout effacer garde le profil de couleurs', () => {
 });
 
 
+/* ------------------------------------------------------------------ */
+/* WebP                                                                */
+/*                                                                     */
+/* Trois travers de vrais fichiers sont exercés ici : un bloc précédé   */
+/* du préambule d'un JPEG, un morceau de texte mal nommé, et des        */
+/* drapeaux d'en-tête qui ne décrivent pas le contenu réel.             */
+/* ------------------------------------------------------------------ */
+
+scenario('avec-lieu.webp — lecture, correction et effacement', () => {
+  const chemin = join(FIXTURES, 'avec-lieu.webp');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const avant = inventory(chemin);
+
+  const nous = lirePosition(c, src);
+  const eux = exifPosition(chemin);
+  check('une position est lue', nous !== null && eux !== null);
+  if (nous && eux) check('accord avec ExifTool à moins de 0,1 m', distanceMetres(nous, eux) < 0.1);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'set.webp');
+  writeFileSync(out, res.bytes);
+  check('voie P1 (édition sur place)', res.route === 'P1');
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position demandée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('le profil de couleurs survit', /ICC|Profile/i.test(exif(['-a', '-G1', '-s', '-ICC_Profile:all', out])),
+    'aucun profil relu');
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+
+  const efface = effacerPosition(c, src);
+  const out2 = join(tmp, 'del.webp');
+  writeFileSync(out2, efface.bytes);
+  check('l\'effacement est à longueur constante', efface.bytes.length === src.length);
+  check('rien hors des plages annoncées à l\'effacement',
+    memesOctetsHorsPlages(src, efface.bytes, efface.changed));
+  check('aucun tag GPS résiduel', exif(['-a', '-G1', '-s', '-GPS:all', out2]).trim() === '');
+});
+
+scenario('prefixe.webp — un bloc précédé du préambule d\'un JPEG', () => {
+  const chemin = join(FIXTURES, 'prefixe.webp');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+
+  check('la position est lue malgré le préambule', lirePosition(c, src) !== null);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'set-prefixe.webp');
+  writeFileSync(out, res.bytes);
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('le préambule est conservé tel quel',
+    memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position demandée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+});
+
+scenario('sans-lieu.webp — ajout d\'une position', () => {
+  const chemin = join(FIXTURES, 'sans-lieu.webp');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const avant = inventory(chemin);
+  check('aucune position au départ', lirePosition(c, src) === null);
+  check('la forme étendue accepte de grandir', c.accepteAjout?.(src) === true);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'add.webp');
+  writeFileSync(out, res.bytes);
+  check('voie P2 (le bloc a dû grandir)', res.route === 'P2');
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  check('la taille déclarée correspond au fichier',
+    res.bytes.length === 8 + (res.bytes[4] | (res.bytes[5] << 8) | (res.bytes[6] << 16) | (res.bytes[7] << 24)));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position ajoutée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('ExifTool ne signale aucune anomalie de structure',
+    !/error|corrupt|invalid/i.test(exif(['-validate', '-warning', '-a', out])),
+    exif(['-validate', '-warning', '-a', out]).trim().slice(0, 140));
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+});
+
+scenario('lieu-degenere.webp — un bloc de position incomplet', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'lieu-degenere.webp')));
+  const c = conteneurOuEchec(src);
+  check('aucune position exploitable n\'est annoncée', lirePosition(c, src) === null);
+  // Le format sait grandir : on peut donc réécrire un bloc complet plutôt que
+  // de refuser. C'est la différence avec une photo d'iPhone.
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'set-degenere.webp');
+  writeFileSync(out, res.bytes);
+  check('la position peut être écrite malgré tout',
+    exifPosition(out) !== null && distanceMetres(exifPosition(out)!, AVIGNON) < 0.1);
+});
+
+scenario('simple.webp — la forme simple reste en lecture seule', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'simple.webp')));
+  const c = conteneurOuEchec(src);
+  check('aucun emplacement pour un lieu', c.localiser(src).length === 0);
+  check('la forme simple refuse de grandir', c.accepteAjout?.(src) === false);
+  let code = '';
+  try {
+    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  } catch (e: any) {
+    code = e.code;
+  }
+  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+});
+
+
 console.log(`\n${passed} réussis, ${failed} échoués`);
 process.exit(failed === 0 ? 0 : 1);

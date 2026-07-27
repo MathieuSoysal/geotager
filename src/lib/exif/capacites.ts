@@ -70,7 +70,15 @@ export const MATRICE: LigneMatrice[] = [
     // donc l'ajout est sûr. C'est le seul format de ce lot dans ce cas.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
-  { formats: ['webp'], libelle: 'WebP', capacites: LECTURE_SEULE },
+  {
+    formats: ['webp'],
+    libelle: 'WebP',
+    // La forme simple n'a aucun emplacement prévu pour un lieu : il n'y a rien
+    // à y lire ni à y corriger, et lui en créer un est hors de portée.
+    // L'interface le dit fichier par fichier, avant l'action.
+    mention: 'forme étendue',
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
+  },
   { formats: ['tiff'], libelle: 'TIFF', capacites: LECTURE_SEULE },
   { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },
 ];
