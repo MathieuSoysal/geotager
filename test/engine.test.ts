@@ -762,5 +762,82 @@ scenario('simple.webp — la forme simple reste en lecture seule', () => {
   check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
 });
 
+// TIFF
+//
+// Here the file is the block: the pixels live inside it, addressed
+// by strip offsets. The range map is the only thing that
+// protects them, and that is what these scenarios exercise.
+
+for (const [nom, quoi] of [
+  ['avec-lieu.tif', 'gros-boutiste, une bande'],
+  ['bandes-avec-lieu.tif', 'petit-boutiste, soixante et une bandes'],
+] as const) {
+  scenario(`${nom} — ${quoi}`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const c = conteneurOuEchec(src);
+    const avant = inventory(chemin);
+    const pixelsAvant = exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim();
+
+    const nous = lirePosition(c, src);
+    const eux = exifPosition(chemin);
+    check('une position est lue', nous !== null && eux !== null);
+    if (nous && eux) check('accord avec ExifTool à moins de 0,1 m', distanceMetres(nous, eux) < 0.1);
+
+    const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+    const out = join(tmp, `set-${nom}`);
+    writeFileSync(out, res.bytes);
+    check('voie P1 (édition sur place)', res.route === 'P1');
+    check('taille identique à l\'octet près', res.bytes.length === src.length);
+    check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+    const relu = exifPosition(out);
+    check('ExifTool relit la position demandée',
+      relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+    check('les bandes de pixels sont intactes',
+      exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
+    check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+      diffResume(avant, inventory(out)));
+
+    const efface = effacerPosition(c, src);
+    const out2 = join(tmp, `del-${nom}`);
+    writeFileSync(out2, efface.bytes);
+    check('l\'effacement est à longueur constante', efface.bytes.length === src.length);
+    check('rien hors des plages annoncées à l\'effacement',
+      memesOctetsHorsPlages(src, efface.bytes, efface.changed));
+    check('aucun tag GPS résiduel', exif(['-a', '-G1', '-s', '-GPS:all', out2]).trim() === '');
+    check('les bandes de pixels survivent à l\'effacement',
+      exif(['-s', '-s', '-s', '-ImageSize', out2]).trim() === pixelsAvant);
+    check('tout le reste est préservé après effacement',
+      JSON.stringify(avant) === JSON.stringify(inventory(out2)), diffResume(avant, inventory(out2)));
+  });
+}
+
+scenario('gros-boutiste.tif — l\'ajout est refusé sur un TIFF', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'gros-boutiste.tif')));
+  const c = conteneurOuEchec(src);
+  check('aucune position au départ', lirePosition(c, src) === null);
+  let code = '';
+  try {
+    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  } catch (e: any) {
+    code = e.code;
+  }
+  // A digital negative is a TIFF. We could not tell them apart reliably, and a
+  // wrong heuristic would destroy an original here.
+  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+});
+
+scenario('Un TIFF large est refusé plutôt que lu de travers', () => {
+  const large = new Uint8Array(16);
+  large[0] = 0x49; large[1] = 0x49; large[2] = 43; // « II » puis la magie 43
+  let code = '';
+  try {
+    conteneurDe(large);
+  } catch (e: any) {
+    code = e.code;
+  }
+  check('la variante large est reconnue et refusée', code === 'FORMAT_NON_PRIS_EN_CHARGE', code);
+});
+
 console.log(`\n${passed} réussis, ${failed} échoués`);
 process.exit(failed === 0 ? 0 : 1);

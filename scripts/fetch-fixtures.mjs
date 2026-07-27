@@ -76,6 +76,11 @@ const FICHIERS = [
     role: 'Nikon D1X — bloc de position présent mais incomplet' },
   { nom: 'simple.webp', url: 'https://www.gstatic.com/webp/gallery/4.webp', requis: true,
     role: 'Forme simple, sans emplacement prévu pour un lieu — reste en lecture seule' },
+
+  { nom: 'gros-boutiste.tif', url: `${IANARE}/tiff/Arbitro.tiff`, requis: true,
+    role: 'TIFF gros-boutiste, une seule bande de pixels' },
+  { nom: 'multi-bandes.tif', url: `${IANARE}/tiff/Picoawards.tiff`, requis: true,
+    role: 'TIFF petit-boutiste à soixante et une bandes de pixels' },
 ];
 
 /**
@@ -92,6 +97,16 @@ const PREPARES = [
     nom: 'texte-avec-lieu.png', depuis: 'texte.png', requis: true,
     role: 'PNG dont le paquet de texte porte une seconde copie du lieu',
     args: ['-xmp:GPSLatitude=43.9493', '-xmp:GPSLongitude=4.8055'],
+  },
+  {
+    nom: 'avec-lieu.tif', depuis: 'gros-boutiste.tif', requis: true,
+    role: 'TIFF gros-boutiste portant le bloc de position d\'un vrai Nikon',
+    args: ['-tagsfromfile', join(DIR, 'DSCN0010.jpg'), '-gps:all'],
+  },
+  {
+    nom: 'bandes-avec-lieu.tif', depuis: 'multi-bandes.tif', requis: true,
+    role: 'TIFF à soixante et une bandes portant le bloc de position d\'un vrai Nikon',
+    args: ['-tagsfromfile', join(DIR, 'DSCN0010.jpg'), '-gps:all'],
   },
 ];
 
