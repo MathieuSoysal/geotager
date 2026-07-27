@@ -233,11 +233,18 @@ const jsonLd = {
           <li>Téléchargez. Le nom d'origine est conservé, précédé d'une mention indiquant ce qui a été fait.</li>
         </ol>
         <p>
-          Chaque fichier produit est <strong>relu avant de vous être remis</strong>, par deux
-          lecteurs indépendants. Si la position relue ne correspond pas à celle demandée, l'opération
-          est déclarée en échec et votre fichier d'origine vous est rendu intact. Sur un outil de ce
-          genre, l'échec silencieux est le pire défaut possible&nbsp;: il vous ferait publier une
-          photo en croyant l'avoir nettoyée.
+          Chaque fichier produit est <strong>relu avant de vous être remis</strong>, par notre
+          lecteur et par un second écrit par d'autres. Si la position relue ne correspond pas à celle
+          demandée, si une trace subsiste après un effacement, ou si les deux lecteurs ne disent pas
+          la même chose, l'opération est déclarée en échec et votre fichier d'origine vous est rendu
+          intact. Sur un outil de ce genre, l'échec silencieux est le pire défaut possible&nbsp;: il
+          vous ferait publier une photo en croyant l'avoir nettoyée.
+        </p>
+        <p>
+          Nous vérifions aussi que le fichier rendu est <strong>identique à l'original partout
+          ailleurs</strong> qu'à l'endroit du lieu, octet par octet. C'est ce qui nous permet de
+          modifier une photo de plusieurs mégaoctets sans jamais la décoder&nbsp;: nous ne
+          promettons pas qu'elle est restée intacte, nous le montrons.
         </p>
 
         <h2 id="limites">Ce que l'outil sait faire, et ce qu'il ne sait pas encore</h2>
