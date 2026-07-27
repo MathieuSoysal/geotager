@@ -504,7 +504,13 @@ export function ecrirePositionParAjout(
     w += 12;
   }
   if (!wroteGps) writeGpsEntry();
-  writeU32(out, base + 2 + newIfd0Count * 12, view.ifd0.next, e);
+  // The link to the next IFD is only copied if it leads somewhere. A real file
+  // can carry a pointer that does not resolve: the one in
+  // `sampleWithExifData.png` targets byte 169 of a 171-byte block. While the
+  // block ends there no reader follows it; once the block grows, that pointer
+  // would suddenly become reachable and lead into arbitrary data. Preserving a
+  // link we cannot validate turns a dormant inconsistency into a damaged file.
+  writeU32(out, base + 2 + newIfd0Count * 12, view.ifd1 ? view.ifd0.next : 0, e);
 
   // GPS IFD
   writeU16(out, gpsIfdOffset, fields.length, e);

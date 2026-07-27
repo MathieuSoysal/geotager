@@ -62,7 +62,13 @@ export const MATRICE: LigneMatrice[] = [
     // length and moves no byte.
     capacites: { lire: true, corriger: true, ajouter: false, effacer: true, effacerTout: false },
   },
-  { formats: ['png'], libelle: 'PNG', capacites: LECTURE_SEULE },
+  {
+    formats: ['png'],
+    libelle: 'PNG',
+    // No internal absolute offsets: growing a chunk invalidates nothing, so
+    // adding is safe. It is the only format here in that position.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
+  },
   { formats: ['webp'], libelle: 'WebP', capacites: LECTURE_SEULE },
   { formats: ['tiff'], libelle: 'TIFF', capacites: LECTURE_SEULE },
   { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },
