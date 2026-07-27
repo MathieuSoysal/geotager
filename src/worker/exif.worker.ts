@@ -12,8 +12,8 @@ import {
   writeGpsToJpeg,
   deleteGpsFromJpeg,
   stripAllMetadata,
-  ExifError,
 } from '../lib/exif/jpeg.ts';
+import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres } from '../lib/exif/coords.ts';
 import type {
   Format,
