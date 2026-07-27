@@ -156,12 +156,39 @@ if (totalGzip > BUDGET_JS_GZIP) {
 const headers = join(DIR, '_headers');
 if (existsSync(headers)) {
   let motif = '';
+  const motifsNoindex = [];
   for (const ligne of readFileSync(headers, 'utf8').split('\n')) {
-    if (/^\S/.test(ligne)) motif = ligne.trim();
-    else if (/x-robots-tag/i.test(ligne) && !motif.startsWith('https://')) {
+    if (/^\S/.test(ligne) && !ligne.startsWith('#')) motif = ligne.trim();
+    else if (/x-robots-tag/i.test(ligne)) {
       // Un X-Robots-Tag sous motif relatif s'appliquerait au domaine canonique
       // et désindexerait le site. Il ne doit exister que scopé par hôte.
-      echecs.push(`_headers : X-Robots-Tag sous le motif relatif « ${motif} »`);
+      if (!motif.startsWith('https://')) {
+        echecs.push(`_headers : X-Robots-Tag sous le motif relatif « ${motif} »`);
+      } else {
+        motifsNoindex.push(motif);
+      }
+    }
+  }
+
+  /*
+   * Un motif d'hôte qui ne matche rien est pire qu'absent : il donne
+   * l'impression que le domaine technique est protégé alors qu'il ne l'est pas.
+   * Sur Workers l'hôte est <worker>.<sous-domaine>.workers.dev, soit trois
+   * étiquettes ; la syntaxe Pages n'en avait que deux, et un placeholder ne
+   * traverse pas le point. On exige donc le bon compte.
+   */
+  const hoteWorkers = motifsNoindex.filter((m) => m.includes('.workers.dev'));
+  if (hoteWorkers.length === 0) {
+    echecs.push('_headers : aucun X-Robots-Tag ne couvre le domaine technique workers.dev');
+  }
+  for (const m of hoteWorkers) {
+    const hote = m.replace(/^https:\/\//, '').split('/')[0];
+    const avant = hote.slice(0, -'.workers.dev'.length).split('.').filter(Boolean);
+    if (avant.length < 2) {
+      echecs.push(
+        `_headers : le motif « ${m} » ne peut rien matcher — l'hôte Workers ` +
+          `comporte <worker>.<sous-domaine>.workers.dev, il faut au moins deux étiquettes`,
+      );
     }
   }
 }

@@ -14,10 +14,16 @@
     "directory": "./dist"
   },
 
-  // Supprime l'hôte geotager.<sous-domaine>.workers.dev. Sans cela, le site
-  // existerait en double sur un domaine indexable — problème que Cloudflare
-  // Pages obligeait à colmater et que Workers permet de supprimer.
-  "workers_dev": false,
+  // L'hôte technique reste ACTIF, et c'est un choix, pas un oubli.
+  //
+  // À « false », la production n'a aucune URL publique tant qu'un domaine
+  // personnalisé n'est pas rattaché : le déploiement réussit et reste
+  // inatteignable. Le risque que « false » écartait — un site indexé en double
+  // sur un domaine technique — est déjà traité par les règles X-Robots-Tag
+  // scopées par hôte dans public/_headers, qui est la parade que Cloudflare
+  // documente lui-même. À repasser à « false » le jour où geotagor.fr est
+  // rattaché, si l'on préfère la ceinture aux bretelles.
+  "workers_dev": true,
 
   // Depuis Wrangler 4.44.0, preview_urls suit workers_dev par défaut. On le
   // réactive explicitement : les URL de prévisualisation sont ce qui rend les

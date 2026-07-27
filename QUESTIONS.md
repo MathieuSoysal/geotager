@@ -615,3 +615,33 @@ committé et appliqué aussi sur le build Cloudflare. Un réglage global de la m
 suivi le dépôt.
 
 **Bloque :** non. Signalé parce que toute dépendance de build mérite la même question.
+
+---
+
+## [V0] Q-027 — L'hôte technique reste actif, avec noindex
+
+**Contexte :** le plan (§7.2) retenait `workers_dev: false` pour supprimer l'hôte technique
+indexable. À l'usage, cette valeur a un effet non anticipé : **tant qu'aucun domaine personnalisé
+n'est rattaché, la production n'a aucune URL publique**. Le déploiement réussit et le site reste
+inatteignable — ni pour Mathieu, ni pour les contrôles du Gate 2.
+
+S'y ajoute une erreur découverte au même moment : les règles `X-Robots-Tag` de `public/_headers`
+utilisaient la syntaxe **Pages** (`https://:project.pages.dev/*`, deux étiquettes). Sur Workers,
+l'hôte est `<worker>.<sous-domaine>.workers.dev`, soit **trois** étiquettes, et un placeholder ne
+traverse pas le point. **Ces règles ne matchaient donc rien** : le domaine technique aurait été
+indexable sans protection si `workers_dev` avait été à `true`.
+
+**Options :**
+- **A.** `workers_dev: true` **plus** les règles `noindex` corrigées à la forme Workers. Le site
+  devient consultable immédiatement, et le domaine technique est protégé par la parade que
+  Cloudflare documente lui-même.
+- **B.** `workers_dev: false` maintenu, et attendre le rattachement de `geotagor.fr`. Rien n'est
+  consultable d'ici là, y compris pour vérifier le travail.
+
+**Retenu : A**, et un contrôle de build bloquant refuse désormais tout motif `workers.dev` comptant
+moins de deux étiquettes avant le domaine. Un motif d'hôte qui ne matche rien est pire qu'absent :
+il donne l'impression d'une protection qui n'existe pas.
+
+À repasser à **B** le jour où `geotagor.fr` est rattaché, si l'on préfère la ceinture aux bretelles.
+
+**Bloque :** non.

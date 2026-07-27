@@ -12,7 +12,7 @@
 
 # Le domaine technique ne doit pas exister en double dans l'index. Les motifs
 # sont scopés par hôte : ils ne touchent jamais geotagor.fr.
-https://:project.workers.dev/*
+https://:worker.:subdomain.workers.dev/*
   X-Robots-Tag: noindex
 
 https://:version.:project.workers.dev/*
