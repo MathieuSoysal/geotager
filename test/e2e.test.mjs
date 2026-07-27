@@ -257,6 +257,25 @@ await page.waitForFunction(() => {
   const p = document.getElementById('pill-position');
   return p && !p.hidden && p.textContent.trim().length > 0;
 }, null, { timeout: 20_000 });
+// Write first: this is the case the cross-check would have refused if it
+// required the second reader to be able to open a WebP, which it cannot do. The
+// symmetry rule is what lets us verify it anyway, by handing it the extracted
+// block rather than the whole file.
+await page.fill('#coords', '43.9493, 4.8055');
+await page.waitForSelector('#resultat:not([hidden])');
+const [dlWebpEcrit] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20_000 }),
+  page.click('#telecharger'),
+]);
+const webpEcrit = join('/tmp', dlWebpEcrit.suggestedFilename());
+await dlWebpEcrit.saveAs(webpEcrit);
+const reluWebp = execFileSync('exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', webpEcrit],
+  { encoding: 'utf8' }).trim().split('\n').map(Number);
+check('ExifTool relit la position écrite dans le WebP',
+  Math.abs(reluWebp[0] - 43.9493) < 0.00002 && Math.abs(reluWebp[1] - 4.8055) < 0.00002,
+  `relu ${reluWebp.join(', ')}`);
+
 const [dlWebp] = await Promise.all([
   page.waitForEvent('download', { timeout: 20_000 }),
   page.click('#effacer'),
