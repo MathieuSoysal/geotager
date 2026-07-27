@@ -10,18 +10,19 @@
  * seule chose qui les protège — d'où son parcours de toutes les pages, de tous
  * les sous-répertoires, et des adresses de bandes et de tuiles.
  *
- * Pas de `reconstruire`, donc pas d'ajout. Faire grandir le fichier serait
- * structurellement correct, mais un DNG ou un fichier brut d'appareil est un
- * TIFF : on ajouterait des octets à un fichier que des chaînes de développement
- * traitent comme un tout. Distinguer un TIFF ordinaire d'un négatif numérique
- * demanderait une heuristique qu'on ne saurait pas rendre fiable, et une
- * heuristique fausse détruirait ici un original irremplaçable. On ne devine
- * pas : on n'ajoute pas.
+ * Faire grandir le fichier est structurellement sans risque — les adresses de
+ * bandes sont absolues et rien ne bouge — mais un DNG ou un fichier brut
+ * d'appareil est un TIFF, et lui ajouter des octets abîmerait un original
+ * irremplaçable. L'ajout n'est donc ouvert qu'aux fichiers qui PROUVENT être
+ * une image ordinaire : c'est `estUneImageOrdinaire` qui l'établit, sur une
+ * liste blanche éprouvée dans les deux sens sur de vrais négatifs et de vrais
+ * TIFF. On ne devine toujours pas ; on exige la preuve.
  */
 
 import { ExifError } from './erreurs.ts';
 import { readU16 } from './octets.ts';
-import type { Conteneur } from './conteneurs.ts';
+import { AJOUT_IMPOSSIBLE, type Conteneur, type Pose } from './conteneurs.ts';
+import { estUneImageOrdinaire, parseTiff } from './tiff.ts';
 
 export const conteneurTiffNu: Conteneur = {
   format: 'tiff',
@@ -57,5 +58,35 @@ export const conteneurTiffNu: Conteneur = {
 
   reecrireSurPlace(_b, _vise, tiff) {
     return new Uint8Array(tiff);
+  },
+
+  /**
+   * Le bloc a grandi, et le fichier EST le bloc : il n'y a rien à réassembler.
+   *
+   * `ecrirePositionParAjout` a ajouté le nouvel IFD0 en fin de bloc et repointé
+   * l'en-tête ; les adresses de bandes, absolues, restent valides sans avoir
+   * bougé. Les deux plages annoncées sont celles de cette chirurgie : le
+   * pointeur de tête, et tout ce qui a été ajouté au bout.
+   */
+  reconstruire(b, vise, tiff): Pose {
+    // `vise` nul signifie qu'aucun bloc n'a pu être lu — donc que `parseTiff` a
+    // échoué. Écrire ici remplacerait le fichier entier par un bloc vide.
+    if (!vise) throw AJOUT_IMPOSSIBLE();
+    return { bytes: new Uint8Array(tiff), changed: [[4, 8], [b.length, tiff.length]] };
+  },
+
+  /**
+   * L'ajout ne s'ouvre que sur une image ordinaire, jamais sur un négatif.
+   *
+   * L'interface annonce donc la voie AVANT l'action : sur un DNG, le champ de
+   * saisie est inactif et la phrase le dit, plutôt que d'échouer après le clic.
+   */
+  accepteAjout(b) {
+    try {
+      return estUneImageOrdinaire(parseTiff(b));
+    } catch {
+      // Un bloc qu'on ne sait pas lire n'a rien prouvé du tout.
+      return false;
+    }
   },
 };

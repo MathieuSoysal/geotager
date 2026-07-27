@@ -308,8 +308,21 @@ function appliquerAuBloc(
     };
   }
 
-  if (!c.reconstruire) throw AJOUT_IMPOSSIBLE();
-  return { pose: c.reconstruire(b, emplacement, edit.bytes), route: edit.route };
+  if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
+  return { pose: c.reconstruire!(b, emplacement, edit.bytes), route: edit.route };
+}
+
+/**
+ * Vrai si CE fichier tolère que son bloc change de longueur.
+ *
+ * Le format ne suffit pas à trancher : un WebP étendu tolère de grandir et la
+ * forme simple non ; un TIFF ordinaire le tolère et un négatif numérique ne
+ * doit pas. La question est donc posée deux fois — ici, avant d'écrire, et par
+ * l'interface, avant de proposer. Ce sont les deux mêmes octets qui répondent,
+ * donc les deux réponses ne peuvent pas diverger.
+ */
+function peutGrandir(c: Conteneur, b: Uint8Array): boolean {
+  return Boolean(c.reconstruire) && (c.accepteAjout?.(b) ?? true);
 }
 
 /** Écrit une position, en choisissant la voie que le conteneur autorise. */
@@ -327,16 +340,16 @@ export function ecrirePosition(
   const bloc = blocs[0];
 
   if (!bloc) {
-    if (!c.reconstruire) throw AJOUT_IMPOSSIBLE();
+    if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
     const edit = ecrirePositionParAjout(parseTiff(emptyTiff()), lat, lon, precisionMetres);
-    const pose = c.reconstruire(b, null, edit.bytes);
+    const pose = c.reconstruire!(b, null, edit.bytes);
     return { ...pose, route: 'P2', precisionEcrite: demandee };
   }
 
   const { pose, route } = appliquerAuBloc(c, b, bloc, (vue) => {
     const surPlace = ecrirePositionSurPlace(vue, lat, lon, precisionMetres);
     if (surPlace) return surPlace;
-    if (!c.reconstruire) throw AJOUT_IMPOSSIBLE();
+    if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
     return ecrirePositionParAjout(vue, lat, lon, precisionMetres);
   });
   // La voie P1 ne peut pas ajouter d'entrée, donc pas inscrire une précision

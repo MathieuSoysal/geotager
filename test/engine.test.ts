@@ -963,19 +963,101 @@ for (const [nom, quoi] of [
   });
 }
 
-scenario('gros-boutiste.tif — l\'ajout est refusé sur un TIFF', () => {
-  const src = new Uint8Array(readFileSync(join(FIXTURES, 'gros-boutiste.tif')));
+/* ------------------------------------------------------------------ */
+/* Le discriminant : image ordinaire ou négatif numérique               */
+/*                                                                     */
+/* Un DNG, un NEF, un CR2 sont des TIFF. La liste blanche ne vaut que   */
+/* si elle est éprouvée DANS LES DEUX SENS sur de vrais fichiers : elle */
+/* doit accepter les images ordinaires et écarter tous les négatifs.    */
+/* Un discriminant qui n'aurait jamais vu de négatif ne prouverait rien.*/
+/* ------------------------------------------------------------------ */
+
+for (const [nom, quoi] of [
+  ['negatif.dng', 'Canon EOS-1D X, le négatif canonique'],
+  ['negatif.nef', 'Nikon COOLSCAN V ED, un brut de scanner'],
+  ['negatif.cr2', 'Canon EOS 40D, brut propriétaire'],
+  ['negatif.tif', 'Kodak EOS DCS 3 — un négatif qui EST un « .tif »'],
+] as const) {
+  scenario(`${nom} — ${quoi} : l'ajout est refusé`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const c = conteneurOuEchec(src);
+
+    check('le fichier est bien reconnu comme un TIFF', c.format === 'tiff');
+    check('l\'ajout est annoncé impossible AVANT l\'action',
+      c.accepteAjout?.(src) === false);
+
+    let code = '';
+    try {
+      ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+    } catch (e: any) {
+      code = e.code;
+    }
+    check('et il est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+
+    // Un refus qui aurait quand même touché le fichier serait pire qu'un refus.
+    const apres = new Uint8Array(readFileSync(chemin));
+    check('l\'original n\'a pas été touché d\'un octet',
+      Buffer.compare(Buffer.from(src), Buffer.from(apres)) === 0);
+  });
+}
+
+for (const nom of ['gros-boutiste.tif', 'multi-bandes.tif'] as const) {
+  scenario(`${nom} — une image ordinaire accepte un lieu`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const c = conteneurOuEchec(src);
+    const avant = inventory(chemin);
+    const pixelsAvant = exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim();
+
+    check('aucune position au départ', lirePosition(c, src) === null);
+    check('l\'ajout est annoncé possible AVANT l\'action', c.accepteAjout?.(src) === true);
+
+    const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+    const out = join(tmp, `add-${nom}`);
+    writeFileSync(out, res.bytes);
+
+    check('voie P2 (bloc reconstruit)', res.route === 'P2');
+    check('le fichier grandit', res.bytes.length > src.length,
+      `${src.length} -> ${res.bytes.length}`);
+    check('rien n\'a changé hors des plages annoncées',
+      memesOctetsHorsPlages(src, res.bytes, res.changed));
+    const relu = exifPosition(out);
+    check('ExifTool relit la position demandée',
+      relu !== null && distanceMetres(relu, AVIGNON) < 0.1,
+      relu ? `écart ${distanceMetres(relu, AVIGNON).toFixed(4)} m` : 'aucune position relue');
+    check('les bandes de pixels sont intactes',
+      exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
+    check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+      diffResume(avant, inventory(out)));
+    const validation = exif(['-validate', '-warning', '-a', out]);
+    check('ExifTool ne signale aucun défaut de structure',
+      !/error|corrupt/i.test(validation), validation.trim().slice(0, 160));
+  });
+}
+
+// Corriger et effacer restent ouverts sur un négatif : c'est à longueur
+// constante, et la carte des plages de tiff.ts protège les bandes de pixels.
+// Ce comportement préexiste à ce lot et n'était adossé à rien — il l'est ici.
+scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
+  const chemin = join(FIXTURES, 'negatif.dng');
+  const src = new Uint8Array(readFileSync(chemin));
   const c = conteneurOuEchec(src);
-  check('aucune position au départ', lirePosition(c, src) === null);
-  let code = '';
-  try {
-    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
-  } catch (e: any) {
-    code = e.code;
-  }
-  // Un négatif numérique est un TIFF. On ne saurait pas les distinguer de façon
-  // fiable, et une heuristique fausse détruirait ici un original.
-  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+  const pixelsAvant = exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim();
+  const avant = inventory(chemin);
+
+  const res = effacerPosition(c, src);
+  const out = join(tmp, 'del-negatif.dng');
+  writeFileSync(out, res.bytes);
+
+  check('l\'effacement est à longueur strictement constante',
+    res.bytes.length === src.length, `${src.length} -> ${res.bytes.length}`);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  check('aucun tag GPS résiduel', exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+  check('les données du négatif sont intactes',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
 });
 
 scenario('Un TIFF large est refusé plutôt que lu de travers', () => {

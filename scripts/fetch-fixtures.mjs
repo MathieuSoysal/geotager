@@ -35,6 +35,7 @@ const DIR = process.env.FIXTURES ?? 'test/fixtures';
 const IANARE = 'https://raw.githubusercontent.com/ianare/exif-samples/master';
 const DREWNOAKES = 'https://raw.githubusercontent.com/drewnoakes/metadata-extractor-images/main';
 const LIBAVIF = 'https://raw.githubusercontent.com/AOMediaCodec/libavif/main/tests/data';
+const PIXLS = 'https://raw.pixls.us/getfile.php';
 
 /**
  * `requis` traduit mécaniquement la règle du projet : une case du tableau ne
@@ -83,6 +84,19 @@ const FICHIERS = [
     role: 'TIFF gros-boutiste, une seule bande de pixels' },
   { nom: 'multi-bandes.tif', url: `${IANARE}/tiff/Picoawards.tiff`, requis: true,
     role: 'TIFF petit-boutiste à soixante et une bandes de pixels' },
+
+  // Les négatifs numériques. Un DNG, un NEF et un CR2 sont des TIFF : c'est
+  // exactement pour eux que la colonne « Ajouter » est restée fermée, et sans
+  // eux le discriminant qui l'ouvre ne serait qu'une conjecture. Le Kodak est
+  // le cas décisif — un négatif dont le nom de fichier dit « .TIF ».
+  { nom: 'negatif.dng', url: `${PIXLS}/6584/nice/Canon%20-%20EOS-1D%20X%20-%201:1.dng`, requis: true,
+    role: 'Canon EOS-1D X — le négatif canonique, DNGVersion en clair' },
+  { nom: 'negatif.nef', url: `${PIXLS}/4269/nice/Nikon%20-%20Nikon%20COOLSCAN%20V%20ED%20-%20uncompressed%20(3:2).nef`, requis: true,
+    role: 'Nikon COOLSCAN V ED — brut de scanner de film, pas d\'appareil' },
+  { nom: 'negatif.cr2', url: `${PIXLS}/2102/nice/Canon%20-%20EOS%2040D%20-%20sRAW2%20(sRAW)%20(3:2).CR2`, requis: true,
+    role: 'Canon EOS 40D — brut propriétaire à magie secondaire' },
+  { nom: 'negatif.tif', url: `${PIXLS}/2465/nice/Kodak%20-%20EOS%20DCS%203%20-%208bit%20(4:3).TIF`, requis: true,
+    role: 'Kodak EOS DCS 3 — un négatif numérique qui EST un « .tif »' },
 ];
 
 /**

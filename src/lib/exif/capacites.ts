@@ -84,11 +84,12 @@ export const MATRICE: LigneMatrice[] = [
   {
     formats: ['tiff'],
     libelle: 'TIFF',
-    // « Ajouter » reste fermé, et pas par prudence excessive : un négatif
-    // numérique est un TIFF. Distinguer l'un de l'autre demanderait une
-    // heuristique qu'on ne saurait pas rendre fiable, et se tromper ici
-    // détruirait un original irremplaçable.
-    capacites: { lire: true, corriger: true, ajouter: false, effacer: true, effacerTout: false },
+    // Un négatif numérique est un TIFF, et lui ajouter des octets abîmerait un
+    // original irremplaçable. « Ajouter » ne s'ouvre donc que sur les fichiers
+    // qui PROUVENT être une image ordinaire — liste blanche éprouvée dans les
+    // deux sens sur de vrais DNG, NEF, CR2 et de vrais TIFF. Sur un négatif, le
+    // conteneur le dit avant l'action.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
   { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },
 ];
