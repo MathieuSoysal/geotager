@@ -248,6 +248,42 @@ const decode = await page.evaluate(async (donnees) => {
 check('le navigateur décode l\'image produite',
   decode.l > 0 && decode.h > 0, JSON.stringify(decode));
 
+console.log('\nDépôt d\'une image WebP');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.waitForSelector('#etat-vide:not([hidden])');
+const webp = join(FIXTURES, 'avec-lieu.webp');
+await page.setInputFiles('#picker', webp);
+await page.waitForFunction(() => {
+  const p = document.getElementById('pill-position');
+  return p && !p.hidden && p.textContent.trim().length > 0;
+}, null, { timeout: 20_000 });
+const [dlWebp] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20_000 }),
+  page.click('#effacer'),
+]);
+const webpProduit = join('/tmp', dlWebp.suggestedFilename());
+await dlWebp.saveAs(webpProduit);
+check('plus aucun tag GPS dans le WebP produit',
+  execFileSync('exiftool', ['-a', '-G1', '-s', '-GPS:all', webpProduit], { encoding: 'utf8' }).trim() === '');
+check('le WebP produit a exactement la taille de l\'original',
+  statSync(webpProduit).size === statSync(webp).size);
+const decodeWebp = await page.evaluate(async (donnees) => {
+  const img = await createImageBitmap(new Blob([new Uint8Array(donnees)], { type: 'image/webp' }));
+  return { l: img.width, h: img.height };
+}, Array.from(readFileSync(webpProduit)));
+check('le navigateur décode le WebP produit', decodeWebp.l > 0 && decodeWebp.h > 0,
+  JSON.stringify(decodeWebp));
+
+console.log('\nUn format resté en lecture seule');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'simple.webp'));
+await page.waitForSelector('#alerte-format:not([hidden])', { timeout: 20_000 });
+const phrase = (await page.locator('#alerte-format').textContent()).trim();
+check('la limite est annoncée avant toute action', phrase.length > 0, phrase.slice(0, 80));
+check('la phrase reste sans jargon de format',
+  !/EXIF|IFD|ISOBMFF|VP8X|RIFF|conteneur|m[ée]tadonn[ée]es|chunk|parser/i.test(phrase), phrase.slice(0, 80));
+check('le champ de saisie est désactivé', await page.locator('#coords').isDisabled());
+
 console.log('\nPreuve du zéro-tiers');
 const tiers = requetes.filter((u) => {
   if (u.startsWith('data:') || u.startsWith('blob:')) return false;

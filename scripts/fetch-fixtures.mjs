@@ -65,6 +65,17 @@ const FICHIERS = [
     role: 'PNG portant un vrai morceau eXIf, sans position' },
   { nom: 'texte.png', url: `${DREWNOAKES}/png/photoshop-8x12-rgb24-all-metadata.png`, requis: true,
     role: 'PNG portant un paquet de texte descriptif Photoshop' },
+
+  { nom: 'avec-lieu.webp', url: `${DREWNOAKES}/webp/HTC%20Desire.webp`, requis: true,
+    role: 'HTC Desire — forme étendue, profil de couleurs, bloc gros-boutiste géolocalisé' },
+  { nom: 'prefixe.webp', url: `${DREWNOAKES}/webp/Issue%20473%20(Java).webp`, requis: true,
+    role: 'iPhone X — bloc précédé du préambule d\'un JPEG, texte descriptif mal nommé' },
+  { nom: 'sans-lieu.webp', url: `${DREWNOAKES}/webp/Nikon%20Coolpix%20P7000.webp`, requis: true,
+    role: "Coolpix P7000 — forme étendue sans position, exerce la création" },
+  { nom: 'lieu-degenere.webp', url: `${DREWNOAKES}/webp/Nikon%20D1X.webp`, requis: true,
+    role: 'Nikon D1X — bloc de position présent mais incomplet' },
+  { nom: 'simple.webp', url: 'https://www.gstatic.com/webp/gallery/4.webp', requis: true,
+    role: 'Forme simple, sans emplacement prévu pour un lieu — reste en lecture seule' },
 ];
 
 /**
