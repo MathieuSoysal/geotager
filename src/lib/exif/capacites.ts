@@ -63,7 +63,13 @@ export const MATRICE: LigneMatrice[] = [
     // strictement constante et ne déplace pas un octet.
     capacites: { lire: true, corriger: true, ajouter: false, effacer: true, effacerTout: false },
   },
-  { formats: ['png'], libelle: 'PNG', capacites: LECTURE_SEULE },
+  {
+    formats: ['png'],
+    libelle: 'PNG',
+    // Aucun décalage absolu interne : agrandir un morceau n'invalide rien,
+    // donc l'ajout est sûr. C'est le seul format de ce lot dans ce cas.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
+  },
   { formats: ['webp'], libelle: 'WebP', capacites: LECTURE_SEULE },
   { formats: ['tiff'], libelle: 'TIFF', capacites: LECTURE_SEULE },
   { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },

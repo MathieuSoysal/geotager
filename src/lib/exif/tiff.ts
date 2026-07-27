@@ -516,7 +516,14 @@ export function ecrirePositionParAjout(
     w += 12;
   }
   if (!wroteGps) writeGpsEntry();
-  writeU32(out, base + 2 + newIfd0Count * 12, view.ifd0.next, e);
+  // On ne recopie le lien vers l'IFD suivant que s'il mène quelque part. Un
+  // fichier réel peut porter un pointeur qui ne résout pas — celui de
+  // `sampleWithExifData.png` vise l'octet 169 d'un bloc qui en fait 171. Tant
+  // que le bloc s'arrête là, aucun lecteur ne le suit ; le bloc grandissant,
+  // ce pointeur deviendrait soudain atteignable et mènerait au milieu de
+  // données quelconques. Préserver un lien qu'on ne sait pas valider, c'est
+  // transformer une incohérence dormante en fichier abîmé.
+  writeU32(out, base + 2 + newIfd0Count * 12, view.ifd1 ? view.ifd0.next : 0, e);
 
   // --- GPS IFD ---
   writeU16(out, gpsIfdOffset, fields.length, e);

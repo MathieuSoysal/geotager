@@ -80,8 +80,23 @@ export interface Conteneur {
    */
   reconstruire?(b: Uint8Array, vise: Emplacement | null, tiff: Uint8Array): Pose;
 
+  /**
+   * Plages que le conteneur doit lui-même réécrire pour que le fichier reste
+   * cohérent : somme de contrôle d'un morceau PNG, taille globale d'un RIFF,
+   * drapeaux d'un en-tête étendu. Elles sont hors du bloc TIFF, et sans cette
+   * déclaration la vérification « à l'octet près » les verrait comme des
+   * modifications que personne n'a annoncées.
+   */
+  plagesDeService?(b: Uint8Array, vise: Emplacement): Plage[];
+
   /** Retire toutes les informations, sans réencoder l'image. */
   toutEffacer?(b: Uint8Array): Pose;
+
+  /**
+   * Retire les copies du lieu rangées hors du bloc principal, à longueur
+   * constante. Échoue plutôt que d'en laisser une.
+   */
+  purgerCopiesDuLieu?(b: Uint8Array): Pose;
 
   /**
    * Vrai si le fichier range une copie du lieu ailleurs que dans le bloc
@@ -276,8 +291,12 @@ function appliquerAuBloc(
       return [emplacement.debut + s, emplacement.debut + e] as Plage;
     });
     for (const p of plages) if (seChevauchent(p, autres)) throw CHEVAUCHEMENT();
+    const service = c.plagesDeService?.(b, emplacement) ?? [];
     return {
-      pose: { bytes: c.reecrireSurPlace(b, emplacement, edit.bytes), changed: plages },
+      pose: {
+        bytes: c.reecrireSurPlace(b, emplacement, edit.bytes),
+        changed: [...plages, ...service],
+      },
       route: edit.route,
     };
   }
@@ -337,6 +356,22 @@ export function effacerPosition(c: Conteneur, b: Uint8Array): Ecriture {
     const { pose } = appliquerAuBloc(c, courant, bloc, (vue) => deletePositionInTiff(vue));
     courant = pose.bytes;
     changed.push(...pose.changed);
+  }
+
+  // Une seconde copie du lieu, dans un paquet de texte descriptif, survivrait à
+  // tout ce qui précède. La purger est la moitié du travail ; repasser derrière
+  // soi est l'autre moitié, et c'est elle qui transforme une purge incomplète
+  // en échec visible plutôt qu'en fuite silencieuse.
+  if (c.purgerCopiesDuLieu) {
+    const pose = c.purgerCopiesDuLieu(courant);
+    courant = pose.bytes;
+    changed.push(...pose.changed);
+  }
+  if (c.copieDuLieuAilleurs?.(courant)) {
+    throw new ExifError(
+      'COPIE_DU_LIEU_SUBSISTE',
+      "Une copie du lieu subsiste dans ce fichier, sous une forme que nous ne savons pas retirer. Nous préférons vous rendre l'original intact.",
+    );
   }
 
   return { bytes: courant, route: 'P1', changed, precisionEcrite: false };

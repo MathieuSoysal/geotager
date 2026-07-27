@@ -210,6 +210,44 @@ check('l\'image reste de mêmes dimensions',
   execFileSync('exiftool', ['-s', '-s', '-s', '-ImageSize', heicEfface], { encoding: 'utf8' }).trim() ===
     execFileSync('exiftool', ['-s', '-s', '-s', '-ImageSize', heic], { encoding: 'utf8' }).trim());
 
+console.log('\nDépôt d\'une image PNG');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.waitForSelector('#etat-vide:not([hidden])');
+const png = join(FIXTURES, 'avec-lieu.png');
+await page.setInputFiles('#picker', png);
+await page.waitForFunction(() => {
+  const p = document.getElementById('pill-position');
+  return p && !p.hidden && p.textContent.trim().length > 0;
+}, null, { timeout: 20_000 });
+check('le champ de saisie est actif sur un PNG',
+  !(await page.locator('#coords').isDisabled()));
+
+await page.fill('#coords', '43.9493, 4.8055');
+await page.waitForSelector('#resultat:not([hidden])');
+const [dlPng] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20_000 }),
+  page.click('#telecharger'),
+]);
+const pngProduit = join('/tmp', dlPng.suggestedFilename());
+await dlPng.saveAs(pngProduit);
+const reluPng = execFileSync('exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', pngProduit],
+  { encoding: 'utf8' }).trim().split('\n').map(Number);
+check('ExifTool relit la position demandée dans le PNG',
+  Math.abs(reluPng[0] - 43.9493) < 0.00002 && Math.abs(reluPng[1] - 4.8055) < 0.00002,
+  `relu ${reluPng.join(', ')}`);
+
+// Chromium décode nativement le PNG : c'est un décodeur totalement indépendant
+// du nôtre, et la preuve la plus directe que l'image produite reste une image.
+const octetsPng = readFileSync(pngProduit);
+const decode = await page.evaluate(async (donnees) => {
+  const blob = new Blob([new Uint8Array(donnees)], { type: 'image/png' });
+  const img = await createImageBitmap(blob);
+  return { l: img.width, h: img.height };
+}, Array.from(octetsPng));
+check('le navigateur décode l\'image produite',
+  decode.l > 0 && decode.h > 0, JSON.stringify(decode));
+
 console.log('\nPreuve du zéro-tiers');
 const tiers = requetes.filter((u) => {
   if (u.startsWith('data:') || u.startsWith('blob:')) return false;

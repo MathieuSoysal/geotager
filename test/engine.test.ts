@@ -22,6 +22,7 @@ import {
   effacerPosition,
   lirePosition,
   memesOctetsHorsPlages,
+  toutEffacer,
 } from '../src/lib/exif/conteneurs.ts';
 import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
@@ -532,6 +533,130 @@ for (const [nom, quoi] of [
     check('les items secondaires sont intacts', empreintesDesItems(out) === empreintesDesItems(chemin));
   });
 }
+
+/* ------------------------------------------------------------------ */
+/* PNG                                                                 */
+/*                                                                     */
+/* Seul format de ce lot où l'AJOUT est pleinement sûr : aucun décalage */
+/* absolu interne, donc insérer ou agrandir un morceau n'invalide rien. */
+/* ------------------------------------------------------------------ */
+
+scenario('avec-lieu.png — lecture et correction', () => {
+  const chemin = join(FIXTURES, 'avec-lieu.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const avant = inventory(chemin);
+
+  const nous = lirePosition(c, src);
+  const eux = exifPosition(chemin);
+  check('une position est lue', nous !== null && eux !== null);
+  if (nous && eux) {
+    check('accord avec ExifTool à moins de 0,1 m', distanceMetres(nous, eux) < 0.1);
+  }
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'set.png');
+  writeFileSync(out, res.bytes);
+  check('voie P1 (édition sur place)', res.route === 'P1');
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position demandée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('la somme de contrôle du morceau reste valide',
+    !/error|corrupt/i.test(exif(['-validate', '-warning', '-a', out])),
+    exif(['-validate', '-warning', '-a', out]).trim().slice(0, 120));
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+});
+
+scenario('avec-lieu.png — effacement', () => {
+  const chemin = join(FIXTURES, 'avec-lieu.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const avant = inventory(chemin);
+  const res = effacerPosition(conteneurOuEchec(src), src);
+  const out = join(tmp, 'del.png');
+  writeFileSync(out, res.bytes);
+
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  check('ExifTool ne trouve plus de position', exifPosition(out) === null);
+  check('aucun tag GPS résiduel',
+    exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+  check('la somme de contrôle reste valide',
+    !/error|corrupt/i.test(exif(['-validate', '-warning', '-a', out])));
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+});
+
+scenario('sans-lieu.png — ajout d\'une position', () => {
+  const chemin = join(FIXTURES, 'sans-lieu.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const avant = inventory(chemin);
+  check('aucune position au départ', lirePosition(c, src) === null);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon, 2244);
+  const out = join(tmp, 'add.png');
+  writeFileSync(out, res.bytes);
+  check('voie P2 (le bloc a dû grandir)', res.route === 'P2');
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position ajoutée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('la précision déclarée est écrite',
+    exif(['-n', '-s', '-s', '-s', '-GPSHPositioningError', out]).trim() === '2244');
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+
+  const efface = effacerPosition(c, res.bytes);
+  const out2 = join(tmp, 'add-del.png');
+  writeFileSync(out2, efface.bytes);
+  check('la position ajoutée peut être retirée', exifPosition(out2) === null);
+});
+
+scenario('texte-avec-lieu.png — la seconde copie du lieu est purgée', () => {
+  const chemin = join(FIXTURES, 'texte-avec-lieu.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+
+  check('la copie hors bloc principal est détectée', c.copieDuLieuAilleurs?.(src) === true);
+  const avantXmp = exif(['-a', '-G1', '-s', '-XMP:all', chemin]);
+  check('le lieu est bien dans le paquet de texte au départ', /GPSLatitude/.test(avantXmp));
+
+  const res = effacerPosition(c, src);
+  const out = join(tmp, 'del-xmp.png');
+  writeFileSync(out, res.bytes);
+
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const apresXmp = exif(['-a', '-G1', '-s', '-XMP:all', out]);
+  check('plus aucun lieu dans le paquet de texte', !/GPS|LocationCreated/.test(apresXmp),
+    apresXmp.trim().slice(0, 120));
+  check('le reste du paquet de texte survit', /CreatorTool|ModifyDate/.test(apresXmp),
+    apresXmp.trim().slice(0, 120));
+  check('la somme de contrôle reste valide',
+    !/error|corrupt/i.test(exif(['-validate', '-warning', '-a', out])));
+});
+
+scenario('texte.png — tout effacer garde le profil de couleurs', () => {
+  const chemin = join(FIXTURES, 'texte.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const res = toutEffacer(c, src);
+  const out = join(tmp, 'strip.png');
+  writeFileSync(out, res.bytes);
+  check('le fichier a rétréci', res.bytes.length < src.length);
+  check('aucun texte descriptif résiduel',
+    exif(['-a', '-G1', '-s', '-XMP:all', '-EXIF:all', out]).trim() === '');
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+});
+
 
 console.log(`\n${passed} réussis, ${failed} échoués`);
 process.exit(failed === 0 ? 0 : 1);
