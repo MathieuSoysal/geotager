@@ -29,11 +29,16 @@
   // réactive explicitement : les URL de prévisualisation sont ce qui rend les
   // contrôles du Gate 2 exécutables avant la mise en production.
   //
-  // ⚠️ NÉCESSAIRE MAIS PAS SUFFISANT. Pour que l'URL de prévisualisation soit
-  // générée et publiée en commentaire de PR, il faut EN PLUS activer les builds
-  // de branches non-production, qui est un réglage de tableau de bord que ce
-  // fichier ne peut pas porter :
-  //   Settings > Build > Branch control > Non-production branch builds
-  // Vérifier au même endroit que la branche de production est bien « main ».
+  // NÉCESSAIRE MAIS PAS SUFFISANT : la génération des URL de prévisualisation
+  // et leur publication en commentaire de PR dépendent aussi de deux réglages
+  // de tableau de bord que ce fichier ne peut pas porter, sous
+  // Settings > Build > Branch control. Configuration confirmée le 27/07/2026 :
+  //   - branche de production : main
+  //   - builds de branches non-production : activés
+  //
+  // Ces réglages avaient d'abord la branche de travail comme branche de
+  // production, ce qui déployait le code non relu directement en ligne et
+  // rendait toute prévisualisation impossible — une branche de production
+  // n'est pas prévisualisée, elle EST la production.
   "preview_urls": true
 }
