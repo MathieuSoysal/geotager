@@ -8,7 +8,6 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join, extname, relative } from 'node:path';
-import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
 
 const DIR = 'dist';
 const BUDGET_JS_GZIP = 150 * 1024;
@@ -220,27 +219,47 @@ if (existsSync(headers)) {
 /*
  * Le tableau de la page est rendu depuis capacites.ts, donc il ne peut pas
  * dériver. Celui du README est écrit à la main, donc il le peut — et c'est le
- * premier que lit quelqu'un qui découvre le projet. On compare les cellules,
- * pas les libellés : la mention entre parenthèses reste libre.
+ * premier que lit quelqu'un qui découvre le projet.
+ *
+ * On compare le README au tableau RÉELLEMENT SERVI, et non à la constante :
+ * c'est le même témoin, en plus fort, puisqu'il porte sur l'artefact publié.
+ * Cela évite au passage d'importer un module TypeScript depuis ce script —
+ * l'image de build tourne sur la version de `.nvmrc`, qui ne sait pas les lire
+ * sans drapeau.
+ *
+ * On compare les cellules, pas les libellés : la mention entre parenthèses
+ * reste libre de part et d'autre.
  */
 {
+  const sansBalises = (s) =>
+    s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const html = readFileSync(join(DIR, 'index.html'), 'utf8');
+  const corps = html.match(/<table>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i)?.[1] ?? '';
+  const servi = [...corps.matchAll(/<tr>([\s\S]*?)<\/tr>/gi)].map((m) =>
+    [...m[1].matchAll(/<td>([\s\S]*?)<\/td>/gi)].map((c) => sansBalises(c[1])),
+  );
+
   const readme = readFileSync('README.md', 'utf8');
-  const lignes = readme
+  const lu = readme
     .split('\n')
     .filter((l) => /^\|/.test(l) && !/^\|\s*-+/.test(l) && !/\|\s*Format\s*\|/.test(l))
     .map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
 
-  const attendu = MATRICE.map((r) => cellules(r.capacites));
-  if (lignes.length !== attendu.length) {
+  if (servi.length === 0) {
+    echecs.push('dist/index.html : aucun tableau de capacités trouvé dans la page servie');
+  } else if (lu.length !== servi.length) {
     echecs.push(
-      `README.md : le tableau a ${lignes.length} lignes, capacites.ts en déclare ${attendu.length}`,
+      `README.md : le tableau a ${lu.length} lignes, la page servie en compte ${servi.length}`,
     );
   } else {
-    lignes.forEach((ligne, i) => {
-      const dites = ligne.slice(1);
-      if (dites.join('|') !== attendu[i].join('|')) {
+    lu.forEach((ligne, i) => {
+      const dites = ligne.slice(1).join('|');
+      const vraies = servi[i].slice(1).join('|');
+      if (dites !== vraies) {
         echecs.push(
-          `README.md : « ${ligne[0]} » annonce ${dites.join('/')}, le code dit ${attendu[i].join('/')}`,
+          `README.md : « ${ligne[0]} » annonce ${dites.replace(/\|/g, '/')}, ` +
+            `la page servie dit ${vraies.replace(/\|/g, '/')}`,
         );
       }
     });

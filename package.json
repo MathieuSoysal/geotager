@@ -12,7 +12,7 @@
     "preview": "astro preview",
     "test": "node --experimental-strip-types test/engine.test.ts",
     "fixtures": "node scripts/fetch-fixtures.mjs",
-    "test:e2e": "node test/e2e.test.mjs",
+    "test:e2e": "node --experimental-strip-types test/e2e.test.mjs",
     "test:all": "npm run fixtures && npm test && npm run build && npm run test:e2e"
   },
   "dependencies": {
