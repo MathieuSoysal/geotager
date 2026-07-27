@@ -33,7 +33,6 @@ const RIEN: Capacites = {
   effacer: false,
   effacerTout: false,
 };
-const LECTURE_SEULE: Capacites = { ...RIEN, lire: true };
 
 export interface LigneMatrice {
   /** Formats couverts par la ligne, dans l'ordre d'affichage. */
@@ -91,7 +90,12 @@ export const MATRICE: LigneMatrice[] = [
     // conteneur le dit avant l'action.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
-  { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },
+  // « Lire » a longtemps porté « oui » ici sans qu'aucune ligne de code ne lise
+  // une vidéo : le moteur rendait « aucune position » sans consulter le moindre
+  // lecteur, et le second lecteur n'ouvre ni MOV ni MP4. La case était fausse.
+  // Elle le reste tant qu'aucune vidéo réelle ne peut l'éprouver — aucun corpus
+  // public sous licence libre n'en fournit. Voir Q-006 et Q-039.
+  { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: RIEN },
 ];
 
 /** Ce que l'outil sait faire d'un format, indépendamment du fichier reçu. */
@@ -154,7 +158,7 @@ const PHRASES: Record<Motif, string> = {
   'sans-lieu-possible':
     'Cette image n’a pas d’emplacement prévu pour un lieu, et nous ne savons pas encore lui en créer un.',
   video:
-    'Nous savons lire le lieu d’une vidéo, mais pas encore le retirer de façon sûre — une vidéo le range à plusieurs endroits.',
+    'Nous ne savons pas encore travailler sur les vidéos : une vidéo range le lieu à plusieurs endroits, parfois en toutes lettres, et nous préférons ne rien promettre que nous ne tenions.',
   inconnu: 'Nous ne reconnaissons pas ce type de fichier.',
 };
 

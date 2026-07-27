@@ -205,6 +205,10 @@ function majListeLot(statuts: Map<string, string> = new Map()): void {
         row.classList.add('ko');
       } else if (it.read?.can.write) {
         st.textContent = it.read.position ? 'position lue' : 'sans position';
+      } else if (it.read?.can.erase) {
+        // On sait retirer le lieu de ce fichier sans savoir lui en donner un.
+        // Le ranger avec les « lecture seule » ferait croire à un refus.
+        st.textContent = 'effacement seul';
       } else {
         st.textContent = 'lecture seule';
         row.classList.add('ko');
@@ -292,7 +296,16 @@ async function appliquer(
   operation: Extract<ToWorker, { type: 'apply' }>['operation'],
   prefixe: string,
 ): Promise<void> {
-  const concernes = items.filter((i) => i.read?.can.write);
+  // Filtrer sur l'opération RÉELLEMENT demandée, et non sur l'écriture.
+  // Auparavant tout passait par `can.write` : sur une photo dont on sait
+  // retirer le lieu mais pas en ajouter un, le bouton « Effacer » était actif
+  // et ne faisait rien du tout. Un bouton qui n'agit pas est pire qu'un bouton
+  // grisé — il laisse croire que le fichier a été traité.
+  const permise = (r: PhotoRead): boolean =>
+    operation.kind === 'erase' ? r.can.erase
+      : operation.kind === 'eraseAll' ? r.can.eraseAll
+      : r.can.write;
+  const concernes = items.filter((i) => i.read && permise(i.read));
   if (!concernes.length) return;
 
   el.telecharger.disabled = true;

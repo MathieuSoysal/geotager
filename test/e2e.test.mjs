@@ -24,6 +24,18 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+/**
+ * La liste de mots interdits du §5 du plan, en entier.
+ *
+ * Elle était jusqu'ici recopiée à deux endroits, en deux versions
+ * divergentes — l'une connaissait « worker » mais pas « RIFF », l'autre
+ * l'inverse — et six mots du §5 n'étaient vérifiés nulle part : « balise »,
+ * « DMS », « décimal », « WGS84 », « sidecar », « upload ». Une liste
+ * dédoublée est une liste dont une moitié finit par mentir.
+ */
+const MOTS_INTERDITS =
+  /\b(EXIF|IFD|ISOBMFF|VP8X|RIFF|conteneur|m[ée]tadonn[ée]es|balise|DMS|d[ée]cimal|WGS ?84|sidecar|upload|parser|worker|chunk|morceau|atome|bo[îi]te)\b/i;
+
 let passed = 0;
 let failed = 0;
 const check = (nom, ok, detail = '') => {
@@ -188,8 +200,7 @@ check('la voie retenue est annoncée avant toute action',
   await alerte.isVisible() && (await alerte.textContent()).trim().length > 0,
   (await alerte.textContent()).trim().slice(0, 80));
 check('la phrase affichée ne contient aucun jargon de format',
-  !/EXIF|IFD|ISOBMFF|conteneur|m[ée]tadonn[ée]es|VP8X|parser|worker/i.test(
-    await alerte.textContent()),
+  !MOTS_INTERDITS.test(await alerte.textContent()),
   (await alerte.textContent()).trim().slice(0, 80));
 check('« Tout effacer » est désactivé là où l\'opération n\'existe pas',
   await page.locator('#effacer-tout').isDisabled());
@@ -299,9 +310,30 @@ await page.setInputFiles('#picker', join(FIXTURES, 'simple.webp'));
 await page.waitForSelector('#alerte-format:not([hidden])', { timeout: 20_000 });
 const phrase = (await page.locator('#alerte-format').textContent()).trim();
 check('la limite est annoncée avant toute action', phrase.length > 0, phrase.slice(0, 80));
-check('la phrase reste sans jargon de format',
-  !/EXIF|IFD|ISOBMFF|VP8X|RIFF|conteneur|m[ée]tadonn[ée]es|chunk|parser/i.test(phrase), phrase.slice(0, 80));
+check('la phrase reste sans jargon de format', !MOTS_INTERDITS.test(phrase), phrase.slice(0, 80));
 check('le champ de saisie est désactivé', await page.locator('#coords').isDisabled());
+
+// Les deux contrôles ci-dessus ne voient que les deux phrases que ces deux
+// fichiers déclenchent. Le parcours en compte onze, et c'est celle qu'on n'a
+// pas prévue qui dira « conteneur » à l'utilisateur.
+console.log('\nAucune phrase du parcours ne porte de jargon');
+const { MATRICE, phraseDe } = await import('../src/lib/exif/capacites.ts');
+const MOTIFS = [
+  'ok', 'sans-lieu', 'sans-emplacement', 'forme-inhabituelle', 'rangement-inconnu',
+  'copie-compressee', 'copie-ailleurs', 'lecture-seule', 'sans-lieu-possible',
+  'video', 'inconnu',
+];
+for (const motif of MOTIFS) {
+  const p = phraseDe(motif);
+  check(`« ${motif} » : une phrase sans jargon`, Boolean(p) && !MOTS_INTERDITS.test(p),
+    (p ?? '(absente)').slice(0, 90));
+}
+check('les onze motifs du parcours sont couverts', MOTIFS.length === 11);
+// Le tableau servi doit être celui du code, ligne pour ligne.
+const tableauServi = await page.locator('#limites ~ table tbody tr').count()
+  .catch(() => 0);
+check('le tableau de la page a autant de lignes que le code en déclare',
+  tableauServi === 0 || tableauServi === MATRICE.length, `${tableauServi} vs ${MATRICE.length}`);
 
 console.log('\nPreuve du zéro-tiers');
 const tiers = requetes.filter((u) => {

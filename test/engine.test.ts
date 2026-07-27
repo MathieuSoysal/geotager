@@ -28,6 +28,8 @@ import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
 import { createHash } from 'node:crypto';
 import { commandePour } from '../scripts/deploy.mjs';
+import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
+import type { Format } from '../src/lib/exif/types.ts';
 
 // Même valeur par défaut que scripts/fetch-fixtures.mjs : sans cela, le banc
 // cherchait le corpus à la racine du dépôt et échouait par une exception non
@@ -1086,6 +1088,88 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
     exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
   check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
     diffResume(avant, inventory(out)));
+});
+
+/* ------------------------------------------------------------------ */
+/* Le tableau ne peut pas mentir                                       */
+/*                                                                     */
+/* La page rend le tableau depuis capacites.ts, donc il ne peut pas     */
+/* diverger de ce que le MOTEUR croit savoir faire. Mais rien ne le     */
+/* reliait à ce que le moteur SAIT faire : « une case ne passe à oui    */
+/* qu'une fois son test vert » restait une discipline écrite. Ce        */
+/* scénario en fait une propriété mécanique — il exécute réellement     */
+/* chaque opération annoncée, sur un vrai fichier de ce format-là.      */
+/* ------------------------------------------------------------------ */
+
+/** Un fichier réel PORTEUR d'un lieu, par format. Sans lui, aucune preuve. */
+const TEMOINS: Partial<Record<Format, string>> = {
+  jpeg: 'DSCN0010.jpg',
+  heic: 'iphone.heic',
+  avif: 'photo.avif',
+  png: 'avec-lieu.png',
+  webp: 'avec-lieu.webp',
+  tiff: 'avec-lieu.tif',
+};
+
+scenario('Chaque case du tableau est adossée à une opération réelle', () => {
+  for (const ligne of MATRICE) {
+    for (const format of ligne.formats) {
+      const c = ligne.capacites;
+      const annonce = [c.lire, c.corriger, c.ajouter, c.effacer];
+      const temoin = TEMOINS[format];
+
+      // Une ligne qui annonce quoi que ce soit doit avoir de quoi le prouver.
+      // C'est ici que se voit une case ouverte qu'aucun fichier n'éprouve.
+      if (!temoin) {
+        check(`${format} : une case à « oui » sans fichier témoin`,
+          annonce.every((x) => x === false),
+          `annoncé ${cellules(c).join('/')} sans aucun fichier pour l'éprouver`);
+        continue;
+      }
+
+      const chemin = join(FIXTURES, temoin);
+      const src = new Uint8Array(readFileSync(chemin));
+      const conteneur = conteneurOuEchec(src);
+
+      check(`${format} : « Lire » dit vrai`,
+        (lirePosition(conteneur, src) !== null) === c.lire, temoin);
+
+      const corrige = (() => {
+        try { return ecrirePosition(conteneur, src, AVIGNON.lat, AVIGNON.lon).bytes; }
+        catch { return null; }
+      })();
+      check(`${format} : « Corriger » dit vrai`, (corrige !== null) === c.corriger, temoin);
+
+      const vide = (() => {
+        try { return effacerPosition(conteneur, src).bytes; }
+        catch { return null; }
+      })();
+      check(`${format} : « Effacer » dit vrai`, (vide !== null) === c.effacer, temoin);
+      if (vide) {
+        const out = join(tmp, `matrice-vide-${temoin}`);
+        writeFileSync(out, vide);
+        check(`${format} : « Effacer » retire vraiment le lieu`,
+          exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+      }
+
+      // « Ajouter » se prouve sur un fichier qui ne porte plus de lieu — donc
+      // sur la sortie de l'effacement, quel que soit le format.
+      if (vide) {
+        const ajoute = (() => {
+          try { return ecrirePosition(conteneur, vide, AVIGNON.lat, AVIGNON.lon).bytes; }
+          catch { return null; }
+        })();
+        check(`${format} : « Ajouter » dit vrai`, (ajoute !== null) === c.ajouter, temoin);
+        if (ajoute) {
+          const out = join(tmp, `matrice-ajout-${temoin}`);
+          writeFileSync(out, ajoute);
+          const relu = exifPosition(out);
+          check(`${format} : « Ajouter » inscrit vraiment le lieu`,
+            relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+        }
+      }
+    }
+  }
 });
 
 // Q-038 : une build a promu en production depuis une branche de travail parce
