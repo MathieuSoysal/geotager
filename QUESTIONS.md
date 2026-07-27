@@ -960,7 +960,27 @@ branche de travail remet le problème.
 - **C.** Laisser en l'état. Écarté : sans prévisualisation, rien de ce que le §7.7 fait reposer
   dessus n'est vérifiable avant la mise en production.
 
-**Retenu provisoirement :** **A**.
+**Retenu : A — appliqué et vérifié le 27/07/2026.** La « Version command » a été passée à
+`npx wrangler versions upload`, et les trois conséquences se sont inversées dans le même mouvement :
+
+| Contrôle | Constat |
+|---|---|
+| Commentaire de PR | porte les **deux** URL, celle du commit et l'alias de branche |
+| `geotager.app` | revenu à la V0 relue — quatre colonnes, « Geotagor » |
+| Alias de branche | sert la V1 — cinq colonnes, « Geotager » |
+
+Le Gate 2 est donc exécutable pour la première fois. Ce qu'il donne sur cette branche :
+
+- les octets servis par la prévisualisation sont **identiques au bit près** à ceux de la build
+  locale — `index.html`, la feuille de style, le bundle d'interface et le morceau du travailleur.
+  Les 39 assertions du parcours en navigateur portent donc exactement sur l'artefact déployé ;
+- `x-robots-tag: noindex` répond sur l'hôte de prévisualisation et **pas** en production : la parade
+  de Q-019 et Q-027 est vérifiée sur un vrai hôte, ce qui n'avait jamais été possible ;
+- la politique de sécurité de contenu servie porte `default-src 'none'` et
+  `connect-src 'self' blob:`. Le zéro-tiers tient donc à trois niveaux : aucune URL tierce écrite
+  comme ressource (contrôle de build), aucune émise à l'exécution (parcours), et aucune possible
+  (le navigateur l'interdit) ;
+- les actifs sont servis en `immutable`, un an.
 
 Ce que l'épisode apprend, au-delà du réglage : le §7.7 bis notait déjà *« rien dans le dépôt ne
 protège de ce réglage »*, et c'est vérifié — une confirmation datée dit ce qui a été vu un jour, pas
