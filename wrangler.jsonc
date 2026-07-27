@@ -1,5 +1,5 @@
 {
-  // Geotagor: Workers configuration (static assets).
+  // Geotager: Workers configuration (static assets).
   //
   // No "main" field: the site is a set of assets alone, with no Worker code.
   // That is the technical translation of the zero-server constraint. Nothing of
@@ -20,7 +20,8 @@
   // the deployment succeeds and stays unreachable. The risk "false" avoided, a
   // site indexed twice on a technical domain, is already handled by the
   // host-scoped X-Robots-Tag rules in public/_headers, which is the remedy
-  // Cloudflare itself documents.
+  // Cloudflare itself documents. Worth switching to "false" the day geotager.app
+  // is attached, for belt and braces.
   "workers_dev": true,
 
   // Since Wrangler 4.44.0, preview_urls follows workers_dev by default. It is
@@ -36,36 +37,5 @@
   // Those settings originally had the working branch as the production branch,
   // which deployed unreviewed code straight to production and made any preview
   // impossible: a production branch is not previewed, it is production.
-  "preview_urls": true,
-
-  // Host-side telemetry (Workers Logs / Workers Traces).
-  //
-  // The "observability" block is here in the shape Cloudflare generates by
-  // default: the global flag stays false, and only the "logs" sub-block is on.
-  // In this schema "logs.enabled" takes precedence over the global flag for
-  // logs, while traces stay explicitly off.
-  //
-  // Actual scope: with no "main" field there is no Worker code of ours, and so
-  // no application logs. Only the invocation logs the platform produces for the
-  // asset service are reported: request, response, metadata. That is host
-  // telemetry, not visitor tracking; photos and their coordinates do not leave
-  // the user's machine.
-  //
-  // "head_sampling_rate": 1 means 100% of requests sampled. Cloudflare-side
-  // retention: 7 days.
-  "observability": {
-    "enabled": false,
-    "head_sampling_rate": 1,
-    "logs": {
-      "enabled": true,
-      "head_sampling_rate": 1,
-      "persist": true,
-      "invocation_logs": true
-    },
-    "traces": {
-      "enabled": false,
-      "persist": true,
-      "head_sampling_rate": 1
-    }
-  }
+  "preview_urls": true
 }

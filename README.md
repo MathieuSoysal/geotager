@@ -1,4 +1,4 @@
-# Geotagor
+# Geotager
 
 Voir, modifier et supprimer la position GPS d'une photo, **entièrement dans le navigateur**.
 

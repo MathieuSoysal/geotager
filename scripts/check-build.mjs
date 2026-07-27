@@ -18,8 +18,8 @@ const MAX_TAILLE = 25 * 1024 * 1024;
 
 /** Hosts allowed as a hyperlink. None is loaded as a resource. */
 const LIENS_AUTORISES = new Set([
-  'geotagor.fr',
-  'www.geotagor.fr',
+  'geotager.app',
+  'www.geotager.app',
   'github.com',
   'schema.org',
   'exiftool.org',

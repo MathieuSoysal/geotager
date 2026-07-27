@@ -1,6 +1,6 @@
 # CREDITS.md
 
-Toute dépendance de Geotagor doit être sous **MIT, BSD ou Apache-2.0**, avec sa version et sa licence
+Toute dépendance de Geotager doit être sous **MIT, BSD ou Apache-2.0**, avec sa version et sa licence
 consignées ici avant d'être installée.
 
 > **État : V0 installée.** Les dépendances ci-dessous sont réellement présentes dans

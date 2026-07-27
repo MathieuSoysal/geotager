@@ -342,7 +342,7 @@ async function appliquer(
     telechargerBlob(new Blob([produits[0].input as BlobPart]), produits[0].name);
   } else {
     const zip = await downloadZip(produits).blob();
-    telechargerBlob(zip, 'photos-geotagor.zip');
+    telechargerBlob(zip, 'photos-geotager.zip');
   }
 
   marquerEtape(3);
@@ -379,7 +379,7 @@ el.coords.addEventListener('input', () => {
 
 el.telecharger.addEventListener('click', () => {
   if (!cible) return;
-  void appliquer({ kind: 'set', position: cible }, '-geotagor');
+  void appliquer({ kind: 'set', position: cible }, '-geotager');
 });
 
 el.effacer.addEventListener('click', () => {

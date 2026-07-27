@@ -1,4 +1,4 @@
-# Geotagor — en-têtes servis avec les assets statiques.
+# Geotager — en-têtes servis avec les assets statiques.
 # Supporté nativement par Workers (workers/static-assets/headers/).
 # Limites : 100 règles, 2 000 caractères par ligne.
 
@@ -11,7 +11,7 @@
   Permissions-Policy: geolocation=(), camera=(), microphone=(), usb=(), payment=(), browsing-topics=()
 
 # Le domaine technique ne doit pas exister en double dans l'index. Les motifs
-# sont scopés par hôte : ils ne touchent jamais geotagor.fr.
+# sont scopés par hôte : ils ne touchent jamais geotager.app.
 https://:worker.:subdomain.workers.dev/*
   X-Robots-Tag: noindex
 
