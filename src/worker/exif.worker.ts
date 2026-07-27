@@ -231,47 +231,105 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
 }
 
 /**
- * Vérification après écriture — non négociable.
+ * Vérification après écriture — non négociable, et à trois étages.
  *
- * Le fichier produit est relu et la position comparée à celle demandée. Un
- * écart ou une absence fait échouer l'opération et rend l'original intact :
- * sur un outil de métadonnées, l'échec silencieux est le pire mode de
- * défaillance, parce que l'utilisateur publie en croyant avoir nettoyé.
+ * Une auto-relecture est structurellement aveugle à la classe de défaut la plus
+ * dangereuse : un encodeur et un décodeur symétriquement faux passent avec un
+ * écart de exactement zéro. Il faut donc un second lecteur, écrit par d'autres.
+ *
+ * Sauf que ce second lecteur ne connaît pas tous les formats — il ignore le
+ * WebP — et qu'il refuse certains fichiers pour des raisons sans rapport avec
+ * nous. D'où trois étages :
+ *
+ *   A. notre propre relecture, en repartant des octets produits et en
+ *      relocalisant le bloc depuis zéro : si la structure avait été abîmée, on
+ *      ne retrouverait rien ;
+ *   B. le second lecteur sur le BLOC extrait. Un bloc de position est un
+ *      fichier TIFF valide à lui seul, et le second lecteur l'accepte tel quel.
+ *      C'est exactement la couche où vit le défaut de boutisme, donc l'étage
+ *      qui compte. Il est exigible sur tous les formats ;
+ *   C. le second lecteur sur le FICHIER entier, soumis à une règle de symétrie :
+ *      s'il savait ouvrir l'entrée, il doit savoir ouvrir la sortie et être
+ *      d'accord. S'il ne savait pas ouvrir l'entrée, son silence sur la sortie
+ *      ne prouve rien et ne vaut pas échec.
+ *
+ * Cette règle est exacte par construction sur les formats où nous ne touchons
+ * ni l'en-tête, ni la table des emplacements, ni aucune longueur : la capacité
+ * du second lecteur à traiter le fichier y est invariante par notre opération.
  */
+
+/** Ce que le second lecteur trouve dans un fichier, ou dans un bloc nu. */
+async function gpsParExifr(octets: Uint8Array): Promise<LatLon | null> {
+  try {
+    const t = (await exifr.gps(octets.slice().buffer)) as
+      | { latitude: number; longitude: number }
+      | undefined;
+    if (t && Number.isFinite(t.latitude) && Number.isFinite(t.longitude)) {
+      return { lat: t.latitude, lon: t.longitude };
+    }
+  } catch {
+    /* le second lecteur ne sait pas ouvrir ce fichier */
+  }
+  return null;
+}
+
+/** Vrai si le second lecteur sait ouvrir ce fichier, position ou non. */
+async function exifrSaitOuvrir(octets: Uint8Array): Promise<boolean> {
+  try {
+    const t = await exifr.parse(octets.slice().buffer, { tiff: true, ifd0: true });
+    return t != null;
+  } catch {
+    return false;
+  }
+}
+
+/** Le premier bloc de position du fichier, tel qu'on le retrouve après coup. */
+function blocNu(octets: Uint8Array): Uint8Array | null {
+  try {
+    const c = conteneurDe(octets);
+    if (!c) return null;
+    const e = c.localiser(octets)[0];
+    return e ? e.tiff : null;
+  } catch {
+    return null;
+  }
+}
+
+const accord = (a: LatLon | null, b: LatLon | null): boolean =>
+  (a === null && b === null) || (a !== null && b !== null && distanceMetres(a, b) < 1);
+
 async function verifier(
-  bytes: Uint8Array,
+  original: Uint8Array,
+  produit: Uint8Array,
   attendu: LatLon | null,
-): Promise<{ verified: LatLon | null; drift: number; croise: boolean }> {
+): Promise<{ verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean }> {
+  // A — notre relecture, structure relocalisée depuis le premier octet.
   const parNous = (() => {
     try {
-      const c = conteneurDe(bytes);
-      return c ? lirePosition(c, bytes) : null;
+      const c = conteneurDe(produit);
+      return c ? lirePosition(c, produit) : null;
     } catch {
       return null;
     }
   })();
 
-  // Relecture croisée par un moteur indépendant. Deux implémentations
-  // symétriquement fausses passeraient une auto-relecture sans écart.
-  let parExifr: LatLon | null = null;
-  try {
-    const t = (await exifr.gps(bytes.slice().buffer)) as
-      | { latitude: number; longitude: number }
-      | undefined;
-    if (t && Number.isFinite(t.latitude)) parExifr = { lat: t.latitude, lon: t.longitude };
-  } catch {
-    parExifr = null;
-  }
+  // B — le second lecteur sur le bloc extrait. Exigible partout.
+  const bloc = blocNu(produit);
+  const parBloc = bloc ? await gpsParExifr(bloc) : null;
+  const croiseBloc = bloc === null ? parNous === null : accord(parNous, parBloc);
 
-  const croise =
-    (parNous === null && parExifr === null) ||
-    (parNous !== null && parExifr !== null && distanceMetres(parNous, parExifr) < 1);
+  // C — le second lecteur sur le fichier entier, sous condition de symétrie.
+  const temoin = await exifrSaitOuvrir(original);
+  const parFichier = temoin ? await gpsParExifr(produit) : null;
+  const croiseFichier = !temoin || accord(parNous, parFichier);
+
+  const croise = croiseBloc && croiseFichier;
 
   if (attendu === null) {
-    return { verified: parNous, drift: parNous === null ? 0 : Infinity, croise };
+    return { verified: parNous, drift: parNous === null ? 0 : Infinity, croise, croiseComplet: temoin };
   }
-  if (!parNous) return { verified: null, drift: Infinity, croise };
-  return { verified: parNous, drift: distanceMetres(parNous, attendu), croise };
+  if (!parNous) return { verified: null, drift: Infinity, croise, croiseComplet: temoin };
+  return { verified: parNous, drift: distanceMetres(parNous, attendu), croise, croiseComplet: temoin };
 }
 
 async function appliquer(
@@ -337,7 +395,7 @@ async function appliquer(
       );
     }
 
-    const { verified, drift, croise } = await verifier(produit.bytes, attendu);
+    const { verified, drift, croise } = await verifier(bytes, produit.bytes, attendu);
 
     // Tolérance de 1 mètre. Les coordonnées EXIF sont stockées en rationnels
     // degrés/minutes/secondes ; la conversion perd un peu de précision. Au-delà
