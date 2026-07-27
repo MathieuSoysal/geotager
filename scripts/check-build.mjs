@@ -193,6 +193,27 @@ if (existsSync(headers)) {
   }
 }
 
+/* --- 6. le garde-fou de déploiement est en place ------------------- */
+
+/*
+ * Q-038 : une build a promu en production depuis une branche de travail, parce
+ * qu'un réglage de tableau de bord le demandait et que rien dans le dépôt ne
+ * s'y opposait. `scripts/deploy.mjs` remet la décision dans le dépôt ; ce
+ * contrôle vérifie qu'on ne l'en a pas retirée depuis. Un garde-fou qu'on peut
+ * effacer sans que rien ne proteste n'est pas un garde-fou.
+ */
+{
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+  if (!/scripts\/deploy\.mjs/.test(pkg.scripts?.deploy ?? '')) {
+    echecs.push('package.json : le script « deploy » ne passe plus par scripts/deploy.mjs');
+  }
+  if (!existsSync('scripts/deploy.mjs')) {
+    echecs.push('scripts/deploy.mjs est absent : plus rien ne protège de la promotion en production');
+  }
+  const branche = (process.env.WORKERS_CI_BRANCH ?? '').trim();
+  if (branche) infos.push(`branche construite : « ${branche} »`);
+}
+
 /* --- rendu -------------------------------------------------------- */
 
 for (const i of infos) console.log(`  ${i}`);

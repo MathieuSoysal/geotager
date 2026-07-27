@@ -27,6 +27,7 @@ import {
 import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
 import { createHash } from 'node:crypto';
+import { commandePour } from '../scripts/deploy.mjs';
 
 // Même valeur par défaut que scripts/fetch-fixtures.mjs : sans cela, le banc
 // cherchait le corpus à la racine du dépôt et échouait par une exception non
@@ -287,6 +288,33 @@ scenario('Tout effacer', () => {
   const dims = exif(['-s', '-s', '-s', '-ImageSize', out]).trim();
   check('l\'image reste décodable et de même taille', dims === exif(['-s', '-s', '-s', '-ImageSize', path]).trim(),
     `« ${dims} »`);
+});
+
+// Q-036. Perdre le profil décale visiblement les couleurs dans toute
+// application gérée en couleur : c'est une dégradation de l'image, pas un
+// retrait d'information. PNG et WebP le conservaient déjà ; le JPEG était le
+// seul écart avec att_exif.md §4.
+scenario('Tout effacer garde le profil de couleurs d\'un JPEG', () => {
+  const path = join(FIXTURES, 'Canon_40D.jpg');
+  const src = new Uint8Array(readFileSync(path));
+  const empreinteProfil = (f: string) =>
+    createHash('sha256').update(exif(['-b', '-ICC_Profile', f])).digest('hex');
+
+  const avant = empreinteProfil(path);
+  check('le fichier de départ porte bien un profil',
+    exif(['-s', '-s', '-s', '-ICC_Profile:ProfileDescription', path]).trim() !== '');
+
+  const res = stripAllMetadata(src);
+  const out = join(tmp, 'strip-icc.jpg');
+  writeFileSync(out, res.bytes);
+
+  check('le fichier a rétréci', res.bytes.length < src.length);
+  const reste = exif(['-a', '-G1', '-s', '-EXIF:all', '-XMP:all', '-IPTC:all', out]).trim();
+  check('aucun tag EXIF, XMP ou IPTC résiduel', reste === '', reste.slice(0, 200));
+  check('le profil de couleurs est intact au bit près', empreinteProfil(out) === avant);
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', path]).trim());
 });
 
 scenario('Fichiers refusés proprement', () => {
@@ -1058,6 +1086,21 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
     exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
   check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
     diffResume(avant, inventory(out)));
+});
+
+// Q-038 : une build a promu en production depuis une branche de travail parce
+// qu'un réglage de tableau de bord le demandait et que rien dans le dépôt ne
+// s'y opposait. La décision est revenue dans le dépôt ; encore faut-il qu'un
+// test l'exerce, sinon le garde-fou n'est qu'un ornement.
+scenario('Le garde-fou de déploiement ne promeut que depuis main', () => {
+  check('la branche de production promeut',
+    JSON.stringify(commandePour('main')) === JSON.stringify(['wrangler', 'deploy']));
+  for (const branche of ['claude/geotager-v1-1-final-cases-kqjsif', 'main-truqué', 'Main', 'mainx']) {
+    check(`« ${branche} » téléverse sans promouvoir`,
+      JSON.stringify(commandePour(branche)) === JSON.stringify(['wrangler', 'versions', 'upload']));
+  }
+  check('une branche inconnue est refusée, pas devinée', commandePour('') === null);
+  check('une branche faite d\'espaces est refusée aussi', commandePour('   ') === null);
 });
 
 scenario('Un TIFF large est refusé plutôt que lu de travers', () => {

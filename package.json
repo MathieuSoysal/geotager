@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
     "build": "ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/check-build.mjs",
+    "deploy": "node scripts/deploy.mjs",
     "preview": "astro preview",
     "test": "node --experimental-strip-types test/engine.test.ts",
     "fixtures": "node scripts/fetch-fixtures.mjs",
