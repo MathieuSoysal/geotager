@@ -1,0 +1,26 @@
+{
+  // Geotagor: Workers configuration (static assets).
+  //
+  // No "main" field: the site is a set of assets alone, with no Worker code.
+  // That is the technical translation of the zero-server constraint. Nothing of
+  // ours runs at the host; it only serves files.
+  "name": "geotager",
+  "compatibility_date": "2026-07-27",
+
+  // Bootstrap: the directory currently points at "./site", which is committed,
+  // so the deployment works with no build step. Once Astro produces "./dist"
+  // this line becomes "./dist" and "site/" disappears.
+  "assets": {
+    "directory": "./site"
+  },
+
+  // Removes the geotager.<subdomain>.workers.dev host. Without it the site
+  // would exist twice on an indexable domain, a problem Cloudflare Pages forced
+  // you to patch and Workers lets you remove.
+  "workers_dev": false,
+
+  // Since Wrangler 4.44.0, preview_urls follows workers_dev by default. It is
+  // re-enabled explicitly: preview URLs are what make the pre-production checks
+  // runnable before going live.
+  "preview_urls": true
+}
