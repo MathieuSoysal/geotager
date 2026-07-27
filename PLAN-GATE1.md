@@ -16,7 +16,10 @@ peut être factuellement le meilleur plutôt qu'« encore un outil ».
 4 de conception, 5 de contradiction. Tout chiffre ci-dessous est marqué **MESURÉ** (relevé),
 **DOCUMENTÉ** (la source l'affirme) ou **ESTIMÉ** (calculé). Rapports complets en annexe : [`docs/gate1/`](docs/gate1/).
 
-Une vérification complémentaire (3 agents) a couvert l'hébergement après la décision d'utiliser l'intégration Git de Cloudflare Pages ; sa passe adverse a été bloquée par un classifieur, ce qui est signalé au §7.
+Une vérification complémentaire (3 agents) a couvert l'hébergement ; sa passe adverse a été bloquée
+par un classifieur, ce qui est signalé au §7. Elle a d'abord porté sur Cloudflare **Pages** avant que
+l'intégration réelle se révèle être **Workers** — le §7 a été recorrigé sur la doc Workers et signale
+ce qui reste à revérifier.
 
 **Ce plan corrige le cahier des charges sur quatorze points.** Chacun est signalé par ⚠️ et ouvre une
 entrée `QUESTIONS.md`. Aucun n'a été tranché en silence.
@@ -517,14 +520,26 @@ un actif sort non compressé ou dépasse son budget).
 
 ---
 
-## 7. Déploiement — Cloudflare Pages en intégration Git
+## 7. Déploiement — Cloudflare Workers en intégration Git
 
-Décision de Mathieu : le dépôt GitHub est connecté à Cloudflare Pages, build et déploiement
-automatiques à chaque push. Conséquences vérifiées sur la documentation officielle.
+Le dépôt est connecté à **Cloudflare Workers avec assets statiques** (Workers Builds), build et
+déploiement automatiques à chaque push. Le Worker `geotager` a été créé le 27/07/2026 à 14:19 UTC.
+
+⚠️ **Correction.** Cette section a d'abord été vérifiée contre la documentation **Pages** — Cloudflare
+pousse désormais Workers pour les sites statiques et les deux documentations se ressemblent
+dangereusement. Ce qui suit a été recorrigé sur la doc Workers. Ce qui relève de la **zone**
+(§7.1, §7.3) était et reste valable dans les deux cas ; ce qui relève du **produit** (§7.2, §7.4)
+a changé.
 
 ⚠️ **Cette section n'a pas subi de passe adverse** — l'agent contradicteur a été bloqué par un
-classifieur de sécurité. Les trois points marqués « à tester » ci-dessous sont donc à trancher sur
-pièces au premier déploiement, pas à croire sur parole.
+classifieur de sécurité. Les points marqués « à tester » sont donc à trancher sur pièces au premier
+déploiement, pas à croire sur parole.
+
+**État actuel : la build échoue à chaque push, et c'est attendu.** Le dépôt ne contient aucune
+application — ni `package.json`, ni `wrangler.jsonc`, ni répertoire de sortie. Workers Builds n'a
+rien à publier. Corriger cela reviendrait à démarrer l'implémentation avant la validation du plan, et
+à trancher au passage `workers_dev`, la date de compatibilité et la chaîne de build. En attendant :
+désactiver les builds de branches non-production, ou déconnecter l'intégration Git jusqu'à la V0.
 
 ### 7.1 Ce que Cloudflare injecte tout seul — trois interrupteurs actifs par défaut
 
@@ -558,40 +573,44 @@ sécurité peut être posé par notre hébergeur uniquement pour repousser une a
 dire cela que prétendre l'impossible** — c'est exactement le genre de détail qu'un lecteur méfiant
 vérifie.
 
-### 7.2 L'indexation de `pages.dev` — le risque SEO créé par l'intégration Git
+### 7.2 L'indexation du domaine technique — Workers résout ce que Pages obligeait à colmater
 
-Les déploiements de **prévisualisation** reçoivent `X-Robots-Tag: noindex` automatiquement, c'est
-documenté. Mais **`geotagor.pages.dev` (production) est indexable par défaut** : le site entier
-existerait en double sur un sous-domaine, sur un projet dont le seul canal est le SEO.
+Sur Pages, `<projet>.pages.dev` est indexable et **impossible à supprimer** : il fallait des règles
+`_headers` scopées par hôte **plus** une Bulk Redirect 301 pour neutraliser un domaine dupliqué
+qu'on ne pouvait qu'atténuer. Le site entier existait en double, sur un projet dont le seul canal
+est le SEO.
 
-Le piège apparent — « le même `_headers` est déployé partout, un `noindex` frapperait aussi la
-production » — **n'en est pas un** : `_headers` accepte des motifs scopés par hôte, avec des
-placeholders dans le nom d'hôte. Cloudflare documente exactement ce cas :
+**Sur Workers, l'hôte se supprime.** Une ligne suffit :
 
-```
-https://:project.pages.dev/*
-	X-Robots-Tag: noindex
-
-https://:version.:project.pages.dev/*
-	X-Robots-Tag: noindex
+```jsonc
+{ "workers_dev": false }
 ```
 
-La première règle couvre le domaine canonique du projet, la seconde les hashes et les alias de
-branche. Aucune ne touche `geotagor.fr`.
+`geotager.<sous-domaine>.workers.dev` cesse d'exister. **Le risque de contenu dupliqué disparaît par
+construction**, au lieu d'être colmaté par deux mécanismes qui pouvaient chacun sauter. C'est le seul
+domaine où le choix de Workers plutôt que Pages est un gain net pour ce projet.
 
-⚠️ **Corollaire à ne jamais enfreindre** : les règles `_headers` **se cumulent**, et *« if a header
-is applied twice, the values are joined with a comma separator »*. Un `X-Robots-Tag` sur un motif
-relatif produirait `index, follow, noindex` sur `pages.dev` — comportement indéfini. **Contrôle de
-build bloquant** : échouer si un `X-Robots-Tag` apparaît sous un motif ne commençant pas par
-`https://`. C'est le garde-fou contre la régression qui désindexerait le site du jour au lendemain.
+⚠️ **Contrepartie à ne pas subir.** Depuis Wrangler 4.44.0, `preview_urls` **suit par défaut le
+réglage `workers_dev`** : couper l'un coupe l'autre. Or les prévisualisations sont ce qui rend le
+Gate 2 exécutable avant la production (§7.7). Il faut donc les réactiver **explicitement** :
 
-Défense en profondeur : une **Bulk Redirect 301** de `geotagor.pages.dev` vers `geotagor.fr`
-(*Include subdomains* **désactivé**, sinon les prévisualisations sont redirigées et deviennent
-inutilisables). Les Bulk Redirects s'exécutent avant le projet Pages, donc le 301 gagne et le
-`noindex` reste le filet si la règle saute.
+```jsonc
+{ "workers_dev": false, "preview_urls": true }
+```
 
-**`robots.txt` doit rester permissif.** Un `Disallow: /` empêcherait Google de lire le `noindex` —
-et le même fichier est servi sur tous les hôtes de toute façon.
+**Et une question reste ouverte** : Pages documente un `X-Robots-Tag: noindex` **automatique** sur ses
+prévisualisations. **Je n'ai pas trouvé l'équivalent documenté côté Workers.** Tant que ce n'est pas
+vérifié par un `curl -I` sur une vraie URL de prévisualisation, on suppose qu'il n'existe pas, et on
+protège les prévisualisations par **Cloudflare Access** — ce qui les rend inaccessibles aux robots
+comme au public. Le comportement conservateur, pas l'optimiste.
+
+**`robots.txt` doit rester permissif.** Un `Disallow: /` empêcherait Google de lire le moindre
+`noindex`, et le même fichier est servi sur tous les hôtes.
+
+⚠️ **Règle qui survit au changement de produit** : les règles `_headers` **se cumulent**, et *« if a
+header is applied twice, the values are joined with a comma separator »*. Un `X-Robots-Tag` posé sur
+un motif relatif produirait `index, follow, noindex` — comportement indéfini. **Contrôle de build
+bloquant** : échouer si un `X-Robots-Tag` apparaît sous un motif ne commençant pas par `https://`.
 
 ### 7.3 Redirections
 
@@ -600,7 +619,6 @@ explicitement en ❌). Il matche un chemin, pas un hôte.
 
 | Depuis | Vers | Mécanisme | Code |
 |---|---|---|---|
-| `geotagor.pages.dev/*` | `geotagor.fr` | Bulk Redirect (compte) | 301 |
 | `www.geotagor.fr/*` | `geotagor.fr` | Single Redirect (zone) | 301 |
 | `geotagor.com/*`, `www.geotagor.com/*` | `geotagor.fr` | Single Redirect (zone `.com`) | 301 |
 | chemins internes | — | `public/_redirects` | **301 écrit à la main** (le défaut est 302) |
@@ -613,9 +631,11 @@ sinon 522.
 
 ### 7.4 La build tourne chez Cloudflare — quatre conséquences
 
-**a. Aucune toolchain Rust dans l'image de build.** L'image v3 (Ubuntu 22.04, Node 22.16.0, Python,
-Go, Ruby, Bun) ne contient ni `cargo`, ni `rustup`, ni `wasm-pack`, ni `wasm-opt` — Cloudflare a même
-un ticket de documentation ouvert sur le sujet. **Décision : si le spike valide la voie Rust, le
+**a. Aucune toolchain Rust dans l'image de build.** Établi sur l'image Pages v3 (Ubuntu 22.04,
+Node 22.16.0, Python, Go, Ruby, Bun) : ni `cargo`, ni `rustup`, ni `wasm-pack`, ni `wasm-opt` —
+Cloudflare a même un ticket de documentation ouvert sur le sujet. ⚠️ **L'image de Workers Builds
+n'a pas été auditée séparément** ; la conclusion ci-dessous ne dépend de toute façon pas du produit,
+puisqu'elle consiste à ne rien compiler chez Cloudflare. **Décision : si le spike valide la voie Rust, le
 `.wasm` est compilé dans GitHub Actions et l'artefact est committé.** Ce n'est pas un pis-aller :
 un binaire committé est diffable, et la chaîne de compilation est publique — donc *reproductible par
 un tiers*, ce qui sert directement l'argument du produit.
@@ -664,12 +684,30 @@ error logs are written to standard error. »* Donc un `|| true`, un pipe sans `p
 Node qui attrape l'exception sans poser `exitCode = 1` **met un site cassé en production**. Les
 contrôles bloquants doivent sortir en non-zéro, chaînés en `&&`.
 
-**e. Ne pas committer de `wrangler.toml`.** Il ne peut porter ni la commande de build ni le
-répertoire racine, et il rend les champs correspondants **non éditables** dans le tableau de bord.
+⚠️ **e. Le `wrangler.jsonc` devient obligatoire — l'inverse de ce que ce plan disait.** Sous Pages,
+il était déconseillé : il ne pouvait porter ni la commande de build ni la racine, et il verrouillait
+les champs du tableau de bord. Sous Workers, c'est le fichier de configuration du Worker, et il porte
+les décisions qui comptent ici :
 
-Limites du plan gratuit : **500 builds/mois**, **1 build à la fois**, **20 min** par build,
-**20 000 fichiers**, **25 MiB** par fichier. Node s'épingle par `.nvmrc` — le champ `engines` de
-`package.json` est explicitement **non supporté** en v3.
+```jsonc
+{
+  "name": "geotager",
+  "compatibility_date": "2026-07-27",
+  "assets": { "directory": "./dist" },
+  "workers_dev": false,
+  "preview_urls": true
+}
+```
+
+Pas de champ `main` : un site d'assets seuls n'a pas de code Worker. C'est cohérent avec la contrainte
+« zéro serveur » — **rien de nous ne s'exécute chez Cloudflare**, l'hébergeur ne fait que servir des
+fichiers.
+
+Limites d'assets en plan gratuit, **identiques sous Workers et sous Pages** (doc Workers vérifiée) :
+**20 000 fichiers** par version, **25 MiB** par fichier, **100 règles** `_headers` à 2 000 caractères
+par ligne, **2 100 redirections**. ⚠️ Les quotas de build (nombre par mois, durée, concurrence) ont
+été relevés sur Pages et **n'ont pas été revérifiés pour Workers Builds** — à contrôler sur
+`/workers/ci-cd/builds/limits-and-pricing/` avant de s'y fier.
 
 Note de workflow : **les PR issues de forks n'obtiennent pas de prévisualisation.** Sur un dépôt
 public, une CI GitHub Actions qui rejoue `npm run build` et les contrôles bloquants n'est donc pas un

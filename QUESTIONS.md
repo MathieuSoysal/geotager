@@ -485,3 +485,61 @@ prévisualisation avant toute mise en production.
 de sorte qu'un résultat négatif ne coûte rien.
 
 **Bloque :** non, mais le point 2 conditionne le budget de l'index.
+
+---
+
+## [GATE1] Q-022 — L'hébergement est Workers, pas Pages
+
+**Contexte :** le §7 du plan a été vérifié contre la documentation **Cloudflare Pages**. L'intégration
+réellement mise en place le 27/07/2026 est **Workers avec assets statiques** (Workers Builds) — le
+check GitHub s'appelle `Workers Builds: geotager` et le bot pointe vers
+`/workers/ci-cd/builds/git-integration/`. Cloudflare pousse désormais Workers pour les sites
+statiques et les deux documentations se ressemblent au point de s'échanger silencieusement.
+
+**Ce qui tient sans changement** (vérifié sur la doc Workers) : `_headers` et `_redirects` sont
+supportés nativement, avec les mêmes limites ; les plafonds d'assets sont identiques (20 000 fichiers,
+25 MiB) ; toute la section sur les injecteurs Cloudflare relève de la **zone** et vaut dans les deux
+cas.
+
+**Ce qui change :**
+- **`"workers_dev": false` supprime l'hôte technique.** Sur Pages, `<projet>.pages.dev` était
+  indexable et indéracinable, ce qui imposait des règles `_headers` scopées par hôte plus une Bulk
+  Redirect. Ici le domaine dupliqué **n'existe simplement pas**. Gain net.
+- **`preview_urls` suit `workers_dev` par défaut** depuis Wrangler 4.44.0 : couper l'un coupe
+  l'autre. Les prévisualisations doivent donc être réactivées explicitement, faute de quoi le Gate 2
+  perd sa capacité à tourner avant la production.
+- **Le `wrangler.jsonc` devient obligatoire**, à l'inverse de ce que le plan recommandait.
+
+**Options sur le point ouvert — le `noindex` des prévisualisations :** Pages documente un
+`X-Robots-Tag: noindex` automatique sur ses prévisualisations. **Aucun équivalent trouvé côté
+Workers.**
+- **A.** Supposer qu'il n'existe pas et protéger les prévisualisations par **Cloudflare Access**.
+- **B.** Vérifier par `curl -I` sur une vraie URL de prévisualisation et n'agir qu'ensuite.
+- **C.** Désactiver les prévisualisations (`preview_urls: false`) et perdre le bénéfice Gate 2.
+
+**Retenu provisoirement :** **A**, parce que c'est le seul comportement qui ne parie pas sur une
+garantie non documentée. **B** sera fait de toute façon au premier déploiement, et pourra alléger A.
+
+**Bloque :** non pour le développement, **oui** pour la mise en ligne.
+
+---
+
+## [GATE1] Q-023 — La build échoue tant que le dépôt est documentaire
+
+**Contexte :** l'intégration Git est active et le dépôt ne contient aucune application — ni
+`package.json`, ni `wrangler.jsonc`, ni répertoire de sortie. Chaque push produit donc une build en
+échec sur la PR. Ce n'est pas un défaut du livrable : c'est l'état prescrit par le Gate 1, où aucune
+ligne de code n'est écrite avant validation.
+
+**Options :**
+- **A.** Laisser rouge. Le bruit est visible mais le périmètre est tenu.
+- **B.** Désactiver les builds de branches non-production dans le tableau de bord.
+- **C.** Déconnecter l'intégration Git jusqu'au démarrage de la V0.
+- **D.** Committer un `wrangler.jsonc` et un `package.json` minimaux pour passer au vert. Écarté
+  sans instruction contraire : cela démarrerait l'implémentation avant la validation du plan et
+  trancherait au passage `workers_dev`, la date de compatibilité et la chaîne de build.
+
+**Retenu provisoirement :** **A**, parce que c'est le moins engageant. **B** ou **C** relèvent du
+tableau de bord et n'appartiennent qu'à Mathieu.
+
+**Bloque :** non.
