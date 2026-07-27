@@ -627,13 +627,44 @@ commit pourraient produire deux sites différents — incompatible avec « le d�
 vérifiez vous-même ». Le snapshot committé est l'unique source. Sa mise à jour se fait par un job
 GitHub Actions planifié qui ouvre une **pull request**, donc revue et diffable.
 
-**c. Pages ne lit que le code de sortie de la commande de build.** Verbatim : *« An exit code of 0
+**c. Les trois réglages du tableau de bord.**
+
+| Réglage Pages | Valeur |
+|---|---|
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Root directory | *(vide — ce n'est pas un monorepo)* |
+
+Tout le reste vit dans le dépôt, donc reste auditable. Le script `build` de `package.json` enchaîne
+le travail réel, **en `&&` strict** :
+
+```json
+"scripts": {
+  "build": "node scripts/build-index.mjs && node scripts/build-contours.mjs && astro build && node scripts/check-build.mjs"
+}
+```
+
+- `build-index.mjs` (lot B) lit le **snapshot committé**, jamais le réseau, et produit les 30
+  fichiers `.bin` pré-compressés.
+- `build-contours.mjs` (lot C) simplifie les contours et écrit `public/geo/`.
+- `astro build` produit `dist/`.
+- `check-build.mjs` porte les gates bloquants : budget JS gzip, longueur des titles et metas, absence
+  d'URL tierce dans `dist/`, `X-Robots-Tag` uniquement sous motif absolu, nombre de fichiers < 20 000,
+  aucun fichier > 25 MiB. **Il sort en code non nul dès qu'un contrôle échoue.**
+
+Les artefacts dérivés (index, contours) sont **reconstruits à chaque build** plutôt que committés :
+le snapshot est la source unique, la dérivation est déterministe, et un artefact committé qui
+diverge de sa source est une classe de bug qu'on s'évite. Si le plafond de 20 minutes devenait
+contraignant, l'arbitrage inverse — dériver dans GitHub Actions et committer, comme pour le `.wasm` —
+reste ouvert.
+
+**d. Pages ne lit que le code de sortie de la commande de build.** Verbatim : *« An exit code of 0
 will cause the Pages build to be marked as successful and assets will be uploaded regardless of if
 error logs are written to standard error. »* Donc un `|| true`, un pipe sans `pipefail`, ou un script
 Node qui attrape l'exception sans poser `exitCode = 1` **met un site cassé en production**. Les
 contrôles bloquants doivent sortir en non-zéro, chaînés en `&&`.
 
-**d. Ne pas committer de `wrangler.toml`.** Il ne peut porter ni la commande de build ni le
+**e. Ne pas committer de `wrangler.toml`.** Il ne peut porter ni la commande de build ni le
 répertoire racine, et il rend les champs correspondants **non éditables** dans le tableau de bord.
 
 Limites du plan gratuit : **500 builds/mois**, **1 build à la fois**, **20 min** par build,
