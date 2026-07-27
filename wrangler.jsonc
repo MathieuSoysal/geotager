@@ -40,5 +40,38 @@
   // production, ce qui déployait le code non relu directement en ligne et
   // rendait toute prévisualisation impossible — une branche de production
   // n'est pas prévisualisée, elle EST la production.
-  "preview_urls": true
+  "preview_urls": true,
+
+  // Télémétrie côté hébergeur (Workers Logs / Workers Traces).
+  //
+  // Le bloc "observability" est ici avec la forme que Cloudflare génère par
+  // défaut : le drapeau global reste à « false », et seul le sous-bloc "logs"
+  // est activé — dans ce schéma, "logs.enabled" prime sur le drapeau global
+  // pour les journaux, tandis que les traces restent explicitement coupées.
+  //
+  // PORTÉE RÉELLE : sans champ "main", il n'y a aucun code Worker à nous, donc
+  // aucun log applicatif. Ne remontent que les journaux d'invocation
+  // ("invocation_logs") produits par la plateforme pour le service d'assets :
+  // requête, réponse, métadonnées. C'est de la télémétrie d'hébergeur, pas du
+  // traçage de visiteur — la promesse « tout se passe dans le navigateur »
+  // reste intacte, les photos et leurs coordonnées ne quittent pas la machine
+  // de l'utilisateur.
+  //
+  // "head_sampling_rate": 1 = 100 % des requêtes échantillonnées. Rétention
+  // côté Cloudflare : 7 jours.
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
 }
