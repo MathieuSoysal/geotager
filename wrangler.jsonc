@@ -13,10 +13,15 @@
     "directory": "./dist"
   },
 
-  // Removes the geotager.<subdomain>.workers.dev host. Without it the site
-  // would exist twice on an indexable domain, a problem Cloudflare Pages forced
-  // you to patch and Workers lets you remove.
-  "workers_dev": false,
+  // The technical host stays enabled, and that is a choice rather than an
+  // oversight.
+  //
+  // At "false", production has no public URL until a custom domain is attached:
+  // the deployment succeeds and stays unreachable. The risk "false" avoided, a
+  // site indexed twice on a technical domain, is already handled by the
+  // host-scoped X-Robots-Tag rules in public/_headers, which is the remedy
+  // Cloudflare itself documents.
+  "workers_dev": true,
 
   // Since Wrangler 4.44.0, preview_urls follows workers_dev by default. It is
   // re-enabled explicitly: preview URLs are what make the pre-production checks

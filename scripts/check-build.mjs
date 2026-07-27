@@ -156,12 +156,39 @@ if (totalGzip > BUDGET_JS_GZIP) {
 const headers = join(DIR, '_headers');
 if (existsSync(headers)) {
   let motif = '';
+  const motifsNoindex = [];
   for (const ligne of readFileSync(headers, 'utf8').split('\n')) {
-    if (/^\S/.test(ligne)) motif = ligne.trim();
-    else if (/x-robots-tag/i.test(ligne) && !motif.startsWith('https://')) {
+    if (/^\S/.test(ligne) && !ligne.startsWith('#')) motif = ligne.trim();
+    else if (/x-robots-tag/i.test(ligne)) {
       // An X-Robots-Tag under a relative pattern would apply to the canonical
       // domain and de-index the site. It must exist only scoped by host.
-      echecs.push(`_headers : X-Robots-Tag sous le motif relatif « ${motif} »`);
+      if (!motif.startsWith('https://')) {
+        echecs.push(`_headers : X-Robots-Tag sous le motif relatif « ${motif} »`);
+      } else {
+        motifsNoindex.push(motif);
+      }
+    }
+  }
+
+  /*
+   * A host pattern that matches nothing is worse than an absent one: it gives
+   * the impression the technical domain is protected when it is not. On Workers
+   * the host is <worker>.<subdomain>.workers.dev, three labels; the Pages
+   * syntax had only two, and a placeholder does not cross the dot. So the right
+   * count is required.
+   */
+  const hoteWorkers = motifsNoindex.filter((m) => m.includes('.workers.dev'));
+  if (hoteWorkers.length === 0) {
+    echecs.push('_headers : aucun X-Robots-Tag ne couvre le domaine technique workers.dev');
+  }
+  for (const m of hoteWorkers) {
+    const hote = m.replace(/^https:\/\//, '').split('/')[0];
+    const avant = hote.slice(0, -'.workers.dev'.length).split('.').filter(Boolean);
+    if (avant.length < 2) {
+      echecs.push(
+        `_headers : le motif « ${m} » ne peut rien matcher — l'hôte Workers ` +
+          `comporte <worker>.<sous-domaine>.workers.dev, il faut au moins deux étiquettes`,
+      );
     }
   }
 }
