@@ -12,13 +12,15 @@
 
 import { ExifError } from './erreurs.ts';
 import {
-  parseTiff,
-  readPosition,
-  deletePositionInTiff,
-  writePositionInTiff,
-  emptyTiff,
-  TAG_GPS_IFD,
-} from './tiff.ts';
+  type Conteneur,
+  type Plage,
+  type Pose,
+  ecrirePosition,
+  effacerPosition,
+  enregistrer,
+  lirePosition,
+  toutEffacer,
+} from './conteneurs.ts';
 
 export interface Segment {
   marker: number;
@@ -134,6 +136,74 @@ function insertExif(jpeg: Uint8Array, tiff: Uint8Array): Uint8Array {
   return out;
 }
 
+// The container
+
+export const conteneurJpeg: Conteneur = {
+  format: 'jpeg',
+
+  reconnait(b) {
+    return b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+  },
+
+  localiser(b) {
+    const seg = findExifSegment(b, parseJpegSegments(b));
+    if (!seg) return [];
+    return [{ tiff: b.subarray(seg.dataStart + 6, seg.dataEnd), debut: seg.dataStart + 6, interne: seg }];
+  },
+
+  // In a JPEG, everything that is not the EXIF APP1 payload belongs to
+  // somebody else: the other segments, and above all the compressed data. The
+  // honest answer is therefore "all the rest".
+  plagesRevendiquees(b, vise) {
+    const fin = vise.debut + vise.tiff.length;
+    const plages: Plage[] = [];
+    if (vise.debut > 0) plages.push([0, vise.debut]);
+    if (fin < b.length) plages.push([fin, b.length]);
+    return plages;
+  },
+
+  reecrireSurPlace(b, vise, tiff) {
+    const out = new Uint8Array(b);
+    out.set(tiff, vise.debut);
+    return out;
+  },
+
+  reconstruire(b, vise, tiff): Pose {
+    if (!vise) {
+      // The segment is inserted right after SOI, so everything after shifts.
+      return { bytes: insertExif(b, tiff), changed: [[2, b.length + 4 + 6 + tiff.length]] };
+    }
+    const seg = vise.interne as Segment;
+    const bytes = replaceExif(b, seg, tiff);
+    return { bytes, changed: [[seg.start, Math.max(bytes.length, b.length)]] };
+  },
+
+  toutEffacer(b): Pose {
+    const segments = parseJpegSegments(b);
+    const drop = segments.filter((s) => (s.marker >= 0xe0 && s.marker <= 0xef) || s.marker === 0xfe);
+    if (drop.length === 0) return { bytes: b, changed: [] };
+    const keep: Array<[number, number]> = [];
+    let cursor = 0;
+    for (const s of drop) {
+      keep.push([cursor, s.start]);
+      cursor = s.dataEnd;
+    }
+    keep.push([cursor, b.length]);
+    const total = keep.reduce((n, [x, y]) => n + (y - x), 0);
+    const out = new Uint8Array(total);
+    let p = 0;
+    for (const [x, y] of keep) {
+      out.set(b.subarray(x, y), p);
+      p += y - x;
+    }
+    return { bytes: out, changed: [[drop[0].start, Math.max(b.length, out.length)]] };
+  },
+};
+
+enregistrer(conteneurJpeg);
+
+// Historical public surface
+
 export interface JpegResult {
   bytes: Uint8Array;
   route: 'P1' | 'P2';
@@ -141,21 +211,15 @@ export interface JpegResult {
   sameLength: boolean;
 }
 
+const resultat = (jpeg: Uint8Array, e: { bytes: Uint8Array; route: 'P1' | 'P2' }): JpegResult => ({
+  bytes: e.bytes,
+  route: e.route,
+  sameLength: e.bytes.length === jpeg.length,
+});
+
 /** Removes the GPS location from a JPEG. */
 export function deleteGpsFromJpeg(jpeg: Uint8Array): JpegResult {
-  const segments = parseJpegSegments(jpeg);
-  const seg = findExifSegment(jpeg, segments);
-  if (!seg) return { bytes: jpeg, route: 'P1', sameLength: true };
-  const tiff = jpeg.subarray(seg.dataStart + 6, seg.dataEnd);
-  const view = parseTiff(tiff);
-  if (!view.gpsIfd && !view.ifd0.entries.some((x) => x.tag === TAG_GPS_IFD)) {
-    return { bytes: jpeg, route: 'P1', sameLength: true };
-  }
-  const edit = deletePositionInTiff(view);
-  // The TIFF block keeps exactly its size, so it can be rewritten in place.
-  const out = new Uint8Array(jpeg);
-  out.set(edit.bytes, seg.dataStart + 6);
-  return { bytes: out, route: 'P1', sameLength: true };
+  return resultat(jpeg, effacerPosition(conteneurJpeg, jpeg));
 }
 
 /** Writes a GPS location into a JPEG. */
@@ -165,22 +229,7 @@ export function writeGpsToJpeg(
   lon: number,
   accuracyMetres?: number,
 ): JpegResult {
-  const segments = parseJpegSegments(jpeg);
-  const seg = findExifSegment(jpeg, segments);
-  if (!seg) {
-    const view = parseTiff(emptyTiff());
-    const edit = writePositionInTiff(view, lat, lon, accuracyMetres);
-    return { bytes: insertExif(jpeg, edit.bytes), route: 'P2', sameLength: false };
-  }
-  const tiff = jpeg.subarray(seg.dataStart + 6, seg.dataEnd);
-  const view = parseTiff(tiff);
-  const edit = writePositionInTiff(view, lat, lon, accuracyMetres);
-  if (edit.route === 'P1') {
-    const out = new Uint8Array(jpeg);
-    out.set(edit.bytes, seg.dataStart + 6);
-    return { bytes: out, route: 'P1', sameLength: true };
-  }
-  return { bytes: replaceExif(jpeg, seg, edit.bytes), route: 'P2', sameLength: false };
+  return resultat(jpeg, ecrirePosition(conteneurJpeg, jpeg, lat, lon, accuracyMetres));
 }
 
 /**
@@ -188,30 +237,12 @@ export function writeGpsToJpeg(
  * alone.
  */
 export function stripAllMetadata(jpeg: Uint8Array): JpegResult {
-  const segments = parseJpegSegments(jpeg);
-  const drop = segments.filter((s) => (s.marker >= 0xe0 && s.marker <= 0xef) || s.marker === 0xfe);
-  if (drop.length === 0) return { bytes: jpeg, route: 'P1', sameLength: true };
-  const keep: Array<[number, number]> = [];
-  let cursor = 0;
-  for (const s of drop) {
-    keep.push([cursor, s.start]);
-    cursor = s.dataEnd;
-  }
-  keep.push([cursor, jpeg.length]);
-  const total = keep.reduce((n, [a, b]) => n + (b - a), 0);
-  const out = new Uint8Array(total);
-  let p = 0;
-  for (const [a, b] of keep) {
-    out.set(jpeg.subarray(a, b), p);
-    p += b - a;
-  }
-  return { bytes: out, route: 'P2', sameLength: false };
+  const e = toutEffacer(conteneurJpeg, jpeg);
+  if (e.bytes.length === jpeg.length) return { bytes: jpeg, route: 'P1', sameLength: true };
+  return { bytes: e.bytes, route: 'P2', sameLength: false };
 }
 
 /** Reads a JPEG's location with no external dependency. */
 export function readGpsFromJpeg(jpeg: Uint8Array): { lat: number; lon: number } | null {
-  const segments = parseJpegSegments(jpeg);
-  const seg = findExifSegment(jpeg, segments);
-  if (!seg) return null;
-  return readPosition(parseTiff(jpeg.subarray(seg.dataStart + 6, seg.dataEnd)));
+  return lirePosition(conteneurJpeg, jpeg);
 }
