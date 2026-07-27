@@ -124,8 +124,30 @@ function diffDesEmplacements(avant: Uint8Array, apres: Uint8Array): string[] {
   return bouges;
 }
 
-/** True if libheif, a third-party decoder, can still decode this file. */
+/**
+ * True if libheif, a third-party decoder, can still decode this file.
+ *
+ * ExifTool says what the file contains; this says that it still decodes. Those
+ * are two different questions, and moving a location block can satisfy the
+ * first without the second.
+ *
+ * The tool being absent does not count as a successful decode, and must not be
+ * confused with a failed one either: the first call settles it once and for
+ * all, so that "heif-convert is not installed" shows up in the report instead
+ * of disguising itself as an engine regression.
+ */
+let libheifPresent: boolean | null = null;
 function seDecodeEncore(fichier: string): boolean {
+  if (libheifPresent === null) {
+    try {
+      execFileSync('heif-info', ['--version'], { stdio: 'pipe' });
+      libheifPresent = true;
+    } catch {
+      libheifPresent = false;
+      console.log('  !!   heif-convert est absent : installez libheif-examples');
+    }
+  }
+  if (!libheifPresent) return false;
   try {
     execFileSync('heif-convert', [fichier, join(tmp, `decode-${Date.now()}.png`)], { stdio: 'pipe' });
     return true;
