@@ -213,10 +213,13 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 .file-row.ko .st { color: var(--amber); }
 .file-row.ok .st { color: var(--teal); }
 
+/* Neutre par défaut : la phrase qui annonce la voie n'est pas un avertissement.
+   Elle ne le devient que lorsqu'une opération manque réellement. */
 .alerte {
   border-radius: 1rem; padding: .7rem 1rem; font-size: .86rem;
-  background: rgba(255, 176, 32, .12); border: 1px solid rgba(255, 176, 32, .35); color: #ffd28a;
+  background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .12); color: var(--muted);
 }
+.alerte.attention { background: rgba(255, 176, 32, .12); border-color: rgba(255, 176, 32, .35); color: #ffd28a; }
 .alerte.grave { background: rgba(255, 51, 133, .12); border-color: rgba(255, 51, 133, .4); color: #ffb0cf; }
 
 .scrollcue { display: flex; justify-content: center; padding: .2rem 0 1.1rem; }

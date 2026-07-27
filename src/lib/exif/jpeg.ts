@@ -17,7 +17,6 @@ import {
   type Pose,
   ecrirePosition,
   effacerPosition,
-  enregistrer,
   lirePosition,
   toutEffacer,
 } from './conteneurs.ts';
@@ -206,8 +205,6 @@ export const conteneurJpeg: Conteneur = {
     return { bytes: out, changed: [[drop[0].start, Math.max(b.length, out.length)]] };
   },
 };
-
-enregistrer(conteneurJpeg);
 
 /* ------------------------------------------------------------------ */
 /* Surface publique historique                                         */
