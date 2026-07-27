@@ -36,5 +36,36 @@
   // Those settings originally had the working branch as the production branch,
   // which deployed unreviewed code straight to production and made any preview
   // impossible: a production branch is not previewed, it is production.
-  "preview_urls": true
+  "preview_urls": true,
+
+  // Host-side telemetry (Workers Logs / Workers Traces).
+  //
+  // The "observability" block is here in the shape Cloudflare generates by
+  // default: the global flag stays false, and only the "logs" sub-block is on.
+  // In this schema "logs.enabled" takes precedence over the global flag for
+  // logs, while traces stay explicitly off.
+  //
+  // Actual scope: with no "main" field there is no Worker code of ours, and so
+  // no application logs. Only the invocation logs the platform produces for the
+  // asset service are reported: request, response, metadata. That is host
+  // telemetry, not visitor tracking; photos and their coordinates do not leave
+  // the user's machine.
+  //
+  // "head_sampling_rate": 1 means 100% of requests sampled. Cloudflare-side
+  // retention: 7 days.
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
 }
