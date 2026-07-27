@@ -8,12 +8,10 @@
   "name": "geotager",
   "compatibility_date": "2026-07-27",
 
-  // AMORÇAGE — voir QUESTIONS.md, entrée Q-023.
-  // Le répertoire pointe aujourd'hui sur "./site", qui est committé, afin que
-  // le déploiement fonctionne sans étape de build. Au démarrage de la V0,
-  // Astro produira "./dist" : cette ligne devient "./dist" et "site/" disparaît.
+  // Astro produit "./dist". La commande de build du tableau de bord doit être
+  // "npm run build", qui enchaîne astro build puis les contrôles bloquants.
   "assets": {
-    "directory": "./site"
+    "directory": "./dist"
   },
 
   // Supprime l'hôte geotager.<sous-domaine>.workers.dev. Sans cela, le site

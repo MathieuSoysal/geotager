@@ -1,0 +1,343 @@
+---
+import '../styles/global.css';
+
+const site = 'https://geotagor.fr';
+const title = "Modifier la géolocalisation d'une photo — Geotagor";
+const description =
+  "Ajoutez, modifiez ou supprimez les coordonnées GPS d'une photo directement dans votre navigateur. Aucun envoi de fichier, aucune inscription.";
+
+// SoftwareApplication seul. Pas d'aggregateRating : nous n'avons aucune note
+// réelle, et Google l'exige pour le rich result de ce type. Conséquence assumée
+// — pas de rich result — plutôt qu'un balisage inventé.
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Geotagor',
+  url: site + '/',
+  applicationCategory: 'MultimediaApplication',
+  applicationSubCategory: "Édition de métadonnées d'image",
+  operatingSystem: 'Tout navigateur web moderne',
+  inLanguage: 'fr',
+  isAccessibleForFree: true,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+  featureList: [
+    "Lire la position GPS d'une photo",
+    "Modifier la position GPS d'une photo",
+    "Supprimer la position GPS d'une photo",
+    'Supprimer toutes les métadonnées',
+  ],
+  description,
+};
+---
+
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#FF3385" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={site + '/'} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Geotagor" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={site + '/'} />
+    <meta property="og:locale" content="fr_FR" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z' fill='%23FF3385'/%3E%3Ccircle cx='20' cy='17.4' r='5.7' fill='%2317161B'/%3E%3C/svg%3E"
+    />
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </head>
+  <body>
+    <a class="saut" href="#contenu">Aller au contenu</a>
+
+    <div class="app">
+      <div class="wrap" style="display:flex;flex-direction:column;flex:1">
+        <div class="bar">
+          <a class="brand" href="/">
+            <svg viewBox="0 0 40 40" aria-hidden="true">
+              <path
+                d="M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z"
+                fill="#FF3385"></path>
+              <circle cx="20" cy="17.4" r="5.7" fill="#17161B"></circle>
+            </svg>
+            Geotagor
+          </a>
+          <nav class="main" aria-label="Sections">
+            <a href="#vie-privee">Vie privée</a>
+            <a href="#mode-emploi">Mode d'emploi</a>
+            <a href="#verifier">Vérifier vous-même</a>
+          </nav>
+        </div>
+
+        <div class="stage">
+          <!-- Les étapes sont rendues dès l'état vide : leur hauteur est ainsi
+               réservée, et l'arrivée d'une photo ne décale rien. -->
+          <ol class="steps" id="etapes" aria-label="Étapes">
+            <li class="step on" data-etape="1"><span class="no">1</span> Déposer une photo</li>
+            <li class="step" data-etape="2"><span class="no">2</span> Choisir le lieu</li>
+            <li class="step" data-etape="3"><span class="no">3</span> Télécharger</li>
+          </ol>
+
+          <!-- ÉTAT VIDE — la bulle est un label : sans JavaScript, elle ouvre
+               quand même le sélecteur de fichier. Le contrôle principal n'est
+               jamais inerte. -->
+          <div class="drop" id="etat-vide">
+            <label class="bubble" for="picker">
+              <svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                <circle cx="22" cy="22" r="8.5"></circle>
+                <circle cx="22" cy="22" r="2" fill="currentColor" stroke="none"></circle>
+                <path d="M22 3v8M22 33v8M3 22h8M33 22h8"></path>
+              </svg>
+              <span><b>Déposez une photo</b><small>ou collez-la</small></span>
+              <input id="picker" type="file" accept="image/*,video/*" multiple />
+            </label>
+            <h1>Changez le lieu <em>d'une photo</em></h1>
+            <p class="sub">Rien n'est envoyé nulle part : tout se passe dans votre navigateur.</p>
+            <p class="formats">JPEG · lecture HEIC · PNG · WebP · TIFF</p>
+          </div>
+
+          <!-- ÉTAT ACTIF — occupe exactement la même zone. -->
+          <div class="island" id="etat-actif" hidden>
+            <div class="island-hd">
+              <div class="filename">
+                <span class="nm" id="nom-fichier"></span>
+                <span class="pill" id="pill-format"></span>
+                <span class="pill hot" id="pill-position" hidden></span>
+              </div>
+              <button class="btn ghost xs" type="button" id="changer">Changer de photo</button>
+            </div>
+            <div class="panel">
+              <div id="lot" hidden>
+                <p class="aide" id="lot-resume"></p>
+                <div class="file-list" id="lot-liste"></div>
+              </div>
+
+              <div id="alerte-format" class="alerte" hidden></div>
+
+              <div>
+                <label class="champ" for="coords">Où cette photo a-t-elle été prise&nbsp;?</label>
+                <div class="box">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#FF3385" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.3-4.3"></path>
+                  </svg>
+                  <input
+                    id="coords"
+                    type="text"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    placeholder="43.9493, 4.8055"
+                    aria-describedby="coords-aide"
+                  />
+                </div>
+                <p class="aide" id="coords-aide">
+                  Collez des coordonnées depuis une carte&nbsp;: dans Google Maps, clic droit sur le
+                  lieu puis clic sur les chiffres pour les copier. Le format décimal et le format
+                  degrés-minutes-secondes sont acceptés. <b>Rien ne sort de votre navigateur.</b>
+                </p>
+              </div>
+
+              <div class="result" id="resultat" hidden>
+                <span class="n" id="resultat-coords"></span>
+                <span class="l" id="resultat-detail"></span>
+              </div>
+
+              <button class="btn primary" type="button" id="telecharger" disabled>
+                Télécharger la photo
+              </button>
+
+              <div class="minor">
+                <button class="btn ghost" type="button" id="effacer">Effacer la position</button>
+                <button class="btn ghost" type="button" id="effacer-tout">Tout effacer</button>
+              </div>
+
+              <details class="details" id="autres" hidden>
+                <summary>Voir les autres informations</summary>
+                <dl id="autres-liste"></dl>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <div class="scrollcue">
+          <a href="#contenu">Comment ça marche, et pourquoi c'est privé ↓</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="visually-hidden" role="status" aria-live="polite" id="annonce"></p>
+
+    <!-- ============ SOUS LA LIGNE DE FLOTTAISON ============ -->
+    <div class="wrap" id="contenu">
+      <div class="pitch">
+        <div class="card c1">
+          <h2>Simple</h2>
+          <p>Déposez, indiquez un lieu, téléchargez. Aucun réglage à comprendre avant de commencer.</p>
+        </div>
+        <div class="card c2">
+          <h2>Précis</h2>
+          <p>
+            Coordonnées en décimal ou en degrés-minutes-secondes, et collage direct depuis une carte.
+            La précision réelle est inscrite dans le fichier.
+          </p>
+        </div>
+        <div class="card c3">
+          <h2>Privé</h2>
+          <p>Votre photo ne quitte jamais le navigateur. Aucun compte, aucune publicité, aucun traceur.</p>
+        </div>
+      </div>
+
+      <article class="contenu">
+        <h2 id="pourquoi-prive">Pourquoi vos fichiers ne partent pas</h2>
+        <p>
+          Ce n'est pas une promesse commerciale, c'est une propriété technique que vous pouvez
+          vérifier vous-même en trente secondes.
+        </p>
+        <p>
+          Quand vous déposez une photo, le navigateur la lit avec l'API <code>FileReader</code>, qui
+          donne accès au contenu du fichier <em>localement</em>. Ces octets sont transmis à un
+          <a href="https://developer.mozilla.org/fr/docs/Web/API/Web_Workers_API">Web Worker</a>,
+          un fil d'exécution séparé qui tourne dans votre navigateur et qui fait tout le travail sur
+          les métadonnées. Le fichier modifié vous est ensuite rendu par un lien de téléchargement
+          construit en mémoire.
+        </p>
+        <p>
+          À aucun moment ce parcours ne comporte d'appel réseau. Il n'y a pas de serveur à qui
+          envoyer quoi que ce soit&nbsp;: le site est un ensemble de fichiers statiques. Vous pouvez
+          le constater de trois façons&nbsp;:
+        </p>
+        <ol>
+          <li>
+            Ouvrez l'onglet <strong>Réseau</strong> des outils de développement, puis déposez une
+            photo et téléchargez-la. Aucune requête n'apparaît.
+          </li>
+          <li>
+            <strong>Coupez votre connexion</strong> après le chargement de la page, puis utilisez
+            l'outil. Il fonctionne intégralement.
+          </li>
+          <li>
+            Lisez le code. Le dépôt est public sous licence MIT, et le script de construction aussi.
+          </li>
+        </ol>
+
+        <h2 id="mode-emploi">Mode d'emploi</h2>
+        <ol>
+          <li>Déposez une photo sur la bulle rose, collez-la avec <kbd>Ctrl</kbd>+<kbd>V</kbd>, ou cliquez pour la choisir.</li>
+          <li>La position enregistrée dans le fichier s'affiche immédiatement, s'il y en a une.</li>
+          <li>Pour la changer, saisissez ou collez des coordonnées. Pour la retirer, utilisez «&nbsp;Effacer la position&nbsp;».</li>
+          <li>Téléchargez. Le nom d'origine est conservé, précédé d'une mention indiquant ce qui a été fait.</li>
+        </ol>
+        <p>
+          Chaque fichier produit est <strong>relu avant de vous être remis</strong>, par deux
+          lecteurs indépendants. Si la position relue ne correspond pas à celle demandée, l'opération
+          est déclarée en échec et votre fichier d'origine vous est rendu intact. Sur un outil de ce
+          genre, l'échec silencieux est le pire défaut possible&nbsp;: il vous ferait publier une
+          photo en croyant l'avoir nettoyée.
+        </p>
+
+        <h2 id="limites">Ce que l'outil sait faire, et ce qu'il ne sait pas encore</h2>
+        <table>
+          <thead>
+            <tr><th>Format</th><th>Lire</th><th>Modifier</th><th>Effacer</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>JPEG</td><td>oui</td><td>oui</td><td>oui</td></tr>
+            <tr><td>HEIC, AVIF <span class="pill">iPhone</span></td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
+            <tr><td>PNG, WebP, TIFF</td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
+            <tr><td>Vidéos (MOV, MP4)</td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
+          </tbody>
+        </table>
+        <p>
+          Ces cases sont l'état réel du code, pas une feuille de route. Une vidéo range le lieu à
+          plusieurs endroits à la fois, parfois en toutes lettres&nbsp;; tant que nous ne savons pas
+          tous les retirer, nous préférons dire que nous ne savons pas plutôt que de vous rendre un
+          fichier que vous croiriez propre.
+        </p>
+        <p>
+          Sur les JPEG, la modification ne réencode jamais l'image&nbsp;: les pixels sont laissés
+          intacts et seuls les octets de la position sont touchés. C'est ce qui distingue cet outil
+          des services qui repassent votre photo dans un canevas et lui font perdre en qualité au
+          passage.
+        </p>
+
+        <h2 id="exif">Ce qu'est une donnée GPS dans une photo</h2>
+        <p>
+          Les appareils photo et les téléphones enregistrent dans le fichier un bloc d'informations
+          appelé EXIF. Il contient la date, l'appareil, les réglages de prise de vue et, si la
+          localisation était active, la position.
+        </p>
+        <p>
+          La position n'y est pas stockée en degrés décimaux mais en degrés, minutes et secondes,
+          accompagnée de deux champs qui indiquent l'hémisphère&nbsp;: <code>GPSLatitudeRef</code>
+          vaut «&nbsp;N&nbsp;» ou «&nbsp;S&nbsp;», <code>GPSLongitudeRef</code> vaut «&nbsp;E&nbsp;»
+          ou «&nbsp;W&nbsp;». Une latitude de 43,9493° nord s'écrit donc 43° 56′ 57,48″ avec la
+          référence «&nbsp;N&nbsp;». S'y ajoutent souvent l'altitude et un horodatage du relevé
+          satellite, qui n'est pas la même chose que l'heure de la photo.
+        </p>
+
+        <h2 id="vie-privee">Ce qu'un géotag révèle</h2>
+        <p>
+          Une photo géolocalisée contient une position à quelques mètres près. C'est rarement un
+          problème pour un paysage&nbsp;; ça en devient un dans trois situations très courantes.
+        </p>
+        <ul>
+          <li>
+            <strong>Une annonce de vente ou de location.</strong> Les photos de l'intérieur d'un
+            logement portent l'adresse de ce logement. Publier l'annonce revient à publier
+            l'adresse, avec des vues de ce qu'il y a à l'intérieur.
+          </li>
+          <li>
+            <strong>Une photo d'enfant.</strong> Prise dans un jardin ou devant une école, elle
+            indique où l'enfant habite ou passe ses journées.
+          </li>
+          <li>
+            <strong>Une revente entre particuliers.</strong> La photo de l'objet est prise chez
+            vous, et vous l'envoyez à un inconnu.
+          </li>
+        </ul>
+        <p>
+          Les réseaux sociaux ne se comportent pas tous pareil. Beaucoup retirent les métadonnées à
+          l'envoi parce qu'ils réencodent les images, mais ce comportement n'est ni garanti, ni
+          contractuel, ni uniforme selon que vous passez par l'application ou par le site. Les
+          services de messagerie qui envoient un fichier «&nbsp;en tant que document&nbsp;»
+          transmettent en général l'original tel quel, métadonnées comprises. La règle sûre est de
+          nettoyer avant d'envoyer, plutôt que de compter sur le destinataire.
+        </p>
+
+        <h2 id="verifier">Vérifier vous-même, avec un autre outil</h2>
+        <p>
+          Ne nous croyez pas sur parole. <a href="https://exiftool.org/">ExifTool</a> est la
+          référence du domaine, gratuite et hors ligne&nbsp;; si vous manipulez beaucoup de fichiers
+          ou des formats que nous ne savons pas encore modifier, il fera mieux que nous.
+        </p>
+        <p>Lire la position d'un fichier&nbsp;:</p>
+        <pre><code>exiftool -gps:all -n photo.jpg</code></pre>
+        <p>Vérifier qu'il ne reste plus rien après un effacement&nbsp;:</p>
+        <pre><code>exiftool -a -G1 photo.jpg</code></pre>
+        <p>Retirer la position, ou toutes les métadonnées&nbsp;:</p>
+        <pre><code>exiftool -gps:all= photo.jpg
+exiftool -all= photo.jpg</code></pre>
+        <p>
+          Pour une vidéo, pensez à l'option <code>-ee</code>, sans laquelle les positions rangées
+          dans les pistes temporisées passent inaperçues&nbsp;:
+        </p>
+        <pre><code>exiftool -a "-gps*" -ee video.mp4</code></pre>
+      </article>
+
+      <footer>
+        <p>
+          Geotagor — outil gratuit, sans compte et sans traceur. Code source sous licence MIT&nbsp;:
+          <a href="https://github.com/MathieuSoysal/geotager">github.com/MathieuSoysal/geotager</a>.
+        </p>
+      </footer>
+    </div>
+
+    <script>
+      import '../lib/ui/app.ts';
+    </script>
+  </body>
+</html>

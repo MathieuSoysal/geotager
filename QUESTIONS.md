@@ -562,3 +562,56 @@ Deux dettes explicites, à solder au premier commit de la V0 :
    fichiers.
 
 **Bloque :** non.
+
+---
+
+## [V0] Q-024 — Polices système au lieu des polices de la maquette
+
+**Contexte :** le §8 fixe Bricolage Grotesque, Outfit et DM Mono, auto-hébergées. Le plan avait déjà
+ramené le compte à deux familles (56 164 o de woff2). La V0 n'en embarque **aucune** et utilise la
+pile système.
+
+**Options :**
+- **A.** Pile système. Zéro octet de police, zéro risque de reflow au basculement, LCP non exposé.
+  L'identité visuelle repose sur la couleur, la forme et la mise en page, qui sont conservées.
+- **B.** Les deux familles auto-hébergées, `font-display: optional`. Fidèle à la maquette, +56 Ko
+  incompressibles sur le chemin critique.
+
+**Retenu provisoirement :** **A** pour la V0, parce que c'est le moins engageant et que le budget
+sert d'abord au moteur. À rouvrir dès que le reste est stable — c'est un choix esthétique autant que
+technique, et il appartient à Mathieu.
+
+**Bloque :** non.
+
+---
+
+## [V0] Q-025 — Ni carte ni recherche de commune en V0
+
+**Contexte :** le plan conclut (§0, C3) que la carte ne peut pas servir de viseur et qu'elle
+*situe* sans permettre de *viser*. La V0 livre donc la saisie de coordonnées et le collage depuis une
+carte tierce, sans carte intégrée ni index de communes.
+
+**Options :**
+- **A.** Coordonnées seules en V0. Le parcours est honnête : on ne montre pas une carte qui ne sait
+  pas faire ce qu'on lui demanderait.
+- **B.** Carte SVG maison dès la V0 (Q-008), sans index.
+- **C.** Carte + index de communes (349,4 Ko), soit le périmètre V1 complet.
+
+**Retenu provisoirement :** **A**. L'index de communes reste le vrai mécanisme de précision et
+mérite d'arriver avec la carte, pas avant.
+
+**Bloque :** non.
+
+---
+
+## [V0] Q-026 — La télémétrie d'Astro était active
+
+**Contexte :** au premier build, Astro a annoncé collecter des données d'usage anonymes. C'est une
+télémétrie de construction, pas d'exécution — elle ne touche pas les visiteurs — mais elle est
+contraire à l'esprit du projet et n'avait été anticipée nulle part dans le plan.
+
+**Retenu :** `ASTRO_TELEMETRY_DISABLED=1` est posé dans le script `build` de `package.json`, donc
+committé et appliqué aussi sur le build Cloudflare. Un réglage global de la machine n'aurait pas
+suivi le dépôt.
+
+**Bloque :** non. Signalé parce que toute dépendance de build mérite la même question.

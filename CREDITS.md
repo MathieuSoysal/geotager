@@ -3,10 +3,9 @@
 Toute dépendance de Geotagor doit être sous **MIT, BSD ou Apache-2.0**, avec sa version et sa licence
 consignées ici avant d'être installée.
 
-> **État : Gate 1.** Aucune dépendance n'est encore installée — le dépôt ne contient pas de
-> `package.json`. Ce fichier liste les **candidats retenus**, chacun vérifié sur sa source primaire
-> (`registry.npmjs.org` ou `crates.io/api/v1/crates`) le **27 juillet 2026**. Il devient le registre
-> définitif au premier `npm install`, et sera alors aligné sur le `package-lock.json`.
+> **État : V0 installée.** Les dépendances ci-dessous sont réellement présentes dans
+> `package-lock.json`. Les lignes marquées « candidat » restent des choix du plan, non encore
+> installés. Vérifications faites sur `registry.npmjs.org` et `crates.io` le **27 juillet 2026**.
 
 ## Amendement demandé à la règle de licence
 
@@ -19,17 +18,31 @@ entrée Q-012) :
 - **ISC** — fonctionnellement équivalente à MIT (même permissions, formulation raccourcie).
   Susceptible d'apparaître en dépendance transitive.
 
-## Dépendances JavaScript — candidates
+## Dépendances JavaScript — installées
 
-| Paquet | Version | Licence | Poids gzip | Rôle |
-|---|---|---|---|---|
-| `astro` | 7.1.3 | MIT | — (build) | Générateur statique, `output: 'static'` |
-| `exifr` | 7.1.3 | MIT | 14 766 o (`lite.esm.mjs`) | Lecture EXIF/GPS/XMP — JPEG, HEIC, TIFF |
-| `piexif-ts` | 2.1.0 | MIT | 12 374 o | Écriture et suppression du GPS IFD en JPEG |
-| `client-zip` | 2.5.0 | MIT | 2 676 o | Export ZIP en mode lot |
-| `workbox-window` | 7.4.1 | MIT | 2 380 o | Contrôle du service worker |
+| Paquet | Version | Licence | Rôle |
+|---|---|---|---|
+| `astro` | ^7.1.4 | MIT | Générateur statique, `output: 'static'` |
+| `exifr` | ^7.1.3 | MIT | Lecture des métadonnées, et **relecture croisée** après écriture |
+| `client-zip` | ^2.5.0 | MIT | Export ZIP en mode lot |
 
-Poids relevés par `gzip -9` sur le fichier de distribution réellement téléchargé, pas estimés.
+**Poids réel mesuré sur la build : 37 299 o gzip, soit 24,3 % du budget de 150 Ko.**
+
+### Développement seulement
+
+| Paquet | Version | Licence | Rôle |
+|---|---|---|---|
+| `playwright` | ^1.62.0 | Apache-2.0 | Parcours complet en navigateur réel |
+
+`exiftool` (Perl, Artistic/GPL) est utilisé comme **oracle de test externe**. Il n'entre pas dans le
+produit : aucune ligne de son code n'est distribuée, et il n'est requis que pour lancer les tests.
+
+### Écrit à la main plutôt qu'emprunté
+
+Le moteur EXIF pour JPEG (`src/lib/exif/jpeg.ts`) n'utilise aucune bibliothèque. `piexifjs` et son
+fork TypeScript, envisagés au Gate 1, réécrivent le bloc TIFF en entier : cela déplace les octets et
+casse les MakerNote à offsets absolus. L'édition sur place à longueur constante était l'objectif
+produit&nbsp;; elle imposait d'écrire le code.
 
 ## Dépendance Rust — candidate, sous condition
 
