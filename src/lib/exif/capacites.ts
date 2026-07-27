@@ -57,10 +57,12 @@ export const MATRICE: LigneMatrice[] = [
     formats: ['heic', 'avif'],
     libelle: 'HEIC, AVIF',
     mention: 'iPhone',
-    // "Add" stays closed: it is the only operation that would grow the block,
-    // and so move the item location table. Everything else is strictly constant
-    // length and moves no byte.
-    capacites: { lire: true, corriger: true, ajouter: false, effacer: true, effacerTout: false },
+    // "Add" grows nothing in place: the new block goes into a box appended at
+    // the end of the file, and the single item location table entry concerned
+    // is repointed. The file grows, no existing byte moves. Stays closed file
+    // by file when there is no entry to repoint, and the container says so
+    // before the action.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
   {
     formats: ['png'],

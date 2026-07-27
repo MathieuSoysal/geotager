@@ -1,26 +1,33 @@
 /**
- * HEIC / AVIF container: locate the TIFF block among the items.
+ * HEIC / AVIF container: locating the TIFF block among the items.
  *
  * An iPhone photo keeps its TIFF block in an item of its `meta` box, among
- * fifty other items carrying the image tiles. Once that block is located,
- * `tiff.ts` does exactly the work it does on a JPEG. Measured on real photos:
- * fixing a location already present costs fifteen bytes, erasing it a hundred
- * and four, and nothing else moves.
+ * fifty others carrying the image tiles. Once that block is located, `tiff.ts`
+ * does exactly the work it does on a JPEG. Measured on real photos: correcting
+ * an existing location costs fifteen bytes, erasing it a hundred and four, and
+ * nothing else moves.
  *
- * This module cannot write an ISOBMFF container, and does not need to. Every
- * operation offered here is strictly length-preserving: the item's length does
- * not change, so the location table does not change, so no other item's offset
- * becomes wrong. `iloc` is never written; it serves as a map, and we check
- * afterwards that it is intact.
+ * This module cannot write an ISOBMFF container, and still does not need to.
+ * Correcting and erasing are strictly constant length: the item length does not
+ * change, so the item location table does not change, so no other item's offset
+ * becomes wrong.
  *
- * Hence the absence of a rebuild: adding a location to a photo that carries
- * none would grow the item, and that is the one operation that would need a
- * writer. It stays out of reach, and the interface says so before you act.
+ * Adding would grow the item, but nothing is grown in place. The new block goes
+ * into a box appended at the end of the file, and the single `iloc` entry
+ * concerned is repointed. No other byte moves; the old content becomes dead
+ * space, exactly like the old IFD0 in P2. `iloc` is therefore written only
+ * there, on two fields, and never moved or resized.
+ *
+ * What this route cannot do: give a location to a file with no location item at
+ * all. That would mean adding a description to the item table, and so growing
+ * the box containing it. The interface says so before the action rather than
+ * failing after the click.
  */
 
-import { lireEntierBE, readU16, readU32 } from './octets.ts';
-import { type Conteneur, type Emplacement, type Plage } from './conteneurs.ts';
-import { detecterFormat } from './conteneurs.ts';
+import { ecrireEntierBE, lireEntierBE, readU16, readU32, writeU32 } from './octets.ts';
+import { type Conteneur, type Emplacement, type Plage, type Pose } from './conteneurs.ts';
+import { AJOUT_IMPOSSIBLE, detecterFormat } from './conteneurs.ts';
+import { MARQUEURS_DE_LIEU } from './xmp.ts';
 
 interface Boite {
   type: string;
@@ -29,6 +36,14 @@ interface Boite {
   entete: number;
   /** Total length, header included. */
   taille: number;
+  /**
+   * Size exactly as written in the file, before interpretation.
+   *
+   * The value 0 means "to the end of the file". Once resolved to an effective
+   * length that nuance is gone, and it matters for appending: adding a box
+   * after one that extends to the end would have it swallowed.
+   */
+  declaree: number;
 }
 
 const texte = (b: Uint8Array, o: number, n: number) =>
@@ -46,7 +61,8 @@ function boites(b: Uint8Array, debut: number, fin: number): Boite[] {
   const out: Boite[] = [];
   let o = debut;
   while (o + 8 <= fin) {
-    let taille = readU32(b, o, 'BE');
+    const declaree = readU32(b, o, 'BE');
+    let taille = declaree;
     const type = texte(b, o + 4, 4);
     let entete = 8;
     if (taille === 1) {
@@ -58,7 +74,7 @@ function boites(b: Uint8Array, debut: number, fin: number): Boite[] {
     }
     if (type === 'uuid') entete += 16;
     if (taille < entete || o + taille > fin) break;
-    out.push({ type, debut: o, entete, taille });
+    out.push({ type, debut: o, entete, taille, declaree });
     o += taille;
   }
   return out;
@@ -128,12 +144,25 @@ interface Extent {
   /** Position in the file. Set for method 0 only. */
   debut: number;
   longueur: number;
+  /**
+   * Where the two fields describing this range live in the file.
+   *
+   * Without them, `iloc` can only serve as a map. With them, a range can be
+   * repointed without touching anything else, which is what makes adding
+   * possible.
+   */
+  posOffset: number;
+  largeurOffset: number;
+  posLongueur: number;
+  largeurLongueur: number;
 }
 
 interface Emplacements {
   id: number;
   /** 0 = offset in the file, 1 = in `idat`, 2 = in another item. */
   methode: number;
+  /** Base offset, added to each range's own. */
+  base: number;
   extents: Extent[];
 }
 
@@ -174,11 +203,20 @@ function lireIloc(b: Uint8Array, iloc: Boite): Emplacements[] {
     const extents: Extent[] = [];
     for (let k = 0; k < nbExtents; k++) {
       if (tailleIndex > 0 && version >= 1) p += tailleIndex;
+      const posOffset = p;
       const decalage = lire(tailleOffset);
+      const posLongueur = p;
       const longueur = lire(tailleLongueur);
-      extents.push({ debut: base + decalage, longueur });
+      extents.push({
+        debut: base + decalage,
+        longueur,
+        posOffset,
+        largeurOffset: tailleOffset,
+        posLongueur,
+        largeurLongueur: tailleLongueur,
+      });
     }
-    out.push({ id, methode, extents });
+    out.push({ id, methode, base, extents });
   }
   return out;
 }
@@ -187,6 +225,8 @@ interface Structure {
   hautNiveau: Boite[];
   meta: Boite | null;
   metaEnfants: Boite[];
+  /** The `iloc` box itself, to prove we only write inside it. */
+  iloc: Boite | null;
   items: Map<number, Item>;
   emplacements: Emplacements[];
 }
@@ -194,14 +234,17 @@ interface Structure {
 function lireStructure(b: Uint8Array): Structure {
   const hautNiveau = boites(b, 0, b.length);
   const meta = hautNiveau.find((x) => x.type === 'meta') ?? null;
-  if (!meta) return { hautNiveau, meta: null, metaEnfants: [], items: new Map(), emplacements: [] };
+  if (!meta) {
+    return { hautNiveau, meta: null, metaEnfants: [], iloc: null, items: new Map(), emplacements: [] };
+  }
   const metaEnfants = enfantsDeMeta(b, meta);
   const iinf = metaEnfants.find((x) => x.type === 'iinf');
-  const iloc = metaEnfants.find((x) => x.type === 'iloc');
+  const iloc = metaEnfants.find((x) => x.type === 'iloc') ?? null;
   return {
     hautNiveau,
     meta,
     metaEnfants,
+    iloc,
     items: iinf ? lireIinf(b, iinf) : new Map(),
     emplacements: iloc ? lireIloc(b, iloc) : [],
   };
@@ -212,16 +255,53 @@ interface Interne {
   extent: Extent;
   /** Bytes preceding the TIFF block in the item, to be preserved. */
   longueurPrefixe: number;
+  /** The entry's base offset. Must be zero before we dare repoint. */
+  base: number;
 }
 
-const MARQUEURS_DE_LIEU = [
-  'exif:GPSLatitude',
-  'exif:GPSLongitude',
-  'Iptc4xmpExt:LocationCreated',
-  'photoshop:City',
-  'photoshop:State',
-  'photoshop:Country',
-];
+/**
+ * True if this file tolerates a box being appended at the end and the entry
+ * describing `interne` being repointed.
+ *
+ * All the safety of adding lives here. `reconstruire` bypasses the facade's
+ * range accounting, which is the interface's contract, so the refusals that
+ * protect the file must be carried by this module, explicitly, and before a
+ * byte is written.
+ */
+function tolereLAjout(b: Uint8Array, interne: Interne, tailleCharge: number): boolean {
+  const s = lireStructure(b);
+  if (!s.iloc) return false;
+
+  const derniere = s.hautNiveau[s.hautNiveau.length - 1];
+  if (!derniere) return false;
+  // A box declaring size 0 extends to the end of the file: it would swallow
+  // the box we append behind it, and our location block would become image
+  // data as far as any reader is concerned.
+  if (derniere.declaree === 0) return false;
+  // Bytes no box claims mean our reading of the structure is wrong somewhere.
+  // Nothing is built on a doubtful map.
+  if (derniere.debut + derniere.taille !== b.length) return false;
+
+  const { extent, base } = interne;
+  // Measured as zero on all six files in the corpus. A non-zero base offset
+  // can be handled in theory; we have no file to test it on.
+  if (base !== 0) return false;
+  if (extent.largeurOffset === 0 || extent.largeurLongueur === 0) return false;
+
+  // The two fields we are about to rewrite must fall strictly inside `iloc`.
+  // Without that proof, a miscalculated offset would write into an item.
+  const dedans = (p: number, w: number) =>
+    p >= s.iloc!.debut + s.iloc!.entete && p + w <= s.iloc!.debut + s.iloc!.taille;
+  if (!dedans(extent.posOffset, extent.largeurOffset)) return false;
+  if (!dedans(extent.posLongueur, extent.largeurLongueur)) return false;
+
+  // The new offset and length must fit in the width the table declares for its
+  // own fields. Widening it would move the table itself, and so everything
+  // else, which is exactly what we refuse to do.
+  if (b.length + 8 > 256 ** extent.largeurOffset - 1) return false;
+  if (tailleCharge > 256 ** extent.largeurLongueur - 1) return false;
+  return true;
+}
 
 /**
  * True if the file stores a copy of the location outside the main block, in a
@@ -294,7 +374,7 @@ export const conteneurIsobmff: Conteneur = {
       out.push({
         tiff: b.subarray(debut, extent.debut + extent.longueur),
         debut,
-        interne: { extent, longueurPrefixe } satisfies Interne,
+        interne: { extent, longueurPrefixe, base: emp.base } satisfies Interne,
       });
     }
     return out;
@@ -345,10 +425,71 @@ export const conteneurIsobmff: Conteneur = {
     return out;
   },
 
-  // No rebuild: see the module header. That absence, and nothing else, is what
-  // closes the "Add" column of the table.
-  // No clear-everything either: removing all the information from such a file
-  // would mean rebuilding it.
+  /**
+   * Adds a location to a photo that carries none, without growing anything in
+   * place.
+   *
+   * The new block goes into an `mdat` box appended at the end of the file, and
+   * the single `iloc` entry for the location item is repointed. No other offset
+   * becomes wrong, since no other byte moves: the old content becomes dead
+   * space, exactly like the old IFD0 in P2. Three bytes change outside the
+   * appended box, the offset and length of that one entry, and they are
+   * declared.
+   *
+   * Measured on four real photos before this method was written: ExifTool reads
+   * the location back at its new place and validates the file, libheif decodes
+   * it, and Chromium's AVIF decoder accepts it.
+   */
+  reconstruire(b, vise, tiff): Pose {
+    // Creating a location item where there is none would need one more
+    // description in the item table, so growing the box containing it, so
+    // shifting everything after. It is the only operation this route cannot
+    // do, and the interface says so beforehand.
+    if (!vise) throw AJOUT_IMPOSSIBLE();
+    const interne = vise.interne as Interne;
+    const { extent } = interne;
+
+    const charge = new Uint8Array(interne.longueurPrefixe + tiff.length);
+    charge.set(b.subarray(extent.debut, extent.debut + interne.longueurPrefixe), 0);
+    charge.set(tiff, interne.longueurPrefixe);
+
+    if (!tolereLAjout(b, interne, charge.length)) throw AJOUT_IMPOSSIBLE();
+
+    const out = new Uint8Array(b.length + 8 + charge.length);
+    out.set(b, 0);
+    writeU32(out, b.length, 8 + charge.length, 'BE');
+    out.set([0x6d, 0x64, 0x61, 0x74], b.length + 4); // « mdat »
+    out.set(charge, b.length + 8);
+
+    ecrireEntierBE(out, extent.posOffset, extent.largeurOffset, b.length + 8);
+    ecrireEntierBE(out, extent.posLongueur, extent.largeurLongueur, charge.length);
+
+    return {
+      bytes: out,
+      changed: [
+        [extent.posOffset, extent.posOffset + extent.largeurOffset],
+        [extent.posLongueur, extent.posLongueur + extent.largeurLongueur],
+        [b.length, out.length],
+      ],
+    };
+  },
+
+  /**
+   * Adding is decided file by file rather than format by format: it depends on
+   * how this file arranges its items. The interface therefore announces the
+   * route before the action, and never offers a write we cannot deliver.
+   */
+  accepteAjout(b) {
+    const vise = conteneurIsobmff.localiser(b)[0];
+    if (!vise) return false;
+    const interne = vise.interne as Interne;
+    // A generous margin: the exact payload is only known at write time, and
+    // `reconstruire` is what proves it. Here we announce without overpromising.
+    return tolereLAjout(b, interne, interne.longueurPrefixe + vise.tiff.length + 512);
+  },
+
+  // No `toutEffacer`: removing all information from such a file would mean
+  // rebuilding it, which this module cannot do.
 
   copieDuLieuAilleurs,
 };

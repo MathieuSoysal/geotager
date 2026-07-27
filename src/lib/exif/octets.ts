@@ -31,6 +31,19 @@ export function lireEntierBE(b: Uint8Array, off: number, taille: number): number
   return v;
 }
 
+/**
+ * Counterpart to `lireEntierBE`: writes at exactly the width the item location
+ * table declares, never at an assumed one. Division rather than shifting, for
+ * the same reason.
+ */
+export function ecrireEntierBE(b: Uint8Array, off: number, taille: number, v: number): void {
+  let reste = v;
+  for (let i = taille - 1; i >= 0; i--) {
+    b[off + i] = reste % 256;
+    reste = Math.floor(reste / 256);
+  }
+}
+
 export function writeU16(b: Uint8Array, off: number, v: number, e: Endian): void {
   if (e === 'LE') {
     b[off] = v & 0xff;
