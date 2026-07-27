@@ -28,6 +28,8 @@ import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
 import { createHash } from 'node:crypto';
 import { commandePour } from '../scripts/deploy.mjs';
+import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
+import type { Format } from '../src/lib/exif/types.ts';
 
 // Same default as scripts/fetch-fixtures.mjs: without it the bench looked for
 // the corpus at the root of the repository and failed on an uncaught exception,
@@ -1068,6 +1070,86 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
     exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
   check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
     diffResume(avant, inventory(out)));
+});
+
+// The table cannot lie
+//
+// The page renders the table from capacites.ts, so it cannot
+// drift from what the engine believes it can do. But nothing tied
+// it to what the engine actually can do: "a cell only turns to yes
+// once its test is green" stayed a written discipline. This
+// scenario makes it a mechanical property: it really runs
+// every advertised operation, on a real file of that format.
+
+/** One real file carrying a location, per format. Without it, no proof. */
+const TEMOINS: Partial<Record<Format, string>> = {
+  jpeg: 'DSCN0010.jpg',
+  heic: 'iphone.heic',
+  avif: 'photo.avif',
+  png: 'avec-lieu.png',
+  webp: 'avec-lieu.webp',
+  tiff: 'avec-lieu.tif',
+};
+
+scenario('Chaque case du tableau est adossée à une opération réelle', () => {
+  for (const ligne of MATRICE) {
+    for (const format of ligne.formats) {
+      const c = ligne.capacites;
+      const annonce = [c.lire, c.corriger, c.ajouter, c.effacer];
+      const temoin = TEMOINS[format];
+
+      // A row advertising anything must have the means to prove it. This is
+      // where an open cell that no file exercises shows up.
+      if (!temoin) {
+        check(`${format} : une case à « oui » sans fichier témoin`,
+          annonce.every((x) => x === false),
+          `annoncé ${cellules(c).join('/')} sans aucun fichier pour l'éprouver`);
+        continue;
+      }
+
+      const chemin = join(FIXTURES, temoin);
+      const src = new Uint8Array(readFileSync(chemin));
+      const conteneur = conteneurOuEchec(src);
+
+      check(`${format} : « Lire » dit vrai`,
+        (lirePosition(conteneur, src) !== null) === c.lire, temoin);
+
+      const corrige = (() => {
+        try { return ecrirePosition(conteneur, src, AVIGNON.lat, AVIGNON.lon).bytes; }
+        catch { return null; }
+      })();
+      check(`${format} : « Corriger » dit vrai`, (corrige !== null) === c.corriger, temoin);
+
+      const vide = (() => {
+        try { return effacerPosition(conteneur, src).bytes; }
+        catch { return null; }
+      })();
+      check(`${format} : « Effacer » dit vrai`, (vide !== null) === c.effacer, temoin);
+      if (vide) {
+        const out = join(tmp, `matrice-vide-${temoin}`);
+        writeFileSync(out, vide);
+        check(`${format} : « Effacer » retire vraiment le lieu`,
+          exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+      }
+
+      // "Add" is proved on a file that no longer carries a location, so on the
+      // output of the erase, whatever the format.
+      if (vide) {
+        const ajoute = (() => {
+          try { return ecrirePosition(conteneur, vide, AVIGNON.lat, AVIGNON.lon).bytes; }
+          catch { return null; }
+        })();
+        check(`${format} : « Ajouter » dit vrai`, (ajoute !== null) === c.ajouter, temoin);
+        if (ajoute) {
+          const out = join(tmp, `matrice-ajout-${temoin}`);
+          writeFileSync(out, ajoute);
+          const relu = exifPosition(out);
+          check(`${format} : « Ajouter » inscrit vraiment le lieu`,
+            relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+        }
+      }
+    }
+  }
 });
 
 // A build once promoted to production from a working branch, because a
