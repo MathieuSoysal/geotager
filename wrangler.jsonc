@@ -27,10 +27,14 @@
   // re-enabled explicitly: preview URLs are what make the pre-production checks
   // runnable before going live.
   //
-  // Necessary but not sufficient. For the preview URL to be generated and
-  // posted as a pull request comment, non-production branch builds must also be
-  // enabled, which is a dashboard setting this file cannot carry:
-  //   Settings > Build > Branch control > Non-production branch builds
-  // Check in the same place that the production branch is "main".
+  // Necessary but not sufficient: generating preview URLs and posting them as a
+  // pull request comment also depend on two dashboard settings this file cannot
+  // carry, under Settings > Build > Branch control. Confirmed configuration:
+  //   - production branch: main
+  //   - non-production branch builds: enabled
+  //
+  // Those settings originally had the working branch as the production branch,
+  // which deployed unreviewed code straight to production and made any preview
+  // impossible: a production branch is not previewed, it is production.
   "preview_urls": true
 }
