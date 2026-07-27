@@ -25,11 +25,16 @@ jobs:
 
       # ExifTool is the independent oracle: an engine that reads itself back
       # proves nothing. It is never used by the application itself.
-      - name: Installer ExifTool
+      #
+      # libheif is a second oracle of a different kind: ExifTool says what the
+      # file contains, libheif says it still decodes. A file whose location
+      # block has been moved can satisfy the first and no longer the second.
+      - name: Installer les oracles externes
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libimage-exiftool-perl
+          sudo apt-get install -y -qq libimage-exiftool-perl libheif-examples
           exiftool -ver
+          heif-info --version || true
 
       - run: npm ci
 

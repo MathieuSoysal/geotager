@@ -8,7 +8,6 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join, extname, relative } from 'node:path';
-import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
 
 const DIR = 'dist';
 const BUDGET_JS_GZIP = 150 * 1024;
@@ -220,27 +219,47 @@ if (existsSync(headers)) {
 /*
  * The page's table is rendered from capacites.ts, so it cannot drift. The
  * README's is written by hand, so it can, and it is the first one somebody
- * discovering the project reads. Cells are compared, not labels: the
- * parenthesised note stays free.
+ * discovering the project reads.
+ *
+ * The README is compared against the table actually served rather than against
+ * the constant: the same witness, but stronger, since it bears on the published
+ * artefact. It also avoids importing a TypeScript module from this script,
+ * since the build image runs the version in `.nvmrc`, which cannot read them
+ * without a flag.
+ *
+ * Cells are compared, not labels: the parenthesised note stays free on both
+ * sides.
  */
 {
+  const sansBalises = (s) =>
+    s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const html = readFileSync(join(DIR, 'index.html'), 'utf8');
+  const corps = html.match(/<table>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i)?.[1] ?? '';
+  const servi = [...corps.matchAll(/<tr>([\s\S]*?)<\/tr>/gi)].map((m) =>
+    [...m[1].matchAll(/<td>([\s\S]*?)<\/td>/gi)].map((c) => sansBalises(c[1])),
+  );
+
   const readme = readFileSync('README.md', 'utf8');
-  const lignes = readme
+  const lu = readme
     .split('\n')
     .filter((l) => /^\|/.test(l) && !/^\|\s*-+/.test(l) && !/\|\s*Format\s*\|/.test(l))
     .map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
 
-  const attendu = MATRICE.map((r) => cellules(r.capacites));
-  if (lignes.length !== attendu.length) {
+  if (servi.length === 0) {
+    echecs.push('dist/index.html : aucun tableau de capacités trouvé dans la page servie');
+  } else if (lu.length !== servi.length) {
     echecs.push(
-      `README.md : le tableau a ${lignes.length} lignes, capacites.ts en déclare ${attendu.length}`,
+      `README.md : le tableau a ${lu.length} lignes, la page servie en compte ${servi.length}`,
     );
   } else {
-    lignes.forEach((ligne, i) => {
-      const dites = ligne.slice(1);
-      if (dites.join('|') !== attendu[i].join('|')) {
+    lu.forEach((ligne, i) => {
+      const dites = ligne.slice(1).join('|');
+      const vraies = servi[i].slice(1).join('|');
+      if (dites !== vraies) {
         echecs.push(
-          `README.md : « ${ligne[0]} » annonce ${dites.join('/')}, le code dit ${attendu[i].join('/')}`,
+          `README.md : « ${ligne[0]} » annonce ${dites.replace(/\|/g, '/')}, ` +
+            `la page servie dit ${vraies.replace(/\|/g, '/')}`,
         );
       }
     });
