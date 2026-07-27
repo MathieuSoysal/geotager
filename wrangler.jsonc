@@ -22,5 +22,11 @@
   // Since Wrangler 4.44.0, preview_urls follows workers_dev by default. It is
   // re-enabled explicitly: preview URLs are what make the pre-production checks
   // runnable before going live.
+  //
+  // Necessary but not sufficient. For the preview URL to be generated and
+  // posted as a pull request comment, non-production branch builds must also be
+  // enabled, which is a dashboard setting this file cannot carry:
+  //   Settings > Build > Branch control > Non-production branch builds
+  // Check in the same place that the production branch is "main".
   "preview_urls": true
 }
