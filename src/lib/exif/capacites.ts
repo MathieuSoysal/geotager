@@ -78,7 +78,15 @@ export const MATRICE: LigneMatrice[] = [
     mention: 'forme étendue',
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
-  { formats: ['tiff'], libelle: 'TIFF', capacites: LECTURE_SEULE },
+  {
+    formats: ['tiff'],
+    libelle: 'TIFF',
+    // "Add" stays closed, and not out of excessive caution: a digital negative
+    // is a TIFF. Telling one from the other would take a heuristic we could not
+    // make reliable, and getting it wrong here would destroy an irreplaceable
+    // original.
+    capacites: { lire: true, corriger: true, ajouter: false, effacer: true, effacerTout: false },
+  },
   { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },
 ];
 

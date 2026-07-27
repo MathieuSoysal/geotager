@@ -7,10 +7,12 @@ statiques&nbsp;; le traitement des images a lieu dans un Web Worker, sur votre m
 
 ## État
 
-**V1 — JPEG, HEIC, AVIF, PNG et WebP.** Lecture de la position et des métadonnées sur JPEG, HEIC,
-AVIF, PNG, WebP, TIFF et vidéos. Correction et effacement sur **JPEG, HEIC, AVIF, PNG et WebP**.
-Un WebP de forme simple n'a aucun emplacement prévu pour un lieu&nbsp;: il reste en lecture seule,
-et l'interface le dit avant toute action. Sur une photo d'iPhone,
+**V1 — tous les formats d'image.** Lecture de la position et des métadonnées sur JPEG, HEIC, AVIF,
+PNG, WebP, TIFF et vidéos. **Correction et effacement sur tous les formats d'image.** Ajouter un
+lieu à un fichier qui n'en porte aucun reste hors de portée sur HEIC, AVIF et TIFF&nbsp;: c'est la
+seule opération qui ferait grandir le fichier, et les trois formats ne le tolèrent pas sans risque.
+Un WebP de forme simple n'a aucun emplacement prévu pour un lieu et reste en lecture seule. Dans
+tous les cas, l'interface annonce ce qu'elle sait faire *avant* toute action. Sur une photo d'iPhone,
 ces deux opérations ne déplacent pas un octet&nbsp;: le fichier produit a exactement la taille de
 l'original, et seuls les octets de la position changent. Ajouter un lieu à une photo qui n'en porte
 aucune ferait grandir le fichier&nbsp;; cela reste hors de portée sur HEIC et AVIF, et l'interface
@@ -22,7 +24,7 @@ le dit *avant* toute action plutôt que de traiter le cas approximativement.
 | HEIC, AVIF | oui | oui | pas encore | oui |
 | PNG | oui | oui | oui | oui |
 | WebP *(forme étendue)* | oui | oui | oui | oui |
-| TIFF | oui | pas encore | pas encore | pas encore |
+| TIFF | oui | oui | pas encore | oui |
 | Vidéos (MOV, MP4) | oui | pas encore | pas encore | pas encore |
 
 *« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont

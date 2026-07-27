@@ -67,6 +67,7 @@ const TYPE_SIZE: Record<number, number> = {
 export const TAG_EXIF_IFD = 0x8769;
 export const TAG_GPS_IFD = 0x8825;
 export const TAG_INTEROP_IFD = 0xa005;
+export const TAG_SUB_IFDS = 0x014a;
 
 export const GPS = {
   VersionID: 0x0000,
@@ -155,6 +156,75 @@ export function parseTiff(tiff: Uint8Array): TiffView {
 }
 
 /**
+ * Every IFD in a block, including those a plain view does not show.
+ *
+ * `parseTiff` stops at the second page. A standalone TIFF can have ten, and
+ * each has its own out-of-line values and pixel strips. A range map built on
+ * the first two pages alone would leave the rest unprotected, which is not a
+ * lack of completeness but a safety hole.
+ *
+ * The walk follows the page chain, the three known sub-IFDs, and the `SubIFDs`
+ * tag, which carries an array of offsets rather than one. A set of
+ * already-seen offsets prevents looping: two pages are perfectly entitled to
+ * name the same sub-IFD.
+ */
+function toutesLesIfd(bytes: Uint8Array, e: Endian): Ifd[] {
+  const vues = new Set<number>();
+  const out: Ifd[] = [];
+  const file: number[] = [readU32(bytes, 4, e)];
+  let entrees = 0;
+
+  while (file.length && out.length < 64 && entrees < 4096) {
+    const offset = file.shift()!;
+    if (!offset || offset >= bytes.length || vues.has(offset)) continue;
+    vues.add(offset);
+    let ifd: Ifd;
+    try {
+      ifd = parseIfd(bytes, offset, e);
+    } catch {
+      continue;
+    }
+    out.push(ifd);
+    entrees += ifd.entries.length;
+    if (ifd.next) file.push(ifd.next);
+    for (const en of ifd.entries) {
+      if (en.tag === TAG_EXIF_IFD || en.tag === TAG_GPS_IFD || en.tag === TAG_INTEROP_IFD) {
+        file.push(en.valueOffset ?? readU32(bytes, en.entryOffset + 8, e));
+      } else if (en.tag === TAG_SUB_IFDS) {
+        for (const v of valeursEntieres(bytes, e, en)) file.push(v);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Integer components of an entry, whether inline or out of line.
+ *
+ * `StripOffsets` is as often a SHORT as a LONG. A reader that assumes four
+ * bytes claims half the strips and leaves the other half zeroable.
+ */
+function valeursEntieres(bytes: Uint8Array, e: Endian, entry: Entry): number[] {
+  if (entry.type !== 3 && entry.type !== 4) return [];
+  const taille = entry.type === 3 ? 2 : 4;
+  const base = entry.valueOffset ?? entry.entryOffset + 8;
+  const out: number[] = [];
+  for (let k = 0; k < entry.count; k++) {
+    const o = base + k * taille;
+    if (o + taille > bytes.length) return [];
+    out.push(taille === 2 ? readU16(bytes, o, e) : readU32(bytes, o, e));
+  }
+  return out;
+}
+
+/** (offset, length) pairs naming data outside the IFDs. */
+const PAIRES_DE_DONNEES: Array<[number, number]> = [
+  [0x0111, 0x0117], // bandes de pixels
+  [0x0144, 0x0145], // tuiles de pixels
+  [0x0201, 0x0202], // aperçu ou vignette
+];
+
+/**
  * Map of the byte ranges claimed by something other than the GPS IFD.
  *
  * TIFF 6.0 states that "the values to which directory entries point need not be
@@ -162,27 +232,52 @@ export function parseTiff(tiff: Uint8Array): TiffView {
  * form a contiguous, exclusive region. Before zeroing anything, the targeted
  * range must be shown to belong to nobody else, or a MakerNote is destroyed in
  * the name of cleaning.
+ *
+ * When the TIFF block is the whole file, this map and nothing else protects the
+ * pixels: they are named only by the strip or tile offsets held in the IFDs.
  */
 function claimedRanges(view: TiffView, exclude: Ifd | null): Array<[number, number]> {
+  const bytes = view.bytes;
+  const e = view.endian;
   const ranges: Array<[number, number]> = [[0, 8]];
-  const ifds = [view.ifd0, view.exifIfd, view.gpsIfd, view.interopIfd, view.ifd1];
-  for (const ifd of ifds) {
-    if (!ifd || ifd === exclude) continue;
+
+  const revendiquer = (o: number, l: number) => {
+    if (l <= 0) return;
+    if (o < 8 || o + l > bytes.length) {
+      // An offset outside the block means our reading of the structure is
+      // wrong somewhere. Refuse rather than write on the strength of a partly
+      // wrong map.
+      throw new ExifError(
+        'STRUCTURE_INATTENDUE',
+        "Ce fichier a une structure que nous ne savons pas modifier sans risque. Il n'a pas été touché.",
+      );
+    }
+    ranges.push([o, o + l]);
+  };
+
+  for (const ifd of toutesLesIfd(bytes, e)) {
+    // Compared by offset: the same IFD read again is the same logical object.
+    if (exclude && ifd.offset === exclude.offset) continue;
     ranges.push([ifd.offset, ifd.nextPointerOffset + 4]);
     for (const en of ifd.entries) {
       if (en.valueOffset !== null && en.valueLength > 0) {
-        ranges.push([en.valueOffset, en.valueOffset + en.valueLength]);
+        revendiquer(en.valueOffset, en.valueLength);
       }
     }
-  }
-  // The thumbnail is referenced by IFD1 and must stay intact.
-  if (view.ifd1) {
-    const off = view.ifd1.entries.find((x) => x.tag === 0x0201);
-    const len = view.ifd1.entries.find((x) => x.tag === 0x0202);
-    if (off && len && off.valueOffset === null && len.valueOffset === null) {
-      const o = readU32(view.bytes, off.entryOffset + 8, view.endian);
-      const l = readU32(view.bytes, len.entryOffset + 8, view.endian);
-      if (o > 0 && l > 0 && o + l <= view.bytes.length) ranges.push([o, o + l]);
+    for (const [tagAdresses, tagLongueurs] of PAIRES_DE_DONNEES) {
+      const a = ifd.entries.find((x) => x.tag === tagAdresses);
+      const l = ifd.entries.find((x) => x.tag === tagLongueurs);
+      if (!a || !l) continue;
+      const adresses = valeursEntieres(bytes, e, a);
+      const longueurs = valeursEntieres(bytes, e, l);
+      if (adresses.length !== longueurs.length || adresses.length === 0) {
+        // The length of a strip whose count we do not have is not guessed.
+        throw new ExifError(
+          'STRUCTURE_INATTENDUE',
+          "Ce fichier a une structure que nous ne savons pas modifier sans risque. Il n'a pas été touché.",
+        );
+      }
+      for (let k = 0; k < adresses.length; k++) revendiquer(adresses[k], longueurs[k]);
     }
   }
   return ranges;
