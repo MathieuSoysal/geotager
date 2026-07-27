@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import { MATRICE, COLONNES, cellules } from '../lib/exif/capacites.ts';
 
 const site = 'https://geotagor.fr';
 const title = "Modifier la géolocalisation d'une photo — Geotagor";
@@ -94,7 +95,7 @@ const jsonLd = {
                 <path d="M22 3v8M22 33v8M3 22h8M33 22h8"></path>
               </svg>
               <span><b>Déposez une photo</b><small>ou collez-la</small></span>
-              <input id="picker" type="file" accept="image/*,video/*" multiple />
+              <input id="picker" type="file" accept="image/*,video/*,.heic,.heif,.avif,.tif,.tiff" multiple />
             </label>
             <h1>Changez le lieu <em>d'une photo</em></h1>
             <p class="sub">Rien n'est envoyé nulle part : tout se passe dans votre navigateur.</p>
@@ -240,15 +241,19 @@ const jsonLd = {
         </p>
 
         <h2 id="limites">Ce que l'outil sait faire, et ce qu'il ne sait pas encore</h2>
+        <!-- Rendu depuis src/lib/exif/capacites.ts, que le moteur lit aussi :
+             le tableau ne peut donc pas dériver de ce que le code sait faire. -->
         <table>
           <thead>
-            <tr><th>Format</th><th>Lire</th><th>Modifier</th><th>Effacer</th></tr>
+            <tr><th>Format</th>{COLONNES.map((c) => <th>{c}</th>)}</tr>
           </thead>
           <tbody>
-            <tr><td>JPEG</td><td>oui</td><td>oui</td><td>oui</td></tr>
-            <tr><td>HEIC, AVIF <span class="pill">iPhone</span></td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
-            <tr><td>PNG, WebP, TIFF</td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
-            <tr><td>Vidéos (MOV, MP4)</td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
+            {MATRICE.map((ligne) => (
+              <tr>
+                <td>{ligne.libelle}{ligne.mention && <> <span class="pill">{ligne.mention}</span></>}</td>
+                {cellules(ligne.capacites).map((v) => <td>{v}</td>)}
+              </tr>
+            ))}
           </tbody>
         </table>
         <p>

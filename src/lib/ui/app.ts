@@ -141,15 +141,17 @@ function afficherPrincipal(): void {
     el.pillPosition.hidden = true;
   }
 
+  // The sentence is always displayed: the interface announces the route before
+  // the action, including when everything is possible. It is only alarming when
+  // an operation genuinely is unavailable.
   const modifiable = r.can.write;
-  el.alerteFormat.hidden = modifiable;
-  if (!modifiable) {
-    el.alerteFormat.textContent = r.routeReason;
-    el.alerteFormat.classList.toggle('grave', !r.can.read);
-  }
+  el.alerteFormat.hidden = !r.routeReason;
+  el.alerteFormat.textContent = r.routeReason;
+  el.alerteFormat.classList.toggle('grave', !r.can.read);
+  el.alerteFormat.classList.toggle('attention', r.can.read && !(modifiable && r.can.erase));
   el.coords.disabled = !modifiable;
   el.effacer.disabled = !r.can.erase;
-  el.effacerTout.disabled = !r.can.erase;
+  el.effacerTout.disabled = !r.can.eraseAll;
 
   const infos: Array<[string, string]> = [];
   if (r.camera) infos.push(['Appareil', r.camera]);
@@ -271,6 +273,7 @@ async function charger(fichiers: File[]): Promise<void> {
   if (!principal) {
     principal = items[0];
     el.alerteFormat.hidden = false;
+    el.alerteFormat.classList.remove('attention');
     el.alerteFormat.classList.add('grave');
     el.alerteFormat.textContent = items[0].erreur ?? "Ce fichier n'a pas pu être lu.";
     annoncer("Ce fichier n'a pas pu être lu.");
@@ -327,6 +330,7 @@ async function appliquer(
 
   if (!produits.length) {
     el.alerteFormat.hidden = false;
+    el.alerteFormat.classList.remove('attention');
     el.alerteFormat.classList.add('grave');
     el.alerteFormat.textContent =
       "Aucun fichier n'a pu être produit. Vos originaux n'ont pas été modifiés.";

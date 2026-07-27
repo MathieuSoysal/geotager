@@ -7,15 +7,22 @@
  * will be, which is checkable in the public repository.
  */
 import exifr from 'exifr';
-import { readGpsFromJpeg } from '../lib/exif/jpeg.ts';
+import '../lib/exif/formats.ts';
 import {
+  type BlocLu,
+  type Conteneur,
   type Ecriture,
   conteneurDe,
+  detecterFormat,
   ecrirePosition,
   effacerPosition,
+  lireBlocs,
+  lirePosition,
   memesOctetsHorsPlages,
   toutEffacer,
 } from '../lib/exif/conteneurs.ts';
+import { type Capacites, type Motif, capacitesDe, phraseDe } from '../lib/exif/capacites.ts';
+import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres } from '../lib/exif/coords.ts';
 import type {
@@ -29,55 +36,105 @@ import type {
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
-function detectFormat(b: Uint8Array): Format {
-  const a = (...codes: number[]) => codes.every((c, i) => b[i] === c);
-  if (a(0xff, 0xd8, 0xff)) return 'jpeg';
-  if (a(0x89, 0x50, 0x4e, 0x47)) return 'png';
-  if (a(0x47, 0x49, 0x46)) return 'gif';
-  if (a(0x49, 0x49, 0x2a, 0x00) || a(0x4d, 0x4d, 0x00, 0x2a)) return 'tiff';
-  if (b.length > 12 && a(0x52, 0x49, 0x46, 0x46) && b[8] === 0x57 && b[9] === 0x45) return 'webp';
-  if (b.length > 12) {
-    const brand = String.fromCharCode(b[8], b[9], b[10], b[11]);
-    const box = String.fromCharCode(b[4], b[5], b[6], b[7]);
-    if (box === 'ftyp') {
-      if (/^(heic|heix|hevc|mif1|msf1|heim|heis)/.test(brand)) return 'heic';
-      if (/^avif|avis/.test(brand)) return 'avif';
-      if (/^(qt|mp4|isom|M4V|3gp)/.test(brand)) return 'video';
-    }
-  }
-  return 'inconnu';
-}
-
 /**
- * What the tool can do with a given format, and the sentence announcing it.
+ * One probe, and only one.
+ *
+ * `capsOf` used to be called twice with different knowledge: once at read time,
+ * once at apply time. Nothing structurally prevented the announcement and the
+ * behaviour from diverging, that is, from announcing a write the engine would
+ * then refuse. Both now go through here.
  *
  * The interface announces the route before the action. A write we cannot
  * deliver is never promised.
  */
-function capsOf(format: Format): { can: PhotoRead['can']; routeReason: string } {
-  if (format === 'jpeg') {
-    return {
-      can: { read: true, write: true, erase: true },
-      routeReason: "La position sera écrite dans le fichier, sans retoucher l'image.",
-    };
+interface Sonde {
+  format: Format;
+  conteneur: Conteneur | null;
+  blocs: BlocLu[];
+  position: LatLon | null;
+  capacites: Capacites;
+  motif: Motif;
+  phrase: string;
+}
+
+function sonder(bytes: Uint8Array): Sonde {
+  const format = detecterFormat(bytes);
+  const statiques = capacitesDe(format);
+  const vide = { format, conteneur: null, blocs: [], position: null };
+
+  if (format === 'inconnu') {
+    return { ...vide, capacites: statiques, motif: 'inconnu', phrase: phraseDe('inconnu') };
   }
   if (format === 'video') {
-    return {
-      can: { read: true, write: false, erase: false },
-      routeReason:
-        "Nous savons lire le lieu d'une vidéo, mais pas encore le retirer de façon sûre — une vidéo le range à plusieurs endroits.",
-    };
+    return { ...vide, capacites: statiques, motif: 'video', phrase: phraseDe('video') };
   }
-  if (format === 'inconnu') {
-    return {
-      can: { read: false, write: false, erase: false },
-      routeReason: 'Nous ne reconnaissons pas ce type de fichier.',
-    };
+
+  const conteneur = conteneurDe(bytes);
+  // A format the table gives as read-only, or for which no container is
+  // written yet, stops here: the sentence says so without jargon.
+  if (!conteneur || !(statiques.corriger || statiques.ajouter || statiques.effacer)) {
+    const motif: Motif = format === 'gif' ? 'sans-lieu-possible' : 'lecture-seule';
+    return { ...vide, capacites: { ...statiques, corriger: false, ajouter: false, effacer: false },
+      motif, phrase: phraseDe(motif) };
   }
+
+  let blocs: BlocLu[] = [];
+  try {
+    blocs = lireBlocs(conteneur, bytes);
+  } catch {
+    // A file whose structure is unreadable is not modifiable; it stays
+    // readable by other means, through the other reader.
+    return { ...vide, conteneur, capacites: { ...statiques, corriger: false, ajouter: false, effacer: false },
+      motif: 'rangement-inconnu', phrase: phraseDe('rangement-inconnu') };
+  }
+
+  const position = blocs.find((b) => b.position)?.position ?? null;
+  const principal = blocs[0] ?? null;
+
+  // "Correct" requires either that the fields already exist in the right
+  // shape, making it a constant-length write, or that the format tolerates
+  // growing. On an iPhone photo only the first route exists.
+  const surPlace =
+    principal !== null &&
+    position !== null &&
+    ecrirePositionSurPlace(principal.vue, position.lat, position.lon) !== null;
+
+  const capacites: Capacites = {
+    lire: statiques.lire,
+    corriger: statiques.corriger && (surPlace || statiques.ajouter),
+    ajouter: statiques.ajouter,
+    effacer: statiques.effacer,
+    effacerTout: statiques.effacerTout,
+  };
+
+  let motif: Motif;
+  if (position !== null) {
+    motif = capacites.corriger ? 'ok' : 'forme-inhabituelle';
+  } else if (capacites.ajouter) {
+    motif = 'ok';
+  } else if (blocs.length === 0 && !statiques.ajouter) {
+    motif = 'sans-emplacement';
+  } else {
+    motif = 'sans-lieu';
+  }
+
+  return { format, conteneur, blocs, position, capacites, motif, phrase: phraseDe(motif) };
+}
+
+/**
+ * Projects the capabilities onto the contract the interface consumes.
+ *
+ * "Modify" means two things depending on the file: replace a location already
+ * there, or create one. The interface has a single input field, and it is only
+ * active if the operation the user will actually trigger is within reach on
+ * this file.
+ */
+function projeter(s: Sonde): PhotoRead['can'] {
   return {
-    can: { read: true, write: false, erase: false },
-    routeReason:
-      "Nous savons lire la position de ce fichier, mais pas encore la modifier sans risquer de l'abîmer.",
+    read: s.capacites.lire,
+    write: s.position ? s.capacites.corriger : s.capacites.ajouter,
+    erase: s.capacites.effacer,
+    eraseAll: s.capacites.effacerTout,
   };
 }
 
@@ -89,24 +146,15 @@ function texteDate(v: unknown): string | null {
 
 async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<PhotoRead> {
   const bytes = new Uint8Array(buffer);
-  const format = detectFormat(bytes);
-  const { can, routeReason } = capsOf(format);
+  const sonde = sonder(bytes);
+  const format = sonde.format;
 
-  let position: LatLon | null = null;
+  // Our engine is what will write, so it is what must say what it sees.
+  let position: LatLon | null = sonde.position;
   let altitude: number | null = null;
   let takenAt: string | null = null;
   let camera: string | null = null;
   const details: Array<{ label: string; value: string }> = [];
-
-  // On JPEG we read with our own engine: it is the one that will write, so it
-  // is the one that must say what it sees.
-  if (format === 'jpeg') {
-    try {
-      position = readGpsFromJpeg(bytes);
-    } catch {
-      position = null;
-    }
-  }
 
   try {
     const tags = (await exifr.parse(buffer, {
@@ -155,8 +203,8 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
     name,
     size: bytes.length,
     format,
-    can,
-    routeReason,
+    can: projeter(sonde),
+    routeReason: sonde.phrase,
     position,
     altitude,
     takenAt,
@@ -179,7 +227,8 @@ async function verifier(
 ): Promise<{ verified: LatLon | null; drift: number; croise: boolean }> {
   const parNous = (() => {
     try {
-      return readGpsFromJpeg(bytes);
+      const c = conteneurDe(bytes);
+      return c ? lirePosition(c, bytes) : null;
     } catch {
       return null;
     }
@@ -215,8 +264,9 @@ async function appliquer(
   operation: Extract<ToWorker, { type: 'apply' }>['operation'],
 ): Promise<WriteResult> {
   const bytes = new Uint8Array(buffer);
-  const format = detectFormat(bytes);
-  const { can } = capsOf(format);
+  // The received bytes are re-probed rather than trusting the previous read,
+  // so announcement and behaviour read the same source.
+  const sonde = sonder(bytes);
 
   const echec = (code: string, message: string): WriteResult => ({
     ok: false,
@@ -226,22 +276,21 @@ async function appliquer(
     message,
   });
 
-  if (format !== 'jpeg' || !can.write) {
-    return echec(
-      'FORMAT_NON_MODIFIABLE',
-      "Ce format n'est pas encore modifiable. Votre fichier n'a pas été touché.",
-    );
-  }
+  const { capacites, conteneur } = sonde;
+  const permise =
+    operation.kind === 'set'
+      ? sonde.position
+        ? capacites.corriger
+        : capacites.ajouter
+      : operation.kind === 'erase'
+        ? capacites.effacer
+        : capacites.effacerTout;
+
+  // The refusal repeats the sentence already announced before the action: what
+  // the user read and what they get cannot contradict.
+  if (!permise || !conteneur) return echec('FORMAT_NON_MODIFIABLE', sonde.phrase);
 
   try {
-    const conteneur = conteneurDe(bytes);
-    if (!conteneur) {
-      return echec(
-        'FORMAT_NON_MODIFIABLE',
-        "Ce format n'est pas encore modifiable. Votre fichier n'a pas été touché.",
-      );
-    }
-
     let produit: Ecriture;
     let attendu: LatLon | null = null;
 

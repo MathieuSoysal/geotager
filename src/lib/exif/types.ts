@@ -25,7 +25,13 @@ export interface PhotoRead {
   size: number;
   format: Format;
   /** What we will be able to do with this file, decided before any action. */
-  can: { read: boolean; write: boolean; erase: boolean };
+  /**
+   * `write` answers "is the operation the user is about to trigger on this
+   * file within reach?", so correcting if it already carries a location and
+   * adding otherwise. `eraseAll` is distinct from `erase` because removing
+   * everything is not available on every format.
+   */
+  can: { read: boolean; write: boolean; erase: boolean; eraseAll: boolean };
   /** Displayable sentence, without container jargon. */
   routeReason: string;
   position: LatLon | null;

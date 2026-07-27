@@ -11,11 +11,19 @@ statiques&nbsp;; le traitement des images a lieu dans un Web Worker, sur votre m
 Écriture, correction et effacement sur **JPEG** uniquement. Les autres formats sont annoncés comme
 non modifiables *avant* toute action, plutôt que traités approximativement.
 
-| Format | Lire | Modifier | Effacer |
-|---|---|---|---|
-| JPEG | oui | oui | oui |
-| HEIC, AVIF, PNG, WebP, TIFF | oui | pas encore | pas encore |
-| Vidéos (MOV, MP4) | oui | pas encore | pas encore |
+| Format | Lire | Corriger | Ajouter | Effacer |
+|---|---|---|---|---|
+| JPEG | oui | oui | oui | oui |
+| HEIC, AVIF | oui | pas encore | pas encore | pas encore |
+| PNG | oui | pas encore | pas encore | pas encore |
+| WebP | oui | pas encore | pas encore | pas encore |
+| TIFF | oui | pas encore | pas encore | pas encore |
+| Vidéos (MOV, MP4) | oui | pas encore | pas encore | pas encore |
+
+*« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont
+deux opérations différentes&nbsp;: la première ne change pas la taille du fichier, la seconde si.
+Le tableau de la page d'accueil est rendu depuis `src/lib/exif/capacites.ts`, que le moteur lit
+aussi&nbsp;; il ne peut donc pas dériver de ce que le code sait faire.*
 
 ## Ce que le moteur garantit
 
