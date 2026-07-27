@@ -1,8 +1,8 @@
-# Geotagor — https://geotagor.fr/
+# Geotager — https://geotager.app/
 # Tout le site est public et indexable. Le crawl doit rester autorisé : un
 # « Disallow » empêcherait Google de lire les directives noindex posées par
 # ailleurs sur les domaines techniques.
 User-agent: *
 Allow: /
 
-Sitemap: https://geotagor.fr/sitemap-index.xml
+Sitemap: https://geotager.app/sitemap-index.xml

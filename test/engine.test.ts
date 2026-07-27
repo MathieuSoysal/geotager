@@ -15,9 +15,24 @@ import {
   deleteGpsFromJpeg,
   stripAllMetadata,
 } from '../src/lib/exif/jpeg.ts';
+import { parseTiff, readPosition, degreesToDms } from '../src/lib/exif/tiff.ts';
+import {
+  conteneurDe,
+  ecrirePosition,
+  effacerPosition,
+  lirePosition,
+  memesOctetsHorsPlages,
+  toutEffacer,
+} from '../src/lib/exif/conteneurs.ts';
+import '../src/lib/exif/formats.ts';
+import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
+import { createHash } from 'node:crypto';
 
-const FIXTURES = process.env.FIXTURES ?? '';
-const tmp = mkdtempSync(join(tmpdir(), 'geotagor-'));
+// Même valeur par défaut que scripts/fetch-fixtures.mjs : sans cela, le banc
+// cherchait le corpus à la racine du dépôt et échouait par une exception non
+// rattrapée, ce qui donnait l'impression que le moteur était en cause.
+const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
+const tmp = mkdtempSync(join(tmpdir(), 'geotager-'));
 
 let passed = 0;
 let failed = 0;
@@ -68,6 +83,22 @@ function inventory(file: string): string[] {
     .filter((l) => !/^\[Composite\]\s+GPS/.test(l))
     .filter((l) => !volatils.test(l))
     .sort();
+}
+
+/**
+ * Empreinte de chaque item ≠ Exif d'un fichier ISOBMFF.
+ *
+ * C'est le témoin le plus direct que les images secondaires ont survécu : il
+ * porte sur les octets, pas sur ce qu'un outil en dit. Chromium ne décodant pas
+ * le HEIC, c'est aussi ce qui remplace un décodage réel — et le remplace
+ * avantageusement : des octets identiques se décodent identiquement.
+ */
+function empreintesDesItems(fichier: string): string {
+  const b = new Uint8Array(readFileSync(fichier));
+  return itemsDuFichier(b)
+    .filter((x) => x.type !== 'Exif')
+    .map((x) => `${x.id}:${x.type}:${createHash('sha256').update(b.subarray(x.debut, x.debut + x.longueur)).digest('hex').slice(0, 16)}`)
+    .join('|');
 }
 
 /** Nombre d'entrées réellement présentes dans le MakerNote, selon ExifTool. */
@@ -247,6 +278,581 @@ scenario('Fichiers refusés proprement', () => {
   }
   check('un fichier tronqué est rejeté', code2 === 'FICHIER_TRONQUE' || code2 === 'EXIF_CORROMPU', code2);
 });
+
+/* ------------------------------------------------------------------ */
+/* Garanties génériques                                                */
+/*                                                                     */
+/* Les blocs TIFF fabriqués ci-dessous servent des chemins de REFUS et  */
+/* un vecteur à valeur connue. La règle « de vraies photos » vise les   */
+/* chemins nominaux : on ne peut pas trouver dans la nature un fichier  */
+/* garanti porteur d'un défaut précis.                                  */
+/* ------------------------------------------------------------------ */
+
+/** Bloc TIFF minimal portant un GPS IFD, aux rationnels imposés. */
+function blocGps(boutisme: 'II' | 'MM', lat: Array<[number, number]>, lon: Array<[number, number]>): Uint8Array {
+  const b = new Uint8Array(128);
+  const le = boutisme === 'II';
+  const u16 = (o: number, v: number) => {
+    if (le) { b[o] = v & 0xff; b[o + 1] = v >>> 8; } else { b[o] = v >>> 8; b[o + 1] = v & 0xff; }
+  };
+  const u32 = (o: number, v: number) => {
+    if (le) { b[o] = v & 0xff; b[o + 1] = (v >>> 8) & 0xff; b[o + 2] = (v >>> 16) & 0xff; b[o + 3] = (v >>> 24) & 0xff; }
+    else { b[o] = (v >>> 24) & 0xff; b[o + 1] = (v >>> 16) & 0xff; b[o + 2] = (v >>> 8) & 0xff; b[o + 3] = v & 0xff; }
+  };
+  b[0] = le ? 0x49 : 0x4d;
+  b[1] = le ? 0x49 : 0x4d;
+  u16(2, 42);
+  u32(4, 8);
+  u16(8, 1);
+  u16(10, 0x8825); u16(12, 4); u32(14, 1); u32(18, 26); // IFD0 : pointeur GPS
+  u32(22, 0);
+  u16(26, 4); // GPS IFD, 4 entrées
+  const entree = (k: number, tag: number, type: number, count: number, inline: number[] | null, ptr?: number) => {
+    const o = 28 + k * 12;
+    u16(o, tag); u16(o + 2, type); u32(o + 4, count);
+    if (inline) inline.forEach((v, i) => (b[o + 8 + i] = v));
+    else u32(o + 8, ptr!);
+  };
+  entree(0, 0x0001, 2, 2, [0x4e, 0]);   // LatitudeRef « N »
+  entree(1, 0x0002, 5, 3, null, 80);    // Latitude
+  entree(2, 0x0003, 2, 2, [0x45, 0]);   // LongitudeRef « E »
+  entree(3, 0x0004, 5, 3, null, 104);   // Longitude
+  u32(76, 0);
+  lat.forEach(([n, d], i) => { u32(80 + i * 8, n); u32(84 + i * 8, d); });
+  lon.forEach(([n, d], i) => { u32(104 + i * 8, n); u32(108 + i * 8, d); });
+  return b;
+}
+
+scenario('Une position absente n\'est jamais annoncée comme valide', () => {
+  // Un Galaxy S10 sans relevé écrit des rationnels 0/0 ; GIMP laisse 0/1 0/1 0/1
+  // en purgeant les coordonnées. Les deux se lisaient « 0, 0 » — une position
+  // parfaitement valide au large du golfe de Guinée.
+  const zeroSurZero: Array<[number, number]> = [[0, 0], [0, 0], [0, 0]];
+  const zeroSurUn: Array<[number, number]> = [[0, 1], [0, 1], [0, 1]];
+  const vraie: Array<[number, number]> = [[43, 1], [56, 1], [575_000, 10_000]];
+
+  check('des rationnels 0/0 ne font pas une position',
+    readPosition(parseTiff(blocGps('II', zeroSurZero, zeroSurZero))) === null);
+  check('des coordonnées nulles ne font pas une position',
+    readPosition(parseTiff(blocGps('MM', zeroSurUn, zeroSurUn))) === null);
+
+  const lue = readPosition(parseTiff(blocGps('MM', vraie, vraie)));
+  check('une vraie position est toujours lue', lue !== null && Math.abs(lue.lat - 43.9493) < 1e-4,
+    JSON.stringify(lue));
+});
+
+scenario('Vecteur à valeur connue, en II et en MM', () => {
+  // Un encodeur et un décodeur symétriquement faux s'accordent parfaitement.
+  // On compare donc les OCTETS produits dans les deux boutismes, sans relire.
+  const dms = degreesToDms(43.9493);
+  const li = blocGps('II', dms, dms);
+  const be = blocGps('MM', dms, dms);
+  let miroir = true;
+  for (let i = 0; i < 24; i += 4) {
+    for (let k = 0; k < 4; k++) if (li[80 + i + k] !== be[80 + i + (3 - k)]) miroir = false;
+  }
+  check('les 24 octets de latitude sont l\'exact miroir d\'un boutisme à l\'autre', miroir);
+  check('les deux boutismes se relisent à la même valeur',
+    Math.abs(readPosition(parseTiff(li))!.lat - readPosition(parseTiff(be))!.lat) < 1e-12);
+  check('la valeur relue est celle demandée à moins de 0,1 m',
+    Math.abs(readPosition(parseTiff(li))!.lat - 43.9493) * METRES_PAR_DEGRE < 0.1);
+});
+
+scenario('Rien ne change hors des plages annoncées', () => {
+  const a = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+  const memeLongueur = (mod: number[], plages: Array<[number, number]>) =>
+    memesOctetsHorsPlages(a, new Uint8Array(mod), plages);
+
+  check('aucune modification passe', memeLongueur([1, 2, 3, 4, 5, 6, 7, 8], []));
+  check('une modification dans la plage passe', memeLongueur([1, 2, 9, 9, 5, 6, 7, 8], [[2, 4]]));
+  check('une modification hors plage échoue', !memeLongueur([1, 2, 3, 4, 9, 6, 7, 8], [[2, 4]]));
+  check('des plages qui se recouvrent sont fusionnées',
+    memeLongueur([1, 9, 9, 9, 9, 6, 7, 8], [[1, 3], [2, 5]]));
+  check('un allongement non annoncé échoue',
+    !memesOctetsHorsPlages(a, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]), []));
+  check('un allongement annoncé passe',
+    memesOctetsHorsPlages(a, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]), [[8, 9]]));
+});
+
+
+/* ------------------------------------------------------------------ */
+/* HEIC et AVIF                                                        */
+/*                                                                     */
+/* Toutes les opérations y sont à longueur strictement constante : la  */
+/* longueur de l'item ne change pas, donc la table des emplacements ne  */
+/* change pas, donc aucun décalage d'aucun autre item ne devient faux.  */
+/* On le prouve à chaque fois, plutôt que de l'affirmer.                */
+/* ------------------------------------------------------------------ */
+
+const AVIGNON = { lat: 43.9493, lon: 4.8055 };
+
+function conteneurOuEchec(src: Uint8Array) {
+  const c = conteneurDe(src);
+  if (!c) throw new Error('aucun conteneur ne reconnaît ce fichier');
+  return c;
+}
+
+for (const [nom, etiquette] of [
+  ['iphone.heic', 'photo iPhone'],
+  ['photo.avif', 'photo AVIF'],
+] as const) {
+  const chemin = join(FIXTURES, nom);
+
+  scenario(`${nom} — lecture`, () => {
+    const src = new Uint8Array(readFileSync(chemin));
+    const nous = lirePosition(conteneurOuEchec(src), src);
+    const eux = exifPosition(chemin);
+    check('une position est lue', nous !== null && eux !== null);
+    if (nous && eux) {
+      const d = distanceMetres(nous, eux);
+      check('accord avec ExifTool à moins de 0,1 m', d < 0.1, `écart ${d.toFixed(4)} m`);
+    }
+  });
+
+  scenario(`${nom} — correction de la position`, () => {
+    const src = new Uint8Array(readFileSync(chemin));
+    const avantInv = inventory(chemin);
+    const avantItems = empreintesDesItems(chemin);
+    const avantIloc = empreinteDesEmplacements(src);
+
+    const res = ecrirePosition(conteneurOuEchec(src), src, AVIGNON.lat, AVIGNON.lon);
+    const out = join(tmp, `set-${nom}`);
+    writeFileSync(out, res.bytes);
+
+    check('voie P1 (édition sur place)', res.route === 'P1');
+    check('taille identique à l\'octet près', res.bytes.length === src.length,
+      `${src.length} -> ${res.bytes.length}`);
+    check('rien n\'a changé hors des plages annoncées',
+      memesOctetsHorsPlages(src, res.bytes, res.changed));
+
+    const relu = exifPosition(out);
+    check('ExifTool relit la position demandée',
+      relu !== null && distanceMetres(relu, AVIGNON) < 0.1,
+      relu ? `écart ${distanceMetres(relu, AVIGNON).toFixed(4)} m` : 'aucune position relue');
+
+    const apresInv = inventory(out);
+    check('tout le reste est préservé', JSON.stringify(avantInv) === JSON.stringify(apresInv),
+      diffResume(avantInv, apresInv));
+    check('la table des emplacements est intacte',
+      empreinteDesEmplacements(res.bytes) === avantIloc);
+    check('les items secondaires sont intacts au bit près',
+      empreintesDesItems(out) === avantItems);
+    check('l\'image reste de même taille pour ExifTool',
+      exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+        exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+  });
+
+  scenario(`${nom} — effacement de la position`, () => {
+    const src = new Uint8Array(readFileSync(chemin));
+    const avantInv = inventory(chemin);
+    const avantItems = empreintesDesItems(chemin);
+    const avantIloc = empreinteDesEmplacements(src);
+
+    const res = effacerPosition(conteneurOuEchec(src), src);
+    const out = join(tmp, `del-${nom}`);
+    writeFileSync(out, res.bytes);
+
+    check('taille identique à l\'octet près', res.bytes.length === src.length);
+    check('rien n\'a changé hors des plages annoncées',
+      memesOctetsHorsPlages(src, res.bytes, res.changed));
+    check('ExifTool ne trouve plus de position', exifPosition(out) === null);
+
+    const residus = exif(['-a', '-G1', '-s', '-GPS:all', out]).trim();
+    check('aucun tag GPS résiduel', residus === '', residus.slice(0, 160));
+
+    const apresInv = inventory(out);
+    check('tout le reste est préservé', JSON.stringify(avantInv) === JSON.stringify(apresInv),
+      diffResume(avantInv, apresInv));
+    check('la table des emplacements est intacte',
+      empreinteDesEmplacements(res.bytes) === avantIloc);
+    check('les items secondaires sont intacts au bit près',
+      empreintesDesItems(out) === avantItems);
+  });
+}
+
+// Le bloc de ce Nokia est à 4,4 ko de la fin du fichier, sans que personne
+// n'ait réagencé le conteneur : c'est un agencement d'appareil, pas un fichier
+// de régression fabriqué pour l'occasion.
+scenario('bloc-en-queue.heif — un bloc rangé en fin de fichier', () => {
+  const chemin = join(FIXTURES, 'bloc-en-queue.heif');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+
+  check('la position est lue malgré l\'agencement inhabituel', lirePosition(c, src) !== null);
+
+  const res = effacerPosition(c, src);
+  const out = join(tmp, 'del-queue.heif');
+  writeFileSync(out, res.bytes);
+  check('taille identique', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  check('plus aucune position', exifPosition(out) === null);
+  check('les items secondaires sont intacts', empreintesDesItems(out) === empreintesDesItems(chemin));
+});
+
+scenario('iphone-sans-lieu.heic — l\'ajout est refusé, pas tenté', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'iphone-sans-lieu.heic')));
+  const c = conteneurOuEchec(src);
+  check('aucune position au départ', lirePosition(c, src) === null);
+
+  let code = '';
+  try {
+    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  } catch (e: any) {
+    code = e.code;
+  }
+  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+
+  // L'effacement d'un fichier sans position réussit sans rien toucher.
+  const res = effacerPosition(c, src);
+  check('l\'effacement ne touche rien', res.bytes.length === src.length &&
+    memesOctetsHorsPlages(src, res.bytes, []));
+});
+
+for (const [nom, quoi] of [
+  ['gps-degenere.heic', 'des rationnels 0/0 d\'un Galaxy S10'],
+  ['lieu-purge.avif', 'des coordonnées purgées par GIMP'],
+] as const) {
+  scenario(`${nom} — ${quoi} ne font pas une position`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const c = conteneurOuEchec(src);
+    check('notre lecteur n\'annonce aucune position', lirePosition(c, src) === null);
+
+    // ExifTool, lui, affiche bien 0 : c'est ce qui est écrit dans le fichier.
+    // La question n'est pas de savoir qui a raison sur les octets, mais ce
+    // qu'on affiche à quelqu'un qui demande « où cette photo a-t-elle été
+    // prise ? ». « Nulle part » est la seule réponse honnête.
+    const res = effacerPosition(c, src);
+    const out = join(tmp, `del-${nom}`);
+    writeFileSync(out, res.bytes);
+    check('l\'effacement reste possible et à longueur constante',
+      res.bytes.length === src.length);
+    check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+    check('plus aucun tag GPS après effacement',
+      exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+    check('les items secondaires sont intacts', empreintesDesItems(out) === empreintesDesItems(chemin));
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* PNG                                                                 */
+/*                                                                     */
+/* Seul format de ce lot où l'AJOUT est pleinement sûr : aucun décalage */
+/* absolu interne, donc insérer ou agrandir un morceau n'invalide rien. */
+/* ------------------------------------------------------------------ */
+
+scenario('avec-lieu.png — lecture et correction', () => {
+  const chemin = join(FIXTURES, 'avec-lieu.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const avant = inventory(chemin);
+
+  const nous = lirePosition(c, src);
+  const eux = exifPosition(chemin);
+  check('une position est lue', nous !== null && eux !== null);
+  if (nous && eux) {
+    check('accord avec ExifTool à moins de 0,1 m', distanceMetres(nous, eux) < 0.1);
+  }
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'set.png');
+  writeFileSync(out, res.bytes);
+  check('voie P1 (édition sur place)', res.route === 'P1');
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position demandée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('la somme de contrôle du morceau reste valide',
+    !/error|corrupt/i.test(exif(['-validate', '-warning', '-a', out])),
+    exif(['-validate', '-warning', '-a', out]).trim().slice(0, 120));
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+});
+
+scenario('avec-lieu.png — effacement', () => {
+  const chemin = join(FIXTURES, 'avec-lieu.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const avant = inventory(chemin);
+  const res = effacerPosition(conteneurOuEchec(src), src);
+  const out = join(tmp, 'del.png');
+  writeFileSync(out, res.bytes);
+
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  check('ExifTool ne trouve plus de position', exifPosition(out) === null);
+  check('aucun tag GPS résiduel',
+    exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+  check('la somme de contrôle reste valide',
+    !/error|corrupt/i.test(exif(['-validate', '-warning', '-a', out])));
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+});
+
+scenario('sans-lieu.png — ajout d\'une position', () => {
+  const chemin = join(FIXTURES, 'sans-lieu.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const avant = inventory(chemin);
+  check('aucune position au départ', lirePosition(c, src) === null);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon, 2244);
+  const out = join(tmp, 'add.png');
+  writeFileSync(out, res.bytes);
+  check('voie P2 (le bloc a dû grandir)', res.route === 'P2');
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position ajoutée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('la précision déclarée est écrite',
+    exif(['-n', '-s', '-s', '-s', '-GPSHPositioningError', out]).trim() === '2244');
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+
+  const efface = effacerPosition(c, res.bytes);
+  const out2 = join(tmp, 'add-del.png');
+  writeFileSync(out2, efface.bytes);
+  check('la position ajoutée peut être retirée', exifPosition(out2) === null);
+});
+
+scenario('texte-avec-lieu.png — la seconde copie du lieu est purgée', () => {
+  const chemin = join(FIXTURES, 'texte-avec-lieu.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+
+  check('la copie hors bloc principal est détectée', c.copieDuLieuAilleurs?.(src) === true);
+  const avantXmp = exif(['-a', '-G1', '-s', '-XMP:all', chemin]);
+  check('le lieu est bien dans le paquet de texte au départ', /GPSLatitude/.test(avantXmp));
+
+  const res = effacerPosition(c, src);
+  const out = join(tmp, 'del-xmp.png');
+  writeFileSync(out, res.bytes);
+
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const apresXmp = exif(['-a', '-G1', '-s', '-XMP:all', out]);
+  check('plus aucun lieu dans le paquet de texte', !/GPS|LocationCreated/.test(apresXmp),
+    apresXmp.trim().slice(0, 120));
+  check('le reste du paquet de texte survit', /CreatorTool|ModifyDate/.test(apresXmp),
+    apresXmp.trim().slice(0, 120));
+  check('la somme de contrôle reste valide',
+    !/error|corrupt/i.test(exif(['-validate', '-warning', '-a', out])));
+});
+
+scenario('texte.png — tout effacer garde le profil de couleurs', () => {
+  const chemin = join(FIXTURES, 'texte.png');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const res = toutEffacer(c, src);
+  const out = join(tmp, 'strip.png');
+  writeFileSync(out, res.bytes);
+  check('le fichier a rétréci', res.bytes.length < src.length);
+  check('aucun texte descriptif résiduel',
+    exif(['-a', '-G1', '-s', '-XMP:all', '-EXIF:all', out]).trim() === '');
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+});
+
+
+/* ------------------------------------------------------------------ */
+/* WebP                                                                */
+/*                                                                     */
+/* Trois travers de vrais fichiers sont exercés ici : un bloc précédé   */
+/* du préambule d'un JPEG, un morceau de texte mal nommé, et des        */
+/* drapeaux d'en-tête qui ne décrivent pas le contenu réel.             */
+/* ------------------------------------------------------------------ */
+
+scenario('avec-lieu.webp — lecture, correction et effacement', () => {
+  const chemin = join(FIXTURES, 'avec-lieu.webp');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const avant = inventory(chemin);
+
+  const nous = lirePosition(c, src);
+  const eux = exifPosition(chemin);
+  check('une position est lue', nous !== null && eux !== null);
+  if (nous && eux) check('accord avec ExifTool à moins de 0,1 m', distanceMetres(nous, eux) < 0.1);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'set.webp');
+  writeFileSync(out, res.bytes);
+  check('voie P1 (édition sur place)', res.route === 'P1');
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position demandée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('le profil de couleurs survit', /ICC|Profile/i.test(exif(['-a', '-G1', '-s', '-ICC_Profile:all', out])),
+    'aucun profil relu');
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+
+  const efface = effacerPosition(c, src);
+  const out2 = join(tmp, 'del.webp');
+  writeFileSync(out2, efface.bytes);
+  check('l\'effacement est à longueur constante', efface.bytes.length === src.length);
+  check('rien hors des plages annoncées à l\'effacement',
+    memesOctetsHorsPlages(src, efface.bytes, efface.changed));
+  check('aucun tag GPS résiduel', exif(['-a', '-G1', '-s', '-GPS:all', out2]).trim() === '');
+});
+
+scenario('prefixe.webp — un bloc précédé du préambule d\'un JPEG', () => {
+  const chemin = join(FIXTURES, 'prefixe.webp');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+
+  check('la position est lue malgré le préambule', lirePosition(c, src) !== null);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'set-prefixe.webp');
+  writeFileSync(out, res.bytes);
+  check('taille identique à l\'octet près', res.bytes.length === src.length);
+  check('le préambule est conservé tel quel',
+    memesOctetsHorsPlages(src, res.bytes, res.changed));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position demandée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+});
+
+scenario('sans-lieu.webp — ajout d\'une position', () => {
+  const chemin = join(FIXTURES, 'sans-lieu.webp');
+  const src = new Uint8Array(readFileSync(chemin));
+  const c = conteneurOuEchec(src);
+  const avant = inventory(chemin);
+  check('aucune position au départ', lirePosition(c, src) === null);
+  check('la forme étendue accepte de grandir', c.accepteAjout?.(src) === true);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'add.webp');
+  writeFileSync(out, res.bytes);
+  check('voie P2 (le bloc a dû grandir)', res.route === 'P2');
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  check('la taille déclarée correspond au fichier',
+    res.bytes.length === 8 + (res.bytes[4] | (res.bytes[5] << 8) | (res.bytes[6] << 16) | (res.bytes[7] << 24)));
+  const relu = exifPosition(out);
+  check('ExifTool relit la position ajoutée',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('ExifTool ne signale aucune anomalie de structure',
+    !/error|corrupt|invalid/i.test(exif(['-validate', '-warning', '-a', out])),
+    exif(['-validate', '-warning', '-a', out]).trim().slice(0, 140));
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+});
+
+scenario('lieu-degenere.webp — un bloc de position incomplet', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'lieu-degenere.webp')));
+  const c = conteneurOuEchec(src);
+  check('aucune position exploitable n\'est annoncée', lirePosition(c, src) === null);
+  // Le format sait grandir : on peut donc réécrire un bloc complet plutôt que
+  // de refuser. C'est la différence avec une photo d'iPhone.
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'set-degenere.webp');
+  writeFileSync(out, res.bytes);
+  check('la position peut être écrite malgré tout',
+    exifPosition(out) !== null && distanceMetres(exifPosition(out)!, AVIGNON) < 0.1);
+});
+
+scenario('simple.webp — la forme simple reste en lecture seule', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'simple.webp')));
+  const c = conteneurOuEchec(src);
+  check('aucun emplacement pour un lieu', c.localiser(src).length === 0);
+  check('la forme simple refuse de grandir', c.accepteAjout?.(src) === false);
+  let code = '';
+  try {
+    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  } catch (e: any) {
+    code = e.code;
+  }
+  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+});
+
+
+/* ------------------------------------------------------------------ */
+/* TIFF                                                                */
+/*                                                                     */
+/* Ici le fichier EST le bloc : les pixels vivent dedans, désignés par  */
+/* des adresses de bandes. La carte des plages est la seule chose qui   */
+/* les protège, et c'est ce que ces scénarios éprouvent.                */
+/* ------------------------------------------------------------------ */
+
+for (const [nom, quoi] of [
+  ['avec-lieu.tif', 'gros-boutiste, une bande'],
+  ['bandes-avec-lieu.tif', 'petit-boutiste, soixante et une bandes'],
+] as const) {
+  scenario(`${nom} — ${quoi}`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const c = conteneurOuEchec(src);
+    const avant = inventory(chemin);
+    const pixelsAvant = exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim();
+
+    const nous = lirePosition(c, src);
+    const eux = exifPosition(chemin);
+    check('une position est lue', nous !== null && eux !== null);
+    if (nous && eux) check('accord avec ExifTool à moins de 0,1 m', distanceMetres(nous, eux) < 0.1);
+
+    const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+    const out = join(tmp, `set-${nom}`);
+    writeFileSync(out, res.bytes);
+    check('voie P1 (édition sur place)', res.route === 'P1');
+    check('taille identique à l\'octet près', res.bytes.length === src.length);
+    check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+    const relu = exifPosition(out);
+    check('ExifTool relit la position demandée',
+      relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+    check('les bandes de pixels sont intactes',
+      exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
+    check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+      diffResume(avant, inventory(out)));
+
+    const efface = effacerPosition(c, src);
+    const out2 = join(tmp, `del-${nom}`);
+    writeFileSync(out2, efface.bytes);
+    check('l\'effacement est à longueur constante', efface.bytes.length === src.length);
+    check('rien hors des plages annoncées à l\'effacement',
+      memesOctetsHorsPlages(src, efface.bytes, efface.changed));
+    check('aucun tag GPS résiduel', exif(['-a', '-G1', '-s', '-GPS:all', out2]).trim() === '');
+    check('les bandes de pixels survivent à l\'effacement',
+      exif(['-s', '-s', '-s', '-ImageSize', out2]).trim() === pixelsAvant);
+    check('tout le reste est préservé après effacement',
+      JSON.stringify(avant) === JSON.stringify(inventory(out2)), diffResume(avant, inventory(out2)));
+  });
+}
+
+scenario('gros-boutiste.tif — l\'ajout est refusé sur un TIFF', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'gros-boutiste.tif')));
+  const c = conteneurOuEchec(src);
+  check('aucune position au départ', lirePosition(c, src) === null);
+  let code = '';
+  try {
+    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  } catch (e: any) {
+    code = e.code;
+  }
+  // Un négatif numérique est un TIFF. On ne saurait pas les distinguer de façon
+  // fiable, et une heuristique fausse détruirait ici un original.
+  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+});
+
+scenario('Un TIFF large est refusé plutôt que lu de travers', () => {
+  const large = new Uint8Array(16);
+  large[0] = 0x49; large[1] = 0x49; large[2] = 43; // « II » puis la magie 43
+  let code = '';
+  try {
+    conteneurDe(large);
+  } catch (e: any) {
+    code = e.code;
+  }
+  check('la variante large est reconnue et refusée', code === 'FORMAT_NON_PRIS_EN_CHARGE', code);
+});
+
 
 console.log(`\n${passed} réussis, ${failed} échoués`);
 process.exit(failed === 0 ? 0 : 1);

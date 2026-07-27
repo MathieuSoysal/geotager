@@ -7,13 +7,23 @@
  * fichier, et il n'en émettra jamais — c'est vérifiable dans le dépôt public.
  */
 import exifr from 'exifr';
+import '../lib/exif/formats.ts';
 import {
-  readGpsFromJpeg,
-  writeGpsToJpeg,
-  deleteGpsFromJpeg,
-  stripAllMetadata,
-  ExifError,
-} from '../lib/exif/jpeg.ts';
+  type BlocLu,
+  type Conteneur,
+  type Ecriture,
+  conteneurDe,
+  detecterFormat,
+  ecrirePosition,
+  effacerPosition,
+  lireBlocs,
+  lirePosition,
+  memesOctetsHorsPlages,
+  toutEffacer,
+} from '../lib/exif/conteneurs.ts';
+import { type Capacites, type Motif, capacitesDe, phraseDe } from '../lib/exif/capacites.ts';
+import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
+import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres } from '../lib/exif/coords.ts';
 import type {
   Format,
@@ -28,56 +38,120 @@ const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 /* ---------------------------------------------------------------- */
 
-function detectFormat(b: Uint8Array): Format {
-  const a = (...codes: number[]) => codes.every((c, i) => b[i] === c);
-  if (a(0xff, 0xd8, 0xff)) return 'jpeg';
-  if (a(0x89, 0x50, 0x4e, 0x47)) return 'png';
-  if (a(0x47, 0x49, 0x46)) return 'gif';
-  if (a(0x49, 0x49, 0x2a, 0x00) || a(0x4d, 0x4d, 0x00, 0x2a)) return 'tiff';
-  if (b.length > 12 && a(0x52, 0x49, 0x46, 0x46) && b[8] === 0x57 && b[9] === 0x45) return 'webp';
-  if (b.length > 12) {
-    const brand = String.fromCharCode(b[8], b[9], b[10], b[11]);
-    const box = String.fromCharCode(b[4], b[5], b[6], b[7]);
-    if (box === 'ftyp') {
-      if (/^(heic|heix|hevc|mif1|msf1|heim|heis)/.test(brand)) return 'heic';
-      if (/^avif|avis/.test(brand)) return 'avif';
-      if (/^(qt|mp4|isom|M4V|3gp)/.test(brand)) return 'video';
-    }
-  }
-  return 'inconnu';
-}
-
 /**
- * Ce que l'outil sait faire d'un format donné, et la phrase qui l'annonce.
+ * Une sonde unique, et une seule.
+ *
+ * `capsOf` était appelé deux fois avec des connaissances différentes : à la
+ * lecture, puis à l'application. Rien n'empêchait structurellement l'annonce et
+ * le comportement de diverger — c'est-à-dire d'annoncer une écriture que le
+ * moteur refuserait ensuite. Les deux passent désormais par ici.
  *
  * L'interface annonce la voie AVANT l'action. On ne promet jamais une écriture
  * qu'on ne sait pas tenir : mieux vaut dire « nous ne savons pas encore » que
- * produire un fichier que l'utilisateur croira nettoyé.
+ * rendre un fichier que l'utilisateur croira nettoyé.
  */
-function capsOf(format: Format): { can: PhotoRead['can']; routeReason: string } {
-  if (format === 'jpeg') {
-    return {
-      can: { read: true, write: true, erase: true },
-      routeReason: "La position sera écrite dans le fichier, sans retoucher l'image.",
-    };
+interface Sonde {
+  format: Format;
+  conteneur: Conteneur | null;
+  blocs: BlocLu[];
+  position: LatLon | null;
+  capacites: Capacites;
+  motif: Motif;
+  phrase: string;
+}
+
+function sonder(bytes: Uint8Array): Sonde {
+  const format = detecterFormat(bytes);
+  const statiques = capacitesDe(format);
+  const vide = { format, conteneur: null, blocs: [], position: null };
+
+  if (format === 'inconnu') {
+    return { ...vide, capacites: statiques, motif: 'inconnu', phrase: phraseDe('inconnu') };
   }
   if (format === 'video') {
-    return {
-      can: { read: true, write: false, erase: false },
-      routeReason:
-        "Nous savons lire le lieu d'une vidéo, mais pas encore le retirer de façon sûre — une vidéo le range à plusieurs endroits.",
-    };
+    return { ...vide, capacites: statiques, motif: 'video', phrase: phraseDe('video') };
   }
-  if (format === 'inconnu') {
-    return {
-      can: { read: false, write: false, erase: false },
-      routeReason: 'Nous ne reconnaissons pas ce type de fichier.',
-    };
+
+  const conteneur = conteneurDe(bytes);
+  // Un format que le tableau donne en lecture seule, ou pour lequel aucun
+  // conteneur n'est encore écrit, s'arrête ici : la phrase le dit sans jargon.
+  if (!conteneur || !(statiques.corriger || statiques.ajouter || statiques.effacer)) {
+    const motif: Motif = format === 'gif' ? 'sans-lieu-possible' : 'lecture-seule';
+    return { ...vide, capacites: { ...statiques, corriger: false, ajouter: false, effacer: false },
+      motif, phrase: phraseDe(motif) };
   }
+
+  let blocs: BlocLu[] = [];
+  try {
+    blocs = lireBlocs(conteneur, bytes);
+  } catch {
+    // Un fichier dont la structure est illisible n'est pas modifiable ; il
+    // reste lisible par ailleurs, via l'autre lecteur.
+    return { ...vide, conteneur, capacites: { ...statiques, corriger: false, ajouter: false, effacer: false },
+      motif: 'rangement-inconnu', phrase: phraseDe('rangement-inconnu') };
+  }
+
+  const position = blocs.find((b) => b.position)?.position ?? null;
+  const principal = blocs[0] ?? null;
+
+  // « Corriger » demande soit que les champs existent déjà avec la bonne forme
+  // — c'est alors une écriture à longueur constante — soit que le format
+  // tolère de grandir. Sur une photo d'iPhone, seule la première voie existe.
+  const surPlace =
+    principal !== null &&
+    position !== null &&
+    ecrirePositionSurPlace(principal.vue, position.lat, position.lon) !== null;
+
+  // Une copie du lieu ailleurs dans le fichier ferme l'effacement : le retirer
+  // du bloc principal rendrait un fichier que l'utilisateur croirait propre.
+  const copieAilleurs = conteneur.copieDuLieuAilleurs?.(bytes) ?? false;
+
+  // Certains formats ne tranchent pas au niveau du format : un WebP étendu
+  // tolère de grandir, la forme simple non, et c'est le même format.
+  const peutGrandir =
+    statiques.ajouter && Boolean(conteneur.reconstruire) && (conteneur.accepteAjout?.(bytes) ?? true);
+
+  const capacites: Capacites = {
+    lire: statiques.lire,
+    corriger: statiques.corriger && (surPlace || peutGrandir) && !copieAilleurs,
+    ajouter: peutGrandir && !copieAilleurs,
+    effacer: statiques.effacer && !copieAilleurs,
+    effacerTout: statiques.effacerTout && !copieAilleurs,
+  };
+
+  let motif: Motif;
+  if (copieAilleurs) {
+    motif = 'copie-ailleurs';
+  } else if (position !== null) {
+    motif = capacites.corriger ? 'ok' : 'forme-inhabituelle';
+  } else if (capacites.ajouter) {
+    motif = 'ok';
+  } else if (blocs.length === 0 && !statiques.ajouter) {
+    motif = 'sans-emplacement';
+  } else if (statiques.ajouter) {
+    // Le format saurait grandir, mais pas cette variante-là.
+    motif = 'sans-lieu-possible';
+  } else {
+    motif = 'sans-lieu';
+  }
+
+  return { format, conteneur, blocs, position, capacites, motif, phrase: phraseDe(motif) };
+}
+
+/**
+ * Projette les capacités sur le contrat que l'interface consomme.
+ *
+ * « Modifier » veut dire deux choses selon le fichier : remplacer un lieu déjà
+ * présent, ou en créer un. L'interface n'a qu'un champ de saisie — il n'est
+ * actif que si l'opération que l'utilisateur va réellement déclencher est à
+ * notre portée sur CE fichier.
+ */
+function projeter(s: Sonde): PhotoRead['can'] {
   return {
-    can: { read: true, write: false, erase: false },
-    routeReason:
-      "Nous savons lire la position de ce fichier, mais pas encore la modifier sans risquer de l'abîmer.",
+    read: s.capacites.lire,
+    write: s.position ? s.capacites.corriger : s.capacites.ajouter,
+    erase: s.capacites.effacer,
+    eraseAll: s.capacites.effacerTout,
   };
 }
 
@@ -89,24 +163,15 @@ function texteDate(v: unknown): string | null {
 
 async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<PhotoRead> {
   const bytes = new Uint8Array(buffer);
-  const format = detectFormat(bytes);
-  const { can, routeReason } = capsOf(format);
+  const sonde = sonder(bytes);
+  const format = sonde.format;
 
-  let position: LatLon | null = null;
+  // C'est notre moteur qui écrira, donc c'est lui qui doit dire ce qu'il voit.
+  let position: LatLon | null = sonde.position;
   let altitude: number | null = null;
   let takenAt: string | null = null;
   let camera: string | null = null;
   const details: Array<{ label: string; value: string }> = [];
-
-  // Sur JPEG on lit avec notre propre moteur : c'est lui qui écrira, donc c'est
-  // lui qui doit dire ce qu'il voit.
-  if (format === 'jpeg') {
-    try {
-      position = readGpsFromJpeg(bytes);
-    } catch {
-      position = null;
-    }
-  }
 
   try {
     const tags = (await exifr.parse(buffer, {
@@ -155,8 +220,8 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
     name,
     size: bytes.length,
     format,
-    can,
-    routeReason,
+    can: projeter(sonde),
+    routeReason: sonde.phrase,
     position,
     altitude,
     takenAt,
@@ -166,46 +231,105 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
 }
 
 /**
- * Vérification après écriture — non négociable.
+ * Vérification après écriture — non négociable, et à trois étages.
  *
- * Le fichier produit est relu et la position comparée à celle demandée. Un
- * écart ou une absence fait échouer l'opération et rend l'original intact :
- * sur un outil de métadonnées, l'échec silencieux est le pire mode de
- * défaillance, parce que l'utilisateur publie en croyant avoir nettoyé.
+ * Une auto-relecture est structurellement aveugle à la classe de défaut la plus
+ * dangereuse : un encodeur et un décodeur symétriquement faux passent avec un
+ * écart de exactement zéro. Il faut donc un second lecteur, écrit par d'autres.
+ *
+ * Sauf que ce second lecteur ne connaît pas tous les formats — il ignore le
+ * WebP — et qu'il refuse certains fichiers pour des raisons sans rapport avec
+ * nous. D'où trois étages :
+ *
+ *   A. notre propre relecture, en repartant des octets produits et en
+ *      relocalisant le bloc depuis zéro : si la structure avait été abîmée, on
+ *      ne retrouverait rien ;
+ *   B. le second lecteur sur le BLOC extrait. Un bloc de position est un
+ *      fichier TIFF valide à lui seul, et le second lecteur l'accepte tel quel.
+ *      C'est exactement la couche où vit le défaut de boutisme, donc l'étage
+ *      qui compte. Il est exigible sur tous les formats ;
+ *   C. le second lecteur sur le FICHIER entier, soumis à une règle de symétrie :
+ *      s'il savait ouvrir l'entrée, il doit savoir ouvrir la sortie et être
+ *      d'accord. S'il ne savait pas ouvrir l'entrée, son silence sur la sortie
+ *      ne prouve rien et ne vaut pas échec.
+ *
+ * Cette règle est exacte par construction sur les formats où nous ne touchons
+ * ni l'en-tête, ni la table des emplacements, ni aucune longueur : la capacité
+ * du second lecteur à traiter le fichier y est invariante par notre opération.
  */
+
+/** Ce que le second lecteur trouve dans un fichier, ou dans un bloc nu. */
+async function gpsParExifr(octets: Uint8Array): Promise<LatLon | null> {
+  try {
+    const t = (await exifr.gps(octets.slice().buffer)) as
+      | { latitude: number; longitude: number }
+      | undefined;
+    if (t && Number.isFinite(t.latitude) && Number.isFinite(t.longitude)) {
+      return { lat: t.latitude, lon: t.longitude };
+    }
+  } catch {
+    /* le second lecteur ne sait pas ouvrir ce fichier */
+  }
+  return null;
+}
+
+/** Vrai si le second lecteur sait ouvrir ce fichier, position ou non. */
+async function exifrSaitOuvrir(octets: Uint8Array): Promise<boolean> {
+  try {
+    const t = await exifr.parse(octets.slice().buffer, { tiff: true, ifd0: true });
+    return t != null;
+  } catch {
+    return false;
+  }
+}
+
+/** Le premier bloc de position du fichier, tel qu'on le retrouve après coup. */
+function blocNu(octets: Uint8Array): Uint8Array | null {
+  try {
+    const c = conteneurDe(octets);
+    if (!c) return null;
+    const e = c.localiser(octets)[0];
+    return e ? e.tiff : null;
+  } catch {
+    return null;
+  }
+}
+
+const accord = (a: LatLon | null, b: LatLon | null): boolean =>
+  (a === null && b === null) || (a !== null && b !== null && distanceMetres(a, b) < 1);
+
 async function verifier(
-  bytes: Uint8Array,
+  original: Uint8Array,
+  produit: Uint8Array,
   attendu: LatLon | null,
-): Promise<{ verified: LatLon | null; drift: number; croise: boolean }> {
+): Promise<{ verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean }> {
+  // A — notre relecture, structure relocalisée depuis le premier octet.
   const parNous = (() => {
     try {
-      return readGpsFromJpeg(bytes);
+      const c = conteneurDe(produit);
+      return c ? lirePosition(c, produit) : null;
     } catch {
       return null;
     }
   })();
 
-  // Relecture croisée par un moteur indépendant. Deux implémentations
-  // symétriquement fausses passeraient une auto-relecture sans écart.
-  let parExifr: LatLon | null = null;
-  try {
-    const t = (await exifr.gps(bytes.slice().buffer)) as
-      | { latitude: number; longitude: number }
-      | undefined;
-    if (t && Number.isFinite(t.latitude)) parExifr = { lat: t.latitude, lon: t.longitude };
-  } catch {
-    parExifr = null;
-  }
+  // B — le second lecteur sur le bloc extrait. Exigible partout.
+  const bloc = blocNu(produit);
+  const parBloc = bloc ? await gpsParExifr(bloc) : null;
+  const croiseBloc = bloc === null ? parNous === null : accord(parNous, parBloc);
 
-  const croise =
-    (parNous === null && parExifr === null) ||
-    (parNous !== null && parExifr !== null && distanceMetres(parNous, parExifr) < 1);
+  // C — le second lecteur sur le fichier entier, sous condition de symétrie.
+  const temoin = await exifrSaitOuvrir(original);
+  const parFichier = temoin ? await gpsParExifr(produit) : null;
+  const croiseFichier = !temoin || accord(parNous, parFichier);
+
+  const croise = croiseBloc && croiseFichier;
 
   if (attendu === null) {
-    return { verified: parNous, drift: parNous === null ? 0 : Infinity, croise };
+    return { verified: parNous, drift: parNous === null ? 0 : Infinity, croise, croiseComplet: temoin };
   }
-  if (!parNous) return { verified: null, drift: Infinity, croise };
-  return { verified: parNous, drift: distanceMetres(parNous, attendu), croise };
+  if (!parNous) return { verified: null, drift: Infinity, croise, croiseComplet: temoin };
+  return { verified: parNous, drift: distanceMetres(parNous, attendu), croise, croiseComplet: temoin };
 }
 
 async function appliquer(
@@ -215,8 +339,9 @@ async function appliquer(
   operation: Extract<ToWorker, { type: 'apply' }>['operation'],
 ): Promise<WriteResult> {
   const bytes = new Uint8Array(buffer);
-  const format = detectFormat(bytes);
-  const { can } = capsOf(format);
+  // On resonde les octets reçus plutôt que de faire confiance à la lecture
+  // précédente : l'annonce et le comportement lisent ainsi la même source.
+  const sonde = sonder(bytes);
 
   const echec = (code: string, message: string): WriteResult => ({
     ok: false,
@@ -226,19 +351,27 @@ async function appliquer(
     message,
   });
 
-  if (format !== 'jpeg' || !can.write) {
-    return echec(
-      'FORMAT_NON_MODIFIABLE',
-      "Ce format n'est pas encore modifiable. Votre fichier n'a pas été touché.",
-    );
-  }
+  const { capacites, conteneur } = sonde;
+  const permise =
+    operation.kind === 'set'
+      ? sonde.position
+        ? capacites.corriger
+        : capacites.ajouter
+      : operation.kind === 'erase'
+        ? capacites.effacer
+        : capacites.effacerTout;
+
+  // Le refus reprend mot pour mot la phrase déjà annoncée avant l'action : ce
+  // que l'utilisateur a lu et ce qu'il obtient ne peuvent pas se contredire.
+  if (!permise || !conteneur) return echec('FORMAT_NON_MODIFIABLE', sonde.phrase);
 
   try {
-    let produit: { bytes: Uint8Array; route: 'P1' | 'P2'; sameLength: boolean };
+    let produit: Ecriture;
     let attendu: LatLon | null = null;
 
     if (operation.kind === 'set') {
-      produit = writeGpsToJpeg(
+      produit = ecrirePosition(
+        conteneur,
         bytes,
         operation.position.lat,
         operation.position.lon,
@@ -246,12 +379,23 @@ async function appliquer(
       );
       attendu = operation.position;
     } else if (operation.kind === 'erase') {
-      produit = deleteGpsFromJpeg(bytes);
+      produit = effacerPosition(conteneur, bytes);
     } else {
-      produit = stripAllMetadata(bytes);
+      produit = toutEffacer(conteneur, bytes);
     }
 
-    const { verified, drift, croise } = await verifier(produit.bytes, attendu);
+    // « À l'octet près » n'est pas une figure de style. Une comparaison de
+    // tailles ne prouve rien : un défaut qui zéroïse 200 Ko de MakerNote la
+    // passe sans un mot. On exige que le fichier produit soit identique à
+    // l'original PARTOUT hors des plages que le moteur a lui-même annoncées.
+    if (!memesOctetsHorsPlages(bytes, produit.bytes, produit.changed)) {
+      return echec(
+        'OCTETS_HORS_PLAGE',
+        "Le fichier produit diffère de l'original ailleurs qu'à l'endroit de la position. Nous préférons vous rendre l'original intact.",
+      );
+    }
+
+    const { verified, drift, croise } = await verifier(bytes, produit.bytes, attendu);
 
     // Tolérance de 1 mètre. Les coordonnées EXIF sont stockées en rationnels
     // degrés/minutes/secondes ; la conversion perd un peu de précision. Au-delà
@@ -283,7 +427,7 @@ async function appliquer(
       route: produit.route,
       verified,
       driftMetres: attendu ? drift : 0,
-      sameLength: produit.sameLength,
+      sameLength: produit.bytes.length === bytes.length,
     };
   } catch (e) {
     if (e instanceof ExifError) return echec(e.code, e.message);

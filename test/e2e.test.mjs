@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
 const DIST = 'dist';
-const FIXTURES = process.env.FIXTURES ?? '';
+const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const PORT = 4319;
 
 const MIME = {
@@ -70,7 +70,7 @@ await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
 
 console.log('\nChargement de la page');
 check('aucune erreur JavaScript au chargement', erreursConsole.length === 0, erreursConsole[0]);
-check('le titre est en place', (await page.title()).includes('Geotagor'));
+check('le titre est en place', (await page.title()).includes('Geotager'));
 check("l'état vide est visible", await page.locator('#etat-vide').isVisible());
 check("l'état actif est masqué", !(await page.locator('#etat-actif').isVisible()));
 
@@ -153,6 +153,155 @@ const gpsRestant = execFileSync('exiftool', ['-a', '-G1', '-s', '-GPS:all', effa
 }).trim();
 check('plus aucun tag GPS après effacement', gpsRestant === '', gpsRestant.slice(0, 100));
 check('taille inchangée après effacement', statSync(efface).size === statSync(source).size);
+
+console.log('\nDépôt d\'une photo iPhone');
+const heic = join(FIXTURES, 'iphone.heic');
+const gpsHeic = execFileSync(
+  'exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', heic],
+  { encoding: 'utf8' },
+).trim().split('\n').map(Number);
+
+// Page rechargée : l'interface affiche le nom du fichier dès le dépôt, avant
+// la lecture, si bien qu'attendre « une pastille non vide » comparerait la
+// photo iPhone à la position du fichier précédent. Repartir d'un état vierge
+// supprime la course au lieu de la contourner.
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.waitForSelector('#etat-vide:not([hidden])');
+
+await page.setInputFiles('#picker', heic);
+await page.waitForFunction(() => {
+  const p = document.getElementById('pill-position');
+  return p && !p.hidden && p.textContent.trim().length > 0;
+}, null, { timeout: 30_000 });
+
+const pillHeic = (await page.locator('#pill-position').textContent()).trim();
+const [latHeic, lonHeic] = pillHeic.replace(/[^\d.,\-]/g, '').split(',').map(Number);
+check('la position de la photo iPhone est affichée',
+  Math.abs(latHeic - gpsHeic[0]) < 0.0001 && Math.abs(lonHeic - gpsHeic[1]) < 0.0001,
+  `affiché ${latHeic},${lonHeic} / réel ${gpsHeic.join(',')}`);
+
+// L'interface annonce la voie AVANT l'action : ici, corriger et effacer sont
+// possibles, ajouter non — et c'est exactement ce qu'il faut dire.
+const alerte = await page.locator('#alerte-format');
+check('la voie retenue est annoncée avant toute action',
+  await alerte.isVisible() && (await alerte.textContent()).trim().length > 0,
+  (await alerte.textContent()).trim().slice(0, 80));
+check('la phrase affichée ne contient aucun jargon de format',
+  !/EXIF|IFD|ISOBMFF|conteneur|m[ée]tadonn[ée]es|VP8X|parser|worker/i.test(
+    await alerte.textContent()),
+  (await alerte.textContent()).trim().slice(0, 80));
+check('« Tout effacer » est désactivé là où l\'opération n\'existe pas',
+  await page.locator('#effacer-tout').isDisabled());
+
+const [dlHeic] = await Promise.all([
+  page.waitForEvent('download', { timeout: 30_000 }),
+  page.click('#effacer'),
+]);
+const heicEfface = join('/tmp', dlHeic.suggestedFilename());
+await dlHeic.saveAs(heicEfface);
+check('plus aucun tag GPS dans la photo iPhone produite',
+  execFileSync('exiftool', ['-a', '-G1', '-s', '-GPS:all', heicEfface], { encoding: 'utf8' }).trim() === '',
+  'des tags GPS subsistent');
+check('la photo iPhone produite a exactement la taille de l\'original',
+  statSync(heicEfface).size === statSync(heic).size,
+  `${statSync(heic).size} -> ${statSync(heicEfface).size}`);
+check('l\'image reste de mêmes dimensions',
+  execFileSync('exiftool', ['-s', '-s', '-s', '-ImageSize', heicEfface], { encoding: 'utf8' }).trim() ===
+    execFileSync('exiftool', ['-s', '-s', '-s', '-ImageSize', heic], { encoding: 'utf8' }).trim());
+
+console.log('\nDépôt d\'une image PNG');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.waitForSelector('#etat-vide:not([hidden])');
+const png = join(FIXTURES, 'avec-lieu.png');
+await page.setInputFiles('#picker', png);
+await page.waitForFunction(() => {
+  const p = document.getElementById('pill-position');
+  return p && !p.hidden && p.textContent.trim().length > 0;
+}, null, { timeout: 20_000 });
+check('le champ de saisie est actif sur un PNG',
+  !(await page.locator('#coords').isDisabled()));
+
+await page.fill('#coords', '43.9493, 4.8055');
+await page.waitForSelector('#resultat:not([hidden])');
+const [dlPng] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20_000 }),
+  page.click('#telecharger'),
+]);
+const pngProduit = join('/tmp', dlPng.suggestedFilename());
+await dlPng.saveAs(pngProduit);
+const reluPng = execFileSync('exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', pngProduit],
+  { encoding: 'utf8' }).trim().split('\n').map(Number);
+check('ExifTool relit la position demandée dans le PNG',
+  Math.abs(reluPng[0] - 43.9493) < 0.00002 && Math.abs(reluPng[1] - 4.8055) < 0.00002,
+  `relu ${reluPng.join(', ')}`);
+
+// Chromium décode nativement le PNG : c'est un décodeur totalement indépendant
+// du nôtre, et la preuve la plus directe que l'image produite reste une image.
+const octetsPng = readFileSync(pngProduit);
+const decode = await page.evaluate(async (donnees) => {
+  const blob = new Blob([new Uint8Array(donnees)], { type: 'image/png' });
+  const img = await createImageBitmap(blob);
+  return { l: img.width, h: img.height };
+}, Array.from(octetsPng));
+check('le navigateur décode l\'image produite',
+  decode.l > 0 && decode.h > 0, JSON.stringify(decode));
+
+console.log('\nDépôt d\'une image WebP');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.waitForSelector('#etat-vide:not([hidden])');
+const webp = join(FIXTURES, 'avec-lieu.webp');
+await page.setInputFiles('#picker', webp);
+await page.waitForFunction(() => {
+  const p = document.getElementById('pill-position');
+  return p && !p.hidden && p.textContent.trim().length > 0;
+}, null, { timeout: 20_000 });
+// Écriture d'abord : c'est le cas que la relecture croisée aurait refusé si
+// elle exigeait que le second lecteur sache ouvrir un WebP, ce qu'il ne sait
+// pas faire. La règle de symétrie est ce qui permet de le vérifier quand même,
+// en lui donnant le bloc extrait plutôt que le fichier entier.
+await page.fill('#coords', '43.9493, 4.8055');
+await page.waitForSelector('#resultat:not([hidden])');
+const [dlWebpEcrit] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20_000 }),
+  page.click('#telecharger'),
+]);
+const webpEcrit = join('/tmp', dlWebpEcrit.suggestedFilename());
+await dlWebpEcrit.saveAs(webpEcrit);
+const reluWebp = execFileSync('exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', webpEcrit],
+  { encoding: 'utf8' }).trim().split('\n').map(Number);
+check('ExifTool relit la position écrite dans le WebP',
+  Math.abs(reluWebp[0] - 43.9493) < 0.00002 && Math.abs(reluWebp[1] - 4.8055) < 0.00002,
+  `relu ${reluWebp.join(', ')}`);
+
+const [dlWebp] = await Promise.all([
+  page.waitForEvent('download', { timeout: 20_000 }),
+  page.click('#effacer'),
+]);
+const webpProduit = join('/tmp', dlWebp.suggestedFilename());
+await dlWebp.saveAs(webpProduit);
+check('plus aucun tag GPS dans le WebP produit',
+  execFileSync('exiftool', ['-a', '-G1', '-s', '-GPS:all', webpProduit], { encoding: 'utf8' }).trim() === '');
+check('le WebP produit a exactement la taille de l\'original',
+  statSync(webpProduit).size === statSync(webp).size);
+const decodeWebp = await page.evaluate(async (donnees) => {
+  const img = await createImageBitmap(new Blob([new Uint8Array(donnees)], { type: 'image/webp' }));
+  return { l: img.width, h: img.height };
+}, Array.from(readFileSync(webpProduit)));
+check('le navigateur décode le WebP produit', decodeWebp.l > 0 && decodeWebp.h > 0,
+  JSON.stringify(decodeWebp));
+
+console.log('\nUn format resté en lecture seule');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'simple.webp'));
+await page.waitForSelector('#alerte-format:not([hidden])', { timeout: 20_000 });
+const phrase = (await page.locator('#alerte-format').textContent()).trim();
+check('la limite est annoncée avant toute action', phrase.length > 0, phrase.slice(0, 80));
+check('la phrase reste sans jargon de format',
+  !/EXIF|IFD|ISOBMFF|VP8X|RIFF|conteneur|m[ée]tadonn[ée]es|chunk|parser/i.test(phrase), phrase.slice(0, 80));
+check('le champ de saisie est désactivé', await page.locator('#coords').isDisabled());
 
 console.log('\nPreuve du zéro-tiers');
 const tiers = requetes.filter((u) => {

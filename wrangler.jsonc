@@ -1,5 +1,5 @@
 {
-  // Geotagor — configuration Workers (assets statiques).
+  // Geotager — configuration Workers (assets statiques).
   //
   // Pas de champ "main" : le site est un ensemble d'assets seuls, il n'y a
   // aucun code Worker. C'est la traduction technique de la contrainte
@@ -21,7 +21,7 @@
   // inatteignable. Le risque que « false » écartait — un site indexé en double
   // sur un domaine technique — est déjà traité par les règles X-Robots-Tag
   // scopées par hôte dans public/_headers, qui est la parade que Cloudflare
-  // documente lui-même. À repasser à « false » le jour où geotagor.fr est
+  // documente lui-même. À repasser à « false » le jour où geotager.app est
   // rattaché, si l'on préfère la ceinture aux bretelles.
   "workers_dev": true,
 

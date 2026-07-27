@@ -25,7 +25,13 @@ export interface PhotoRead {
   size: number;
   format: Format;
   /** Ce qu'on saura faire de ce fichier, décidé avant toute action. */
-  can: { read: boolean; write: boolean; erase: boolean };
+  /**
+   * `write` répond à « l'opération que l'utilisateur va déclencher sur CE
+   * fichier est-elle à notre portée ? » — donc corriger s'il porte déjà un
+   * lieu, ajouter sinon. `eraseAll` est distinct de `erase` : tout retirer
+   * n'existe pas sur tous les formats.
+   */
+  can: { read: boolean; write: boolean; erase: boolean; eraseAll: boolean };
   /** Phrase affichable, sans jargon de conteneur. */
   routeReason: string;
   position: LatLon | null;

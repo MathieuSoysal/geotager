@@ -1,8 +1,9 @@
 ---
 import '../styles/global.css';
+import { MATRICE, COLONNES, cellules } from '../lib/exif/capacites.ts';
 
-const site = 'https://geotagor.fr';
-const title = "Modifier la géolocalisation d'une photo — Geotagor";
+const site = 'https://geotager.app';
+const title = "Modifier la géolocalisation d'une photo — Geotager";
 const description =
   "Ajoutez, modifiez ou supprimez les coordonnées GPS d'une photo directement dans votre navigateur. Aucun envoi de fichier, aucune inscription.";
 
@@ -12,7 +13,7 @@ const description =
 const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Geotagor',
+  name: 'Geotager',
   url: site + '/',
   applicationCategory: 'MultimediaApplication',
   applicationSubCategory: "Édition de métadonnées d'image",
@@ -40,7 +41,7 @@ const jsonLd = {
     <meta name="description" content={description} />
     <link rel="canonical" href={site + '/'} />
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Geotagor" />
+    <meta property="og:site_name" content="Geotager" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={site + '/'} />
@@ -65,7 +66,7 @@ const jsonLd = {
                 fill="#FF3385"></path>
               <circle cx="20" cy="17.4" r="5.7" fill="#17161B"></circle>
             </svg>
-            Geotagor
+            Geotager
           </a>
           <nav class="main" aria-label="Sections">
             <a href="#vie-privee">Vie privée</a>
@@ -94,7 +95,7 @@ const jsonLd = {
                 <path d="M22 3v8M22 33v8M3 22h8M33 22h8"></path>
               </svg>
               <span><b>Déposez une photo</b><small>ou collez-la</small></span>
-              <input id="picker" type="file" accept="image/*,video/*" multiple />
+              <input id="picker" type="file" accept="image/*,video/*,.heic,.heif,.avif,.tif,.tiff" multiple />
             </label>
             <h1>Changez le lieu <em>d'une photo</em></h1>
             <p class="sub">Rien n'est envoyé nulle part : tout se passe dans votre navigateur.</p>
@@ -232,23 +233,34 @@ const jsonLd = {
           <li>Téléchargez. Le nom d'origine est conservé, précédé d'une mention indiquant ce qui a été fait.</li>
         </ol>
         <p>
-          Chaque fichier produit est <strong>relu avant de vous être remis</strong>, par deux
-          lecteurs indépendants. Si la position relue ne correspond pas à celle demandée, l'opération
-          est déclarée en échec et votre fichier d'origine vous est rendu intact. Sur un outil de ce
-          genre, l'échec silencieux est le pire défaut possible&nbsp;: il vous ferait publier une
-          photo en croyant l'avoir nettoyée.
+          Chaque fichier produit est <strong>relu avant de vous être remis</strong>, par notre
+          lecteur et par un second écrit par d'autres. Si la position relue ne correspond pas à celle
+          demandée, si une trace subsiste après un effacement, ou si les deux lecteurs ne disent pas
+          la même chose, l'opération est déclarée en échec et votre fichier d'origine vous est rendu
+          intact. Sur un outil de ce genre, l'échec silencieux est le pire défaut possible&nbsp;: il
+          vous ferait publier une photo en croyant l'avoir nettoyée.
+        </p>
+        <p>
+          Nous vérifions aussi que le fichier rendu est <strong>identique à l'original partout
+          ailleurs</strong> qu'à l'endroit du lieu, octet par octet. C'est ce qui nous permet de
+          modifier une photo de plusieurs mégaoctets sans jamais la décoder&nbsp;: nous ne
+          promettons pas qu'elle est restée intacte, nous le montrons.
         </p>
 
         <h2 id="limites">Ce que l'outil sait faire, et ce qu'il ne sait pas encore</h2>
+        <!-- Rendu depuis src/lib/exif/capacites.ts, que le moteur lit aussi :
+             le tableau ne peut donc pas dériver de ce que le code sait faire. -->
         <table>
           <thead>
-            <tr><th>Format</th><th>Lire</th><th>Modifier</th><th>Effacer</th></tr>
+            <tr><th>Format</th>{COLONNES.map((c) => <th>{c}</th>)}</tr>
           </thead>
           <tbody>
-            <tr><td>JPEG</td><td>oui</td><td>oui</td><td>oui</td></tr>
-            <tr><td>HEIC, AVIF <span class="pill">iPhone</span></td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
-            <tr><td>PNG, WebP, TIFF</td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
-            <tr><td>Vidéos (MOV, MP4)</td><td>oui</td><td>pas encore</td><td>pas encore</td></tr>
+            {MATRICE.map((ligne) => (
+              <tr>
+                <td>{ligne.libelle}{ligne.mention && <> <span class="pill">{ligne.mention}</span></>}</td>
+                {cellules(ligne.capacites).map((v) => <td>{v}</td>)}
+              </tr>
+            ))}
           </tbody>
         </table>
         <p>
@@ -330,7 +342,7 @@ exiftool -all= photo.jpg</code></pre>
 
       <footer>
         <p>
-          Geotagor — outil gratuit, sans compte et sans traceur. Code source sous licence MIT&nbsp;:
+          Geotager — outil gratuit, sans compte et sans traceur. Code source sous licence MIT&nbsp;:
           <a href="https://github.com/MathieuSoysal/geotager">github.com/MathieuSoysal/geotager</a>.
         </p>
       </footer>
