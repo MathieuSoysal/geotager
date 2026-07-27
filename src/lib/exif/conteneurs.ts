@@ -301,8 +301,21 @@ function appliquerAuBloc(
     };
   }
 
-  if (!c.reconstruire) throw AJOUT_IMPOSSIBLE();
-  return { pose: c.reconstruire(b, emplacement, edit.bytes), route: edit.route };
+  if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
+  return { pose: c.reconstruire!(b, emplacement, edit.bytes), route: edit.route };
+}
+
+/**
+ * True if this file tolerates its block changing length.
+ *
+ * The format alone does not settle it: an extended WebP tolerates growing and
+ * the simple form does not; an ordinary TIFF does and a digital negative must
+ * not. The question is therefore asked twice, here before writing and by the
+ * interface before offering. The same bytes answer both times, so the two
+ * answers cannot diverge.
+ */
+function peutGrandir(c: Conteneur, b: Uint8Array): boolean {
+  return Boolean(c.reconstruire) && (c.accepteAjout?.(b) ?? true);
 }
 
 /** Writes a location, choosing whichever route the container allows. */
@@ -320,16 +333,16 @@ export function ecrirePosition(
   const bloc = blocs[0];
 
   if (!bloc) {
-    if (!c.reconstruire) throw AJOUT_IMPOSSIBLE();
+    if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
     const edit = ecrirePositionParAjout(parseTiff(emptyTiff()), lat, lon, precisionMetres);
-    const pose = c.reconstruire(b, null, edit.bytes);
+    const pose = c.reconstruire!(b, null, edit.bytes);
     return { ...pose, route: 'P2', precisionEcrite: demandee };
   }
 
   const { pose, route } = appliquerAuBloc(c, b, bloc, (vue) => {
     const surPlace = ecrirePositionSurPlace(vue, lat, lon, precisionMetres);
     if (surPlace) return surPlace;
-    if (!c.reconstruire) throw AJOUT_IMPOSSIBLE();
+    if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
     return ecrirePositionParAjout(vue, lat, lon, precisionMetres);
   });
   // The P1 route cannot add an entry, so it cannot record a precision the file

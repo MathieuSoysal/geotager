@@ -83,11 +83,12 @@ export const MATRICE: LigneMatrice[] = [
   {
     formats: ['tiff'],
     libelle: 'TIFF',
-    // "Add" stays closed, and not out of excessive caution: a digital negative
-    // is a TIFF. Telling one from the other would take a heuristic we could not
-    // make reliable, and getting it wrong here would destroy an irreplaceable
-    // original.
-    capacites: { lire: true, corriger: true, ajouter: false, effacer: true, effacerTout: false },
+    // A digital negative is a TIFF, and adding bytes to one would damage an
+    // irreplaceable original. "Add" is therefore only open to files that prove
+    // they are ordinary images, from an allowlist tested both ways on real
+    // DNG, NEF and CR2 files and real TIFFs. On a negative, the container says
+    // so before the action.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
   { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: LECTURE_SEULE },
 ];

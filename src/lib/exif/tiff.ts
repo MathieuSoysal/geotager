@@ -644,6 +644,86 @@ export function writePositionInTiff(
   );
 }
 
+// Digital negative, or ordinary image?
+
+const TAG_NEW_SUBFILE_TYPE = 0x00fe;
+const TAG_COMPRESSION = 0x0103;
+const TAG_PHOTOMETRIC = 0x0106;
+const TAG_STRIP_OFFSETS = 0x0111;
+const TAG_TILE_OFFSETS = 0x0144;
+
+/** Tags an ordinary image does not carry, and a negative does. */
+const MARQUEURS_DE_NEGATIF = [
+  0xc612, // DNGVersion
+  0xc613, // DNGBackwardVersion
+  0xc614, // UniqueCameraModel
+  0xc61a, // BlackLevel
+  0xc61d, // WhiteLevel
+  0xc621, // ColorMatrix1
+  0xc622, // ColorMatrix2
+  0xc65d, // RawDataUniqueID
+  0x828d, // CFARepeatPatternDim
+  0x828e, // CFAPattern
+  TAG_SUB_IFDS,
+];
+
+const COMPRESSIONS_ORDINAIRES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 32773, 32946]);
+const PHOTOMETRIES_ORDINAIRES = new Set([0, 1, 2, 3, 4, 5, 6, 8]);
+
+/**
+ * True if this block describes an ordinary image rather than a digital
+ * negative.
+ *
+ * A DNG, a NEF and a CR2 are TIFFs: adding bytes to one would damage an
+ * irreplaceable original. The question is therefore not "is this a negative?"
+ * but "does this file prove it is an ordinary image?". It is an allowlist:
+ * anything outside the enumerated set is refused, including a raw format that
+ * does not exist yet.
+ *
+ * Written from measurement rather than conjecture, and the measurement
+ * contradicted the conjecture. The first page of a DNG and of a NEF is an
+ * uncompressed RGB preview: on colour and compression tags alone it is
+ * indistinguishable from an ordinary TIFF. What gives it away is that it
+ * announces itself as a reduced image, and that the real data lives in a
+ * sub-directory.
+ *
+ * Every negative in the corpus is excluded by at least two independent rules,
+ * except the CR2, which is excluded because it declares no photometric
+ * interpretation; a TIFF without one is not a conforming image, it is a
+ * container for something else.
+ */
+export function estUneImageOrdinaire(view: TiffView): boolean {
+  const bytes = view.bytes;
+  const e = view.endian;
+
+  // A negative marker anywhere settles the question: a DNG keeps its own in a
+  // sub-directory, not in its first page.
+  for (const ifd of toutesLesIfd(bytes, e)) {
+    for (const en of ifd.entries) if (MARQUEURS_DE_NEGATIF.includes(en.tag)) return false;
+  }
+
+  const entree = (tag: number) => view.ifd0.entries.find((x) => x.tag === tag) ?? null;
+  /** First component, or `null` if the entry is missing or unreadable. */
+  const premiere = (tag: number): number | null => {
+    const en = entree(tag);
+    if (!en) return null;
+    const v = valeursEntieres(bytes, e, en);
+    return v.length ? v[0] : null;
+  };
+
+  // The first page must be the image itself, not a reduced preview.
+  const genre = entree(TAG_NEW_SUBFILE_TYPE);
+  if (genre !== null && premiere(TAG_NEW_SUBFILE_TYPE) !== 0) return false;
+
+  const photo = premiere(TAG_PHOTOMETRIC);
+  if (photo === null || !PHOTOMETRIES_ORDINAIRES.has(photo)) return false;
+  const compression = premiere(TAG_COMPRESSION);
+  if (compression === null || !COMPRESSIONS_ORDINAIRES.has(compression)) return false;
+
+  // And the pixels must be named from that page.
+  return entree(TAG_STRIP_OFFSETS) !== null || entree(TAG_TILE_OFFSETS) !== null;
+}
+
 /** Minimal TIFF block, for a file with no metadata at all. */
 export function emptyTiff(endian: Endian = 'LE'): Uint8Array {
   const b = new Uint8Array(8 + 2 + 4);
