@@ -932,11 +932,23 @@ preview URL. »* Remplacée par `npx wrangler deploy`, elle demande une promotio
 d'un simple téléversement de version — donc aucune prévisualisation n'est publiée, et le Gate 2
 n'est pas exécutable.
 
-**Ce qui n'a PAS eu lieu, et qu'il faut dire :** la production n'a pas été écrasée. Vérifié en
-comparant les empreintes des fichiers servis — `geotager.app` sert une build antérieure à cette PR,
-avec l'ancien tableau à trois colonnes. Une première lecture de cet incident concluait que du code
-non relu était en ligne ; c'était faux, et c'est retiré. Pourquoi la promotion n'a pas abouti malgré
-la commande n'est pas établi depuis le dépôt, et n'est pas supposé ici.
+**La promotion en production est constatée, pas déduite.** Deux mesures successives sur la même
+branche, à trente minutes d'écart :
+
+| Build | Empreinte servie par `geotager.app` | Verdict |
+|---|---|---|
+| `a8ec60a` | build antérieure, tableau à trois colonnes | production **intacte** |
+| `3267562` | `radIGaju.js` — l'empreinte exacte de la branche | production **écrasée** |
+
+Le second build a donc mis en ligne, sur le domaine public, du code d'une PR **ouverte et non
+relue**. C'est mot pour mot l'accident que le §7.7 bis décrit. La première mesure avait conclu
+l'inverse et cette conclusion a été retirée : elle était exacte à l'instant où elle a été prise, et
+fausse comme généralité. Pourquoi le premier build n'a pas promu n'est pas établi depuis le dépôt et
+n'est pas supposé ici ; ce qui compte est que le mécanisme est démontré.
+
+**Remise en état :** corriger la « Version command », puis relancer la dernière build de `main` pour
+ramener la production à du code relu. Tant que la première n'est pas faite, chaque poussée sur une
+branche de travail remet le problème.
 
 **Options :**
 - **A.** Rétablir la « Version command » à `npx wrangler versions upload`. Réglage de tableau de
