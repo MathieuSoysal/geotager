@@ -1,0 +1,371 @@
+# QUESTIONS.md
+
+Registre des points non tranchés. Règle du projet : **un agent qui rencontre une ambiguïté, une
+contrainte contradictoire ou une décision non couverte par le cahier des charges ne tranche pas.**
+Il écrit une entrée ici, implémente le comportement le plus conservateur, et poursuit.
+
+Règle ajoutée au Gate 1 : **toute divergence avec une contrainte nommée du cahier des charges ouvre
+une entrée, même quand la divergence est manifestement justifiée.** C'est ce qui empêche le périmètre
+de dériver par accumulation de bonnes décisions isolées.
+
+État au 27 juillet 2026 — toutes ces entrées sont ouvertes par le Gate 1, aucune n'est validée.
+
+---
+
+## [GATE1] Q-001 — L'IPTC ne porte pas de coordonnées
+
+**Contexte :** le §4 du cahier des charges exige d'écrire la position « dans EXIF, XMP et IPTC
+simultanément » et de la retirer des trois. Or l'IPTC IIM **n'a pas de champ de latitude ni de
+longitude**. Le seul équivalent est `Iptc4xmpExt:LocationCreated`, qui vit dans le XMP, et dont
+ExifTool documente que *« the GPS elements of this structure are in the "exif" namespace »*
+(source : `XMP2.pl` l. 332). L'exigence est donc techniquement infondée telle qu'elle est écrite.
+
+**Options :**
+- **A.** EXIF + XMP seulement. Deux copies à écrire, deux à purger. Aucune perte de lisibilité pour
+  les lecteurs réels (Google Photos lit le XMP, les visionneuses système lisent l'EXIF).
+- **B.** EXIF + XMP + `Iptc4xmpExt:LocationCreated`. Crée une **troisième** copie des coordonnées,
+  donc un troisième endroit à ne pas oublier de purger. Exige une purge XMP consciente des espaces
+  de noms, testée sur les quatre sérialisations RDF/XML (attribut, élément,
+  `rdf:parseType="Resource"`, `rdf:Bag`) — un remplacement d'attributs par des espaces ne suffit pas.
+- **C.** EXIF seulement. Écarté : laisser `exif:GPSLatitude` dans le XMP après avoir effacé le GPS
+  IFD est une fuite de vie privée.
+
+**Retenu provisoirement :** **A**, parce que c'est le moins engageant et que la suppression — le cas
+d'usage n°1 — est d'autant plus fiable qu'il y a moins d'endroits où oublier une copie. En
+suppression, on purge malgré tout `Iptc4xmpExt:LocationCreated` s'il est **déjà présent** dans le
+fichier.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-002 — Que fait-on si l'écriture HEIC n'est pas atteignable ?
+
+**Contexte :** le HEIC est le format par défaut de tout iPhone depuis iOS 11, et `iphone` est le
+modificateur d'appareil dominant dans les suggestions Google mesurées. La voie JS **ne sait pas
+écrire dans un ISOBMFF** (mesuré : aucune bibliothèque MIT/BSD/Apache ne le fait). La voie Rust le
+peut en principe, mais dépend d'un budget WASM non encore mesuré. Sans écriture HEIC, « modifier »
+devient « nous créons un second fichier, gardez-les ensemble » — ce qui confie à l'utilisateur une
+tâche de gestion de fichiers que l'outil devait lui épargner. **C'est la question qui décide si le
+produit vaut la peine d'être construit, et elle doit être posée avant le spike, pas après.**
+
+**Options :**
+- **A.** On construit quand même, compagnon `.xmp` assumé et annoncé **dès la page d'accueil**.
+  Risque : perçu comme un demi-produit sur le format le plus courant.
+- **B.** v1 restreinte à JPEG + PNG. Le tableau des formats affiche « HEIC : lecture et suppression
+  uniquement ». La suppression HEIC reste possible par P1 (édition sur place), qui ne dépend d'aucun
+  écrivain de format.
+- **C.** On ne construit pas.
+
+**Retenu provisoirement :** **B**, parce que c'est la seule option qui ne promet rien qu'on ne
+tienne. La suppression — le cas d'usage n°1 — reste intégralement couverte sur HEIC.
+
+**Bloque :** **oui** pour le lancement du spike complet. Les étapes S1 (poids) et S3 (HEIC sur cible
+hôte) peuvent démarrer sans la réponse ; le reste non.
+
+---
+
+## [GATE1] Q-003 — La carte n'est pas un viseur
+
+**Contexte :** le §4 prévoit « clic pour placer, repère déplaçable ». Le calcul montre que le geste
+exige `r ∈ [8,46 ; 10]` m/px simultanément (voir l'erreur du centroïde **et** pouvoir viser), soit
+`z ∈ [13,40 ; 13,64]`. Les zooms entiers donnent 13,15 et 6,58 m/px : **aucun ne convient**. Sans
+tuiles, l'écran est de surcroît vide 77 % du temps au zoom par défaut et 94 % au zoom maximal. Le
+mockup et la conception se contredisent déjà entre eux : « Cliquez sur la carte » d'un côté,
+« la carte n'est pas un viseur » de l'autre.
+
+**Options :**
+- **A.** La carte **situe et vérifie**. `maxZoom = 11`, le mot « cliquez » disparaît, la précision
+  passe par la recherche de commune et le collage de coordonnées. L'imprécision est inscrite dans le
+  fichier via `GPSHPositioningError`.
+- **B.** On garde le clic-pour-placer en sachant qu'il ne peut pas fonctionner. Écarté : c'est
+  exactement le reproche adressé aux 20 concurrents audités, sur un produit dont le seul avantage
+  défendable est la véracité vérifiable.
+- **C.** On ajoute un fond de tuiles. Viole la contrainte « zéro requête tierce » (niveau 2, sur
+  activation explicite seulement) ou impose PMTiles sur R2 (hors périmètre v1).
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non, mais conditionne la rédaction du lot E et le contrat du lot C.
+
+---
+
+## [GATE1] Q-004 — Le shard par lettre initiale est abandonné
+
+**Contexte :** le §5 exige des « shards par lettre initiale, chargés à la demande » **et** une
+recherche par sous-chaîne. Ce sont deux partitions orthogonales du même ensemble. Mesuré :
+« remy » impose de charger **11 shards sur 26** (81 % de l'index pour 59 résultats), « ille » **26
+sur 26** ; fan-out moyen sur 2 710 sous-chaînes tirées au sort : 10,75 shards. Le seuil de 40 Ko est
+par ailleurs inatteignable ainsi (shard `s` = 88 222 o brotli), et la découpe récursive produit
+132 fichiers dont 59 sous 1 Ko sans résoudre le fan-out. L'index de trigrammes a été testé : il
+sélectionne 13,68 shards sur 16 en moyenne.
+
+**Options :**
+- **A.** Découpe par colonne × 6 plages de rang INSEE équilibrées. 30 fichiers, plus gros 26,6 Ko,
+  total 349,4 Ko brotli. La colonne des noms se charge en entier ; le scan complet coûte 3,97 ms.
+- **B.** Maintien du shard par lettre. Contredit par trois mesures indépendantes.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-005 — Îlots `client:idle` remplacés par des custom elements
+
+**Contexte :** le §11 impose « Astro + îlots hydratés `client:idle`, jamais `client:only` ».
+L'intention — la page reste lisible et indexable sans JS — est intégralement respectée par un
+`<script type="module">` associé à un custom element, qui évite en plus **2 093 o gzip** de runtime
+d'hydratation Astro (mesuré) et tout framework UI.
+
+**Options :**
+- **A.** Custom elements + `<script type="module">`. Même garantie d'indexabilité, moins de poids.
+- **B.** `client:idle` littéral. Impose un framework UI (React, Preact, Svelte) qu'aucune autre
+  contrainte ne justifie, sur un budget de 150 Ko.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-006 — La vidéo sort de la v1 en écriture et en suppression
+
+**Contexte :** le §4 prévoit l'écriture vidéo par sidecar en v1. Mais la **suppression** décrite
+(renommer l'atome `©xyz` en `free`) ne supprime pas : restent au minimum `@xyz` (Samsung),
+`com.apple.quicktime.location.ISO6709`, et surtout **`location.name`** — le lieu en toutes lettres.
+Le balayage résiduel cherche des coordonnées, pas des toponymes : il rendrait « aucun résidu » sur un
+fichier qui dit « Avignon » en clair. Les pistes GPS temporisées vivent de plus dans `mdat`, que
+l'architecture saute par optimisation.
+
+**Options :**
+- **A.** Lecture conservée, écriture et suppression retirées de la v1, avec le message : « Nous
+  savons lire le lieu d'une vidéo mais nous ne savons pas encore le retirer de façon sûre. »
+- **B.** On livre la suppression vidéo telle que décrite. **Le pire résultat possible pour ce
+  produit** : un utilisateur convaincu d'avoir nettoyé une vidéo qui ne l'est pas.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-007 — « Aucun cul-de-sac » doit être reformulé
+
+**Contexte :** le §4 pose « aucun cul-de-sac » comme règle produit. C'est vrai en lecture, faux
+ailleurs. Un fichier compagnon peut **ajouter** une information, jamais en **retirer** une : si P1
+échoue sur un RAW, la suppression n'a aucun repli. Et un navigateur ne peut pas poser un `.xmp`
+**à côté** d'un `.CR2` — il le dépose dans le dossier de téléchargements.
+
+**Options :**
+- **A.** Reformuler : « la lecture n'a pas de cul-de-sac ; la suppression en a un quand P1 échoue ;
+  l'ajout en a un quand ni P2 ni P3 ne conviennent », et **écrire le texte de ce cul-de-sac**.
+  Livrer un ZIP contenant les deux fichiers pour le cas compagnon.
+- **B.** Maintenir la formulation. Non défendable.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-008 — Leaflet remplacé par une carte SVG maison
+
+**Contexte :** Leaflet pèse **42 353 o gzip**, soit 42 % du budget JS total, pour un widget dont la
+conception désactive le panoramique clavier (`keyboard: false`), réécrit le déplacement du repère et
+remplace les boutons de zoom. Une fois la carte démotée (Q-003), il ne reste de Leaflet qu'un `<div>`
+focusable et une formule de Mercator.
+
+**Options :**
+- **A.** Carte SVG maison : projection pré-calculée au build, un `<path>` composé, une matrice de
+  transformation. 350 à 450 lignes ≈ 3 500 o gzip. Supprime aussi `topojson-client` (2 587 o).
+- **B.** Leaflet. Coût réel −42 000 o de marge, et impose `preferCanvas: true` plus un découpage par
+  `scheduler.yield()` pour ne pas violer l'INP (887 couches créées pour le département 62).
+
+**Retenu provisoirement :** **A**, mais **à mesurer avant de figer** : prototyper le rendu SVG et
+comparer. Un gain de 27 % du budget total mérite une demi-journée de mesure.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-009 — Le décor animé de la maquette
+
+**Contexte :** le §8 fixe « formes liquides floutées animées en `border-radius`, `mix-blend-mode:
+screen` ». Or `border-radius` **n'est pas une propriété compositable** : son animation invalide le
+paint à chaque image, sur le thread principal, sur toutes les pages, en boucle infinie, sous un
+`filter: blur(70px)` plein viewport qui ne peut donc jamais être mis en cache. À 70 px de flou, la
+forme organique est de toute façon **invisible**.
+
+**Options :**
+- **A.** Trois `radial-gradient` statiques. Mathématiquement équivalent à l'œil, une passe de shader,
+  zéro invalidation. Les `backdrop-filter: blur(26px)` deviennent des couleurs solides pré-calculées,
+  ce qui rend le contraste déterministe.
+- **B.** Formes figées en SVG, animées **uniquement** en `transform`. Garde le mouvement, compositeur
+  seul.
+- **C.** Maquette littérale. Attaque simultanément INP, LCP et l'autonomie, sans qu'aucune
+  optimisation JS ne puisse le rattraper.
+
+**Retenu provisoirement :** **A**, avec **B** si le mouvement est jugé indispensable.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-010 — Trois blocs de contenu canoniques au lieu de 7 blocs × 4 pages
+
+**Contexte :** le §7 impose 7 blocs de contenu. Déclinés sur 4 pages sans réécriture interdite, cela
+représente **8 500 à 13 700 mots** de prose technique française dont chaque affirmation doit être
+sourcée, soit 11 à 27 jours-homme de rédaction seule. Et réécrire quatre variantes d'un même fait est
+un générateur d'incohérences sur un projet dont la promesse est la rigueur factuelle.
+
+**Options :**
+- **A.** Les blocs « pourquoi vos fichiers ne partent pas », « vie privée » et « vérifier avec
+  ExifTool » sont **canoniques** : rédigés une fois, sur une page dédiée, résumés en trois lignes
+  propres à chaque page. Contrôle de build remplacé par : *chaque page possède ≥ 400 mots qui
+  n'existent nulle part ailleurs*.
+- **B.** 7 blocs × 4 pages, réécrits.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-011 — Aucun volume de recherche n'a pu être mesuré
+
+**Contexte :** le §7 fixe quatre pages cibles et leurs requêtes. Ahrefs est inaccessible sur cette
+session : 7 endpoints appelés, 7 réponses `Insufficient plan` (mesuré). Google Trends répond 429,
+DuckDuckGo 202 anti-bot. **Aucun volume, aucun SERP google.fr observé.** Ce qui a pu être mesuré,
+c'est Google Suggest (FR/FR, 23 requêtes) : le mot que tapent les Français est « localisation », pas
+« géolocalisation », et `iphone` est le modificateur d'appareil dominant.
+
+**Options :**
+- **A.** Obtenir les volumes via Google Keyword Planner (gratuit, compte Google Ads, ciblage
+  France + français, ~1 h) **avant** d'écrire le contenu.
+- **B.** Écrire les 4 pages sur les requêtes supposées. Engage 11 000 mots sur des mots-clés dont
+  personne ne sait s'ils font 200 ou 20 000 recherches par mois.
+- **C.** Souscrire un plan Ahrefs ouvrant l'API Keywords Explorer.
+
+**Retenu provisoirement :** **A**, et en attendant : renommer
+`/supprimer-geolocalisation-photo` → `/supprimer-localisation-photo`, seule correction que les
+données mesurées soutiennent.
+
+**Bloque :** **oui** pour le lot E, non pour les lots A, B, C.
+
+---
+
+## [GATE1] Q-012 — Allowlist de licences : les polices sont en OFL-1.1
+
+**Contexte :** le §2 impose « MIT / BSD / Apache-2.0 » pour chaque dépendance. Les polices Fontsource
+(Bricolage Grotesque, DM Mono) sont sous **OFL-1.1**, qui est une licence de fonte, pas de logiciel,
+et qui autorise la redistribution embarquée. Prise au pied de la lettre, l'allowlist les exclut.
+Note d'inventaire : `@fontsource-variable/dm-mono` **n'existe pas** (le registre répond
+`{"error":"Not found"}`) — seul `@fontsource/dm-mono@5.3.0`, statique, existe.
+
+**Options :**
+- **A.** Amender l'allowlist pour admettre explicitement **OFL-1.1** (polices) et **ISC**
+  (équivalent MIT), et le consigner dans `CREDITS.md`.
+- **B.** Renoncer aux Fontsource et n'utiliser que des polices système. Perd la direction visuelle
+  du §8.
+
+**Retenu provisoirement :** **A**.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-013 — Phasage : V0 JPEG avant tout le reste
+
+**Contexte :** le cadrage « site statique de 4 pages » induit un projet de quelques semaines. La
+charge estimée à partir des volumes de code du dossier, à la cadence de 15-25 lignes/jour sur du
+parsing binaire à spécification, est de **24 à 41 semaines-homme**. Le corpus seul (fichiers réels +
+un attendu rédigé avant implémentation pour chacun) vaut 1 à 2 semaines avant la première ligne de
+code.
+
+**Options :**
+- **A.** V0 = JPEG seul, suppression et correction par P1, une page, aucune carte, aucun index,
+  aucun WASM — livrable en 4 à 6 semaines. Puis V1 (PNG/WebP, index, carte, PWA, 4 pages), puis V2
+  (HEIC/AVIF selon Q-002).
+- **B.** Tout d'un bloc.
+
+**Retenu provisoirement :** **A**, parce qu'on apprend du terrain avant de dépenser 30 semaines.
+
+**Bloque :** non, mais c'est la décision qui structure tout le calendrier.
+
+---
+
+## [GATE1] Q-014 — Périmètre du fonctionnement hors ligne
+
+**Contexte :** le §11 fait de la PWA hors ligne complète une fonctionnalité v1, au motif que
+« fonctionner sans réseau *prouve* la promesse ». Mais l'index et les contours sont chargés à la
+demande : hors ligne, un utilisateur qui ouvre l'outil en vacances obtient une recherche muette et
+une carte vide. « Offline complet » et « chargement paresseux » sont incompatibles.
+
+**Options :**
+- **A.** Reformuler : « l'outil fonctionne intégralement hors ligne ; la recherche se limite aux
+  zones déjà consultées », **et le dire dans l'UI** au basculement, pas en note de bas de page.
+- **B.** Précacher l'index complet (349,4 Ko), pas les contours ; la carte est absente hors ligne.
+  Cohérent avec Q-003 : l'index est le vrai mécanisme de précision, la carte ne fait que situer.
+- **C.** Précacher les ~1,4 Mo, sur action explicite (« Télécharger les données pour l'usage hors
+  ligne — 1,4 Mo »).
+
+**Retenu provisoirement :** **B**.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-015 — Corpus de test : trois cas probablement introuvables en libre
+
+**Contexte :** le §13.12 exige au moins 14 fichiers **réels**, pas générés. La décision prise est de
+n'utiliser que des sources publiques sous licence libre (base `raw.pixls.us`, CC0, non retouché).
+Trois cas seront difficiles à couvrir ainsi : **JPEG iPhone mode portrait multi-images (MPF)**,
+**Live Photo**, **JPEG passé par Photoshop (segments APP12/APP13)**.
+
+**Options :**
+- **A.** Ces chemins **refusent l'écriture** tant qu'ils n'ont pas de fichier de test, plutôt que de
+  l'autoriser sans preuve. Ils restent lisibles et détectables.
+- **B.** On les implémente sans test et on espère.
+- **C.** Ces trois fichiers sont fournis par Mathieu (revient sur la décision « sources publiques
+  uniquement »).
+
+**Retenu provisoirement :** **A**, parce que c'est le comportement le moins engageant : un refus
+explicite ne produit jamais un fichier abîmé.
+
+**Bloque :** non.
+
+---
+
+## [GATE1] Q-016 — Mentions légales : identité de l'éditeur
+
+**Contexte :** un site français doit publier des mentions légales même sans collecte de données.
+Elles exigent un **nom d'éditeur** et un **hébergeur identifié**. C'est une information que seul
+Mathieu peut fournir.
+
+**Options :** aucune — il s'agit d'une donnée à fournir, pas d'un arbitrage.
+
+**Retenu provisoirement :** page rédigée avec des marqueurs explicites en attente de l'information.
+Le build échoue tant qu'un marqueur subsiste.
+
+**Bloque :** **oui** pour la mise en ligne, non pour le développement.
+
+---
+
+## [GATE1] Q-017 — Nom et domaine
+
+**Contexte :** les 9 variantes testées (`geotagor.fr`, `.com`, `.app`, `.net`, `.io`,
+`geotaggor.fr/.com`, `geotager.fr/.com`) sont **toutes libres** au RDAP le 27/07/2026, double
+vérification RDAP + DNS. « geotagor » n'est utilisé par aucun produit connu ; c'est un néologisme,
+donc distinctif et protégeable. Risque résiduel réel : la **similarité phonétique** avec
+« geotagger », terme générique employé par au moins 8 acteurs. L'antériorité INPI **n'a pas pu être
+vérifiée** (data.inpi.fr en 403, TMview en POST seul, Justia en 403). Classes de Nice **9 et 42**
+confirmées sur la classification officielle — les deux sont nécessaires, la 42 pour le service en
+ligne, la 9 pour la PWA installable.
+
+**Options :** aucune sur le nom lui-même ; deux actions manuelles à mener (~20 min chacune) :
+recherche INPI + EUIPO, et vérification du statut premium des domaines chez un registrar.
+
+**Retenu provisoirement :** `geotagor.fr` principal + `geotagor.com` défensif en 301.
+
+**Bloque :** **oui** pour l'achat et le dépôt, non pour le développement.
