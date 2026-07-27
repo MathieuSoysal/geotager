@@ -19,6 +19,19 @@ export function readU32(b: Uint8Array, off: number, e: Endian): number {
     : ((b[off] << 24) | (b[off + 1] << 16) | (b[off + 2] << 8) | b[off + 3]) >>> 0;
 }
 
+/**
+ * Entier gros-boutiste de 0 à 8 octets, tel qu'un conteneur ISOBMFF les écrit :
+ * la table des emplacements y déclare la largeur de ses propres champs.
+ *
+ * On multiplie plutôt qu'on ne décale : au-delà de 32 bits, les opérateurs de
+ * décalage de JavaScript retombent silencieusement sur des entiers signés.
+ */
+export function lireEntierBE(b: Uint8Array, off: number, taille: number): number {
+  let v = 0;
+  for (let i = 0; i < taille; i++) v = v * 256 + b[off + i];
+  return v;
+}
+
 export function writeU16(b: Uint8Array, off: number, v: number, e: Endian): void {
   if (e === 'LE') {
     b[off] = v & 0xff;

@@ -58,7 +58,10 @@ export const MATRICE: LigneMatrice[] = [
     formats: ['heic', 'avif'],
     libelle: 'HEIC, AVIF',
     mention: 'iPhone',
-    capacites: LECTURE_SEULE,
+    // « Ajouter » reste fermé : c'est la seule opération qui ferait grandir le
+    // bloc, donc bouger la table des emplacements. Tout le reste est à longueur
+    // strictement constante et ne déplace pas un octet.
+    capacites: { lire: true, corriger: true, ajouter: false, effacer: true, effacerTout: false },
   },
   { formats: ['png'], libelle: 'PNG', capacites: LECTURE_SEULE },
   { formats: ['webp'], libelle: 'WebP', capacites: LECTURE_SEULE },
@@ -100,6 +103,7 @@ export type Motif =
   | 'forme-inhabituelle'
   | 'rangement-inconnu'
   | 'copie-compressee'
+  | 'copie-ailleurs'
   | 'lecture-seule'
   | 'sans-lieu-possible'
   | 'video'
@@ -116,6 +120,8 @@ const PHRASES: Record<Motif, string> = {
     'Le lieu est enregistré ici d’une façon inhabituelle. Nous savons le lire, mais le modifier risquerait d’abîmer la photo : nous préférons ne pas y toucher.',
   'rangement-inconnu':
     'Cette photo range ses informations d’une façon que nous ne savons pas encore manipuler sans risque.',
+  'copie-ailleurs':
+    'Cette photo range aussi le lieu à un autre endroit, sous une forme que nous ne savons pas encore retirer. Nous préférons ne rien retirer plutôt que d’en oublier une copie.',
   'copie-compressee':
     'Cette image range aussi le lieu sous une forme compressée que nous ne savons pas encore rouvrir. Nous préférons ne rien retirer plutôt que d’en oublier une copie.',
   'lecture-seule':

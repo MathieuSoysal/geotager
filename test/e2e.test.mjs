@@ -154,6 +154,62 @@ const gpsRestant = execFileSync('exiftool', ['-a', '-G1', '-s', '-GPS:all', effa
 check('plus aucun tag GPS après effacement', gpsRestant === '', gpsRestant.slice(0, 100));
 check('taille inchangée après effacement', statSync(efface).size === statSync(source).size);
 
+console.log('\nDépôt d\'une photo iPhone');
+const heic = join(FIXTURES, 'iphone.heic');
+const gpsHeic = execFileSync(
+  'exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', heic],
+  { encoding: 'utf8' },
+).trim().split('\n').map(Number);
+
+// Page rechargée : l'interface affiche le nom du fichier dès le dépôt, avant
+// la lecture, si bien qu'attendre « une pastille non vide » comparerait la
+// photo iPhone à la position du fichier précédent. Repartir d'un état vierge
+// supprime la course au lieu de la contourner.
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.waitForSelector('#etat-vide:not([hidden])');
+
+await page.setInputFiles('#picker', heic);
+await page.waitForFunction(() => {
+  const p = document.getElementById('pill-position');
+  return p && !p.hidden && p.textContent.trim().length > 0;
+}, null, { timeout: 30_000 });
+
+const pillHeic = (await page.locator('#pill-position').textContent()).trim();
+const [latHeic, lonHeic] = pillHeic.replace(/[^\d.,\-]/g, '').split(',').map(Number);
+check('la position de la photo iPhone est affichée',
+  Math.abs(latHeic - gpsHeic[0]) < 0.0001 && Math.abs(lonHeic - gpsHeic[1]) < 0.0001,
+  `affiché ${latHeic},${lonHeic} / réel ${gpsHeic.join(',')}`);
+
+// L'interface annonce la voie AVANT l'action : ici, corriger et effacer sont
+// possibles, ajouter non — et c'est exactement ce qu'il faut dire.
+const alerte = await page.locator('#alerte-format');
+check('la voie retenue est annoncée avant toute action',
+  await alerte.isVisible() && (await alerte.textContent()).trim().length > 0,
+  (await alerte.textContent()).trim().slice(0, 80));
+check('la phrase affichée ne contient aucun jargon de format',
+  !/EXIF|IFD|ISOBMFF|conteneur|m[ée]tadonn[ée]es|VP8X|parser|worker/i.test(
+    await alerte.textContent()),
+  (await alerte.textContent()).trim().slice(0, 80));
+check('« Tout effacer » est désactivé là où l\'opération n\'existe pas',
+  await page.locator('#effacer-tout').isDisabled());
+
+const [dlHeic] = await Promise.all([
+  page.waitForEvent('download', { timeout: 30_000 }),
+  page.click('#effacer'),
+]);
+const heicEfface = join('/tmp', dlHeic.suggestedFilename());
+await dlHeic.saveAs(heicEfface);
+check('plus aucun tag GPS dans la photo iPhone produite',
+  execFileSync('exiftool', ['-a', '-G1', '-s', '-GPS:all', heicEfface], { encoding: 'utf8' }).trim() === '',
+  'des tags GPS subsistent');
+check('la photo iPhone produite a exactement la taille de l\'original',
+  statSync(heicEfface).size === statSync(heic).size,
+  `${statSync(heic).size} -> ${statSync(heicEfface).size}`);
+check('l\'image reste de mêmes dimensions',
+  execFileSync('exiftool', ['-s', '-s', '-s', '-ImageSize', heicEfface], { encoding: 'utf8' }).trim() ===
+    execFileSync('exiftool', ['-s', '-s', '-s', '-ImageSize', heic], { encoding: 'utf8' }).trim());
+
 console.log('\nPreuve du zéro-tiers');
 const tiers = requetes.filter((u) => {
   if (u.startsWith('data:') || u.startsWith('blob:')) return false;

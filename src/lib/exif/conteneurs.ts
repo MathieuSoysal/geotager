@@ -82,6 +82,16 @@ export interface Conteneur {
 
   /** Retire toutes les informations, sans réencoder l'image. */
   toutEffacer?(b: Uint8Array): Pose;
+
+  /**
+   * Vrai si le fichier range une copie du lieu ailleurs que dans le bloc
+   * principal, sous une forme que nous ne savons pas retirer.
+   *
+   * Effacer le bloc principal en laissant cette copie rendrait un fichier que
+   * l'utilisateur croirait propre. C'est le pire résultat possible pour cet
+   * outil : on refuse l'effacement plutôt que de le produire.
+   */
+  copieDuLieuAilleurs?(b: Uint8Array): boolean;
 }
 
 export interface Ecriture {
