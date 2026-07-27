@@ -101,6 +101,36 @@ function empreintesDesItems(fichier: string): string {
     .join('|');
 }
 
+/**
+ * Entries of the location table that moved between two states.
+ *
+ * "The table is intact" is the right witness as long as nothing changes length.
+ * As soon as a location is added, one entry must move, and exactly one. That is
+ * the assertion proving that repointing the location item displaced no other
+ * item.
+ */
+function diffDesEmplacements(avant: Uint8Array, apres: Uint8Array): string[] {
+  const decouper = (b: Uint8Array) => new Map(
+    empreinteDesEmplacements(b).split('|').filter(Boolean).map((e) => [e.split(':')[0], e]),
+  );
+  const a = decouper(avant);
+  const z = decouper(apres);
+  const bouges: string[] = [];
+  for (const [id, ligne] of z) if (a.get(id) !== ligne) bouges.push(id);
+  for (const id of a.keys()) if (!z.has(id)) bouges.push(id);
+  return bouges;
+}
+
+/** True if libheif, a third-party decoder, can still decode this file. */
+function seDecodeEncore(fichier: string): boolean {
+  try {
+    execFileSync('heif-convert', [fichier, join(tmp, `decode-${Date.now()}.png`)], { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Number of entries actually present in the MakerNote, according to ExifTool. */
 function makerNoteEntries(file: string): number {
   const m = exif(['-v3', file]).match(/MakerNotes directory with (\d+) entries/);
@@ -488,18 +518,123 @@ scenario('iphone-sans-lieu.heic — l\'ajout est refusé, pas tenté', () => {
   const c = conteneurOuEchec(src);
   check('aucune position au départ', lirePosition(c, src) === null);
 
-  let code = '';
-  try {
-    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
-  } catch (e: any) {
-    code = e.code;
-  }
-  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
-
   // Erasing a file with no position succeeds without touching anything.
   const res = effacerPosition(c, src);
   check('l\'effacement ne touche rien', res.bytes.length === src.length &&
     memesOctetsHorsPlages(src, res.bytes, []));
+});
+
+// Adding a location to HEIC and AVIF
+//
+// Nothing grows in place: the new block goes into a box
+// appended at the end of the file, and the one entry of the
+// location table that concerns it is repointed. What these
+// scenarios prove is that a single entry moves, that no other
+// item changes by a bit, and that a third-party decoder still opens it.
+
+/** The nominal add path, whatever the starting point. */
+function verifierAjout(nom: string, chemin: string, src: Uint8Array, etiquette: string): void {
+  const c = conteneurOuEchec(src);
+  const avantItems = empreintesDesItems(chemin);
+
+  check(`${etiquette} : aucune position au départ`, lirePosition(c, src) === null);
+  check(`${etiquette} : l'ajout est annoncé possible avant l'action`,
+    c.accepteAjout?.(src) === true);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, `add-${nom}`);
+  writeFileSync(out, res.bytes);
+
+  check(`${etiquette} : voie P2 (bloc reconstruit)`, res.route === 'P2');
+  check(`${etiquette} : le fichier grandit`, res.bytes.length > src.length,
+    `${src.length} -> ${res.bytes.length}`);
+  check(`${etiquette} : rien n'a changé hors des plages annoncées`,
+    memesOctetsHorsPlages(src, res.bytes, res.changed));
+
+  const relu = exifPosition(out);
+  check(`${etiquette} : ExifTool relit la position demandée`,
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1,
+    relu ? `écart ${distanceMetres(relu, AVIGNON).toFixed(4)} m` : 'aucune position relue');
+
+  const bouges = diffDesEmplacements(src, res.bytes);
+  check(`${etiquette} : une seule entrée de la table a bougé`, bouges.length === 1,
+    `entrées déplacées : ${bouges.join(', ') || 'aucune'}`);
+  check(`${etiquette} : les items secondaires sont intacts au bit près`,
+    empreintesDesItems(out) === avantItems);
+  check(`${etiquette} : l'image reste de même taille pour ExifTool`,
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+  const validation = exif(['-validate', '-warning', '-a', out]);
+  check(`${etiquette} : ExifTool ne signale aucun défaut de structure`,
+    !/error|corrupt/i.test(validation), validation.trim().slice(0, 160));
+  check(`${etiquette} : un décodeur tiers ouvre encore le fichier`, seDecodeEncore(out));
+}
+
+scenario('iphone-sans-lieu.heic — ajout d\'une position', () => {
+  const chemin = join(FIXTURES, 'iphone-sans-lieu.heic');
+  verifierAjout('iphone-sans-lieu.heic', chemin,
+    new Uint8Array(readFileSync(chemin)), 'iPhone sans lieu');
+});
+
+// After an erase the entry pointing at the location block is gone from IFD0, so
+// writing a location again is no longer a correction but a creation. It is the
+// only way to exercise the add path on a real AVIF, since no AVIF in the corpus
+// arrives without a location block.
+for (const nom of ['iphone.heic', 'photo.avif'] as const) {
+  scenario(`${nom} — effacer puis ajouter`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const efface = effacerPosition(conteneurOuEchec(src), src).bytes;
+    const intermediaire = join(tmp, `vide-${nom}`);
+    writeFileSync(intermediaire, efface);
+    verifierAjout(nom, intermediaire, efface, `${nom} vidé`);
+  });
+}
+
+scenario('L\'ajout est refusé quand le fichier ne s\'y prête pas', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'iphone.heic')));
+  const c = conteneurOuEchec(src);
+
+  // A trailing box declaring size 0 extends to the end of the file: it would
+  // swallow anything appended behind it, and the location block would become
+  // image data in the eyes of every reader.
+  const boiteSansFin = new Uint8Array(src);
+  let o = 0;
+  let dernierDebut = 0;
+  while (o + 8 <= boiteSansFin.length) {
+    const taille = (boiteSansFin[o] * 0x1000000 + (boiteSansFin[o + 1] << 16) +
+      (boiteSansFin[o + 2] << 8) + boiteSansFin[o + 3]) >>> 0;
+    if (taille < 8 || o + taille > boiteSansFin.length) break;
+    dernierDebut = o;
+    o += taille;
+  }
+  boiteSansFin.set([0, 0, 0, 0], dernierDebut);
+  check('une boîte finale sans fin déclarée ferme l\'ajout',
+    c.accepteAjout?.(boiteSansFin) === false);
+
+  // Bytes no box claims: our reading of the structure is wrong somewhere, and
+  // we build nothing on top of it.
+  const avecTraine = new Uint8Array(src.length + 3);
+  avecTraine.set(src, 0);
+  check('des octets en trop après la dernière boîte ferment l\'ajout',
+    c.accepteAjout?.(avecTraine) === false);
+
+  // With no location item to repoint, the item table would have to grow: out of
+  // reach on this route, and advertised as such.
+  const sansItem = new Uint8Array(src);
+  const marque = [0x45, 0x78, 0x69, 0x66]; // « Exif »
+  for (let i = 0; i + 4 <= sansItem.length && i < 65536; i++) {
+    if (marque.every((x, k) => sansItem[i + k] === x)) sansItem[i] = 0x5a; // « Zxif »
+  }
+  check('sans emplacement à repointer, l\'ajout est fermé',
+    c.accepteAjout?.(sansItem) === false);
+  let code = '';
+  try {
+    ecrirePosition(c, sansItem, AVIGNON.lat, AVIGNON.lon);
+  } catch (e: any) {
+    code = e.code;
+  }
+  check('et le refus porte un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
 });
 
 for (const [nom, quoi] of [
