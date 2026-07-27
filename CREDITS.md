@@ -49,6 +49,7 @@ aucun inventé :
 | `drewnoakes/metadata-extractor-images` | **indéterminée** | Aucun fichier de licence ; autorisation explicite du dépôt : « You are free to use these media files however you wish. » **Hors de l'allowlist**, |
 | `AOMediaCodec/libavif` | BSD-2-Clause | — |
 | `gstatic.com/webp/gallery` | CC BY-SA 3.0 | Galerie de démonstration Google. |
+| `raw.pixls.us` | CC0 | Négatifs numériques réels (DNG, NEF, CR2, et un Kodak DCS au nom de fichier « .TIF »), qui éprouvent le refus d'ajout sur un TIFF. Fichiers garantis non retouchés. |
 
 ### Écrit à la main plutôt qu'emprunté
 
