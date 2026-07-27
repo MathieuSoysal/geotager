@@ -571,12 +571,13 @@ scenario('bloc-en-queue.heif — un bloc rangé en fin de fichier', () => {
   check('les items secondaires sont intacts', empreintesDesItems(out) === empreintesDesItems(chemin));
 });
 
-scenario('iphone-sans-lieu.heic — l\'ajout est refusé, pas tenté', () => {
+scenario('iphone-sans-lieu.heic — effacer une photo sans lieu ne touche rien', () => {
   const src = new Uint8Array(readFileSync(join(FIXTURES, 'iphone-sans-lieu.heic')));
   const c = conteneurOuEchec(src);
   check('aucune position au départ', lirePosition(c, src) === null);
 
-  // L'effacement d'un fichier sans position réussit sans rien toucher.
+  // Demander le retrait de ce qui n'est pas là doit rendre l'original, pas une
+  // copie « nettoyée » dont un octet aurait bougé au passage.
   const res = effacerPosition(c, src);
   check('l\'effacement ne touche rien', res.bytes.length === src.length &&
     memesOctetsHorsPlages(src, res.bytes, []));
@@ -627,7 +628,16 @@ function verifierAjout(nom: string, chemin: string, src: Uint8Array, etiquette: 
   const validation = exif(['-validate', '-warning', '-a', out]);
   check(`${etiquette} : ExifTool ne signale aucun défaut de structure`,
     !/error|corrupt/i.test(validation), validation.trim().slice(0, 160));
-  check(`${etiquette} : un décodeur tiers ouvre encore le fichier`, seDecodeEncore(out));
+
+  // Règle de symétrie, la même qu'en Q-030 pour le second lecteur : s'il savait
+  // ouvrir l'entrée, il doit savoir ouvrir la sortie. S'il ne savait pas —
+  // décodeur absent, format non pris en charge par cette installation —, son
+  // silence ne vaut PAS un échec de notre part. Un oracle qu'on interroge sans
+  // savoir s'il sait répondre ne prouve rien dans un sens comme dans l'autre.
+  const ouvraitAvant = seDecodeEncore(chemin);
+  check(`${etiquette} : un décodeur tiers ouvre encore le fichier`,
+    !ouvraitAvant || seDecodeEncore(out),
+    ouvraitAvant ? 'libheif refuse la sortie' : "libheif n'ouvrait pas déjà l'entrée — sans objet");
 }
 
 scenario('iphone-sans-lieu.heic — ajout d\'une position', () => {

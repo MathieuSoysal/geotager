@@ -27,7 +27,7 @@ fournit de vidéo réelle pour l'éprouver.
 | HEIC, AVIF *(iPhone)* | oui | oui | oui | oui |
 | PNG | oui | oui | oui | oui |
 | WebP *(forme étendue)* | oui | oui | oui | oui |
-| TIFF *(hors négatifs)* | oui | oui | oui | oui |
+| TIFF *(hors fichiers bruts)* | oui | oui | oui | oui |
 | Vidéos (MOV, MP4) | pas encore | pas encore | pas encore | pas encore |
 
 *« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont

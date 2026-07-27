@@ -83,6 +83,9 @@ export const MATRICE: LigneMatrice[] = [
   {
     formats: ['tiff'],
     libelle: 'TIFF',
+    // Dit en mot de tous les jours : un fichier brut d'appareil photo est un
+    // TIFF, et la ligne annoncerait sinon un ajout qu'elle refuse sur ceux-là.
+    mention: 'hors fichiers bruts',
     // Un négatif numérique est un TIFF, et lui ajouter des octets abîmerait un
     // original irremplaçable. « Ajouter » ne s'ouvre donc que sur les fichiers
     // qui PROUVENT être une image ordinaire — liste blanche éprouvée dans les
