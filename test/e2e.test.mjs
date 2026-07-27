@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
 const DIST = 'dist';
-const FIXTURES = process.env.FIXTURES ?? '';
+const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const PORT = 4319;
 
 const MIME = {

@@ -16,7 +16,10 @@ import {
   stripAllMetadata,
 } from '../src/lib/exif/jpeg.ts';
 
-const FIXTURES = process.env.FIXTURES ?? '';
+// Même valeur par défaut que scripts/fetch-fixtures.mjs : sans cela, le banc
+// cherchait le corpus à la racine du dépôt et échouait par une exception non
+// rattrapée, ce qui donnait l'impression que le moteur était en cause.
+const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const tmp = mkdtempSync(join(tmpdir(), 'geotagor-'));
 
 let passed = 0;
