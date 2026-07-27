@@ -99,16 +99,22 @@ function sonder(bytes: Uint8Array): Sonde {
     position !== null &&
     ecrirePositionSurPlace(principal.vue, position.lat, position.lon) !== null;
 
+  // A copy of the location elsewhere in the file closes erasing: removing it
+  // from the main block would hand back a file the user believes is clean.
+  const copieAilleurs = conteneur.copieDuLieuAilleurs?.(bytes) ?? false;
+
   const capacites: Capacites = {
     lire: statiques.lire,
-    corriger: statiques.corriger && (surPlace || statiques.ajouter),
-    ajouter: statiques.ajouter,
-    effacer: statiques.effacer,
-    effacerTout: statiques.effacerTout,
+    corriger: statiques.corriger && (surPlace || statiques.ajouter) && !copieAilleurs,
+    ajouter: statiques.ajouter && !copieAilleurs,
+    effacer: statiques.effacer && !copieAilleurs,
+    effacerTout: statiques.effacerTout && !copieAilleurs,
   };
 
   let motif: Motif;
-  if (position !== null) {
+  if (copieAilleurs) {
+    motif = 'copie-ailleurs';
+  } else if (position !== null) {
     motif = capacites.corriger ? 'ok' : 'forme-inhabituelle';
   } else if (capacites.ajouter) {
     motif = 'ok';

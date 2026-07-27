@@ -7,14 +7,17 @@ statiques&nbsp;; le traitement des images a lieu dans un Web Worker, sur votre m
 
 ## État
 
-**V0 — JPEG.** Lecture de la position et des métadonnées sur JPEG, HEIC, PNG, WebP, TIFF et vidéos.
-Écriture, correction et effacement sur **JPEG** uniquement. Les autres formats sont annoncés comme
-non modifiables *avant* toute action, plutôt que traités approximativement.
+**V1 — JPEG, HEIC et AVIF.** Lecture de la position et des métadonnées sur JPEG, HEIC, AVIF, PNG,
+WebP, TIFF et vidéos. Correction et effacement sur **JPEG, HEIC et AVIF**. Sur une photo d'iPhone,
+ces deux opérations ne déplacent pas un octet&nbsp;: le fichier produit a exactement la taille de
+l'original, et seuls les octets de la position changent. Ajouter un lieu à une photo qui n'en porte
+aucune ferait grandir le fichier&nbsp;; cela reste hors de portée sur HEIC et AVIF, et l'interface
+le dit *avant* toute action plutôt que de traiter le cas approximativement.
 
 | Format | Lire | Corriger | Ajouter | Effacer |
 |---|---|---|---|---|
 | JPEG | oui | oui | oui | oui |
-| HEIC, AVIF | oui | pas encore | pas encore | pas encore |
+| HEIC, AVIF | oui | oui | pas encore | oui |
 | PNG | oui | pas encore | pas encore | pas encore |
 | WebP | oui | pas encore | pas encore | pas encore |
 | TIFF | oui | pas encore | pas encore | pas encore |

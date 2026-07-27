@@ -82,6 +82,15 @@ export interface Conteneur {
 
   /** Removes all information, without re-encoding the image. */
   toutEffacer?(b: Uint8Array): Pose;
+
+  /**
+   * True if the file stores a copy of the location outside the main block, in
+   * a form we cannot remove.
+   *
+   * Erasing the main block and leaving that copy would hand back a file the
+   * user believes is clean. The erase is refused rather than produced.
+   */
+  copieDuLieuAilleurs?(b: Uint8Array): boolean;
 }
 
 export interface Ecriture {
