@@ -60,13 +60,29 @@ const FICHIERS = [
     role: 'Pixel 4a avec position réelle — dénominateurs inhabituels, vignette' },
   { nom: 'lieu-purge.avif', url: `${LIBAVIF}/paris_icc_exif_xmp.avif`, requis: true,
     role: 'Pixel 4a dont GIMP a purgé les coordonnées — bloc GPS à zéro' },
+
+  { nom: 'sans-lieu.png', url: `${DREWNOAKES}/png/sampleWithExifData.png`, requis: true,
+    role: 'PNG portant un vrai morceau eXIf, sans position' },
+  { nom: 'texte.png', url: `${DREWNOAKES}/png/photoshop-8x12-rgb24-all-metadata.png`, requis: true,
+    role: 'PNG portant un paquet de texte descriptif Photoshop' },
 ];
 
 /**
  * Files derived from a real device file, with ExifTool writing the location.
  * See the header.
  */
-const PREPARES = [];
+const PREPARES = [
+  {
+    nom: 'avec-lieu.png', depuis: 'sans-lieu.png', requis: true,
+    role: 'PNG réel portant le bloc de position d\'un vrai Nikon, recopié par ExifTool',
+    args: ['-tagsfromfile', join(DIR, 'DSCN0010.jpg'), '-gps:all'],
+  },
+  {
+    nom: 'texte-avec-lieu.png', depuis: 'texte.png', requis: true,
+    role: 'PNG dont le paquet de texte porte une seconde copie du lieu',
+    args: ['-xmp:GPSLatitude=43.9493', '-xmp:GPSLongitude=4.8055'],
+  },
+];
 
 mkdirSync(DIR, { recursive: true });
 
