@@ -743,6 +743,38 @@ bloqué — et surtout pas `'unsafe-eval'`, plus large) et **`worker-src`** expl
 `default-src 'none'`. Et **`build: { inlineStylesheets: 'never' }`** dans la config Astro : le défaut
 `'auto'` inline les petites feuilles, qu'une CSP sans `'unsafe-inline'` bloquerait.
 
+### 7.7 bis Obtenir l'URL de prévisualisation dans la PR
+
+`preview_urls: true` dans le `wrangler.jsonc` est **nécessaire mais pas suffisant**. La doc Workers :
+*« commits made on the production git branch will produce a Workers Build. If you want to take
+advantage of preview URLs and pull request comments, you can additionally enable "non-production
+branch builds" »*. C'est un réglage **de tableau de bord**, que Wrangler ne peut pas porter :
+**Settings > Build > Branch control**.
+
+Une fois activé, Cloudflare publie automatiquement **deux** URL en commentaire de PR :
+
+| Type | Forme | Usage |
+|---|---|---|
+| Prévisualisation de commit | `<prefixe-version>-geotager.<sous-domaine>.workers.dev` | fige une version précise |
+| Prévisualisation de branche | `<branche>-geotager.<sous-domaine>.workers.dev` | **alias stable**, suit le dernier commit |
+
+C'est l'alias de branche qui sert au Gate 2 : il ne change pas d'un commit à l'autre, donc les
+contrôles peuvent le viser en dur.
+
+⚠️ **Et la commande de déploiement n'est pas la même selon la branche.** Doc verbatim : *« For preview
+builds (commits to branches other than your production branch), the deploy command is replaced with a
+preview deploy command (defaults to `npx wrangler versions upload`), which creates a preview version
+**without promoting it to production**. »* Autrement dit, tant que les builds de branches
+non-production ne sont **pas** activés, une branche qui construit le fait par le chemin `production`.
+**Il faut donc vérifier au même endroit que la branche de production est bien `main`** — sinon une
+branche de travail se déploierait en production à chaque push, ce qui, sur un site public, est le
+genre d'accident qu'on ne remarque qu'une fois.
+
+Si l'URL n'apparaît toujours pas après activation, le suspect suivant est le **sous-domaine
+`workers.dev` du compte** : les prévisualisations y sont servies. Nous posons `workers_dev: false`
+pour l'hôte de production, mais `preview_urls: true` explicite les conserve — encore faut-il que le
+compte ait un sous-domaine enregistré.
+
 ### 7.7 Le gain, réel : Gate 2 devient exécutable avant la mise en production
 
 Chaque branche obtient une URL de prévisualisation. La preuve du zéro-tiers, Lighthouse mobile, le
