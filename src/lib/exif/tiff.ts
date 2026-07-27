@@ -67,6 +67,7 @@ const TYPE_SIZE: Record<number, number> = {
 export const TAG_EXIF_IFD = 0x8769;
 export const TAG_GPS_IFD = 0x8825;
 export const TAG_INTEROP_IFD = 0xa005;
+export const TAG_SUB_IFDS = 0x014a;
 
 export const GPS = {
   VersionID: 0x0000,
@@ -157,6 +158,77 @@ export function parseTiff(tiff: Uint8Array): TiffView {
 }
 
 /**
+ * Toutes les IFD d'un bloc, y compris celles qu'une simple vue ne montre pas.
+ *
+ * `parseTiff` s'arrête à la deuxième page. Un TIFF autonome peut en compter
+ * dix, et chacune possède ses valeurs hors-ligne et ses bandes de pixels. Une
+ * carte des plages bâtie sur les deux premières pages seulement laisserait les
+ * suivantes sans protection — ce n'est pas un manque de complétude, c'est un
+ * trou de sûreté.
+ *
+ * Le parcours suit la chaîne des pages, les trois sous-IFD connus, et le tag
+ * `SubIFDs`, qui porte un TABLEAU d'adresses et non une seule. Un ensemble des
+ * adresses déjà vues empêche de tourner en rond : deux pages ont parfaitement
+ * le droit de désigner le même sous-IFD.
+ */
+function toutesLesIfd(bytes: Uint8Array, e: Endian): Ifd[] {
+  const vues = new Set<number>();
+  const out: Ifd[] = [];
+  const file: number[] = [readU32(bytes, 4, e)];
+  let entrees = 0;
+
+  while (file.length && out.length < 64 && entrees < 4096) {
+    const offset = file.shift()!;
+    if (!offset || offset >= bytes.length || vues.has(offset)) continue;
+    vues.add(offset);
+    let ifd: Ifd;
+    try {
+      ifd = parseIfd(bytes, offset, e);
+    } catch {
+      continue;
+    }
+    out.push(ifd);
+    entrees += ifd.entries.length;
+    if (ifd.next) file.push(ifd.next);
+    for (const en of ifd.entries) {
+      if (en.tag === TAG_EXIF_IFD || en.tag === TAG_GPS_IFD || en.tag === TAG_INTEROP_IFD) {
+        file.push(en.valueOffset ?? readU32(bytes, en.entryOffset + 8, e));
+      } else if (en.tag === TAG_SUB_IFDS) {
+        for (const v of valeursEntieres(bytes, e, en)) file.push(v);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Composantes entières d'une entrée, qu'elles soient en ligne ou hors-ligne.
+ *
+ * `StripOffsets` est aussi souvent un SHORT qu'un LONG. Un lecteur qui suppose
+ * quatre octets revendique la moitié des bandes et laisse l'autre moitié
+ * zéroïsable.
+ */
+function valeursEntieres(bytes: Uint8Array, e: Endian, entry: Entry): number[] {
+  if (entry.type !== 3 && entry.type !== 4) return [];
+  const taille = entry.type === 3 ? 2 : 4;
+  const base = entry.valueOffset ?? entry.entryOffset + 8;
+  const out: number[] = [];
+  for (let k = 0; k < entry.count; k++) {
+    const o = base + k * taille;
+    if (o + taille > bytes.length) return [];
+    out.push(taille === 2 ? readU16(bytes, o, e) : readU32(bytes, o, e));
+  }
+  return out;
+}
+
+/** Paires (adresse, longueur) désignant des données hors des IFD. */
+const PAIRES_DE_DONNEES: Array<[number, number]> = [
+  [0x0111, 0x0117], // bandes de pixels
+  [0x0144, 0x0145], // tuiles de pixels
+  [0x0201, 0x0202], // aperçu ou vignette
+];
+
+/**
  * Carte des plages d'octets revendiquées par autre chose que le GPS IFD.
  *
  * TIFF 6.0 précise que « the values to which directory entries point need not
@@ -164,27 +236,53 @@ export function parseTiff(tiff: Uint8Array): TiffView {
  * du GPS IFD forment une région contiguë et exclusive. Avant de zéroïser quoi
  * que ce soit, il faut donc prouver que la plage visée n'appartient à personne
  * d'autre — sinon on détruit un MakerNote en croyant nettoyer.
+ *
+ * Quand le bloc TIFF est le fichier entier, c'est cette carte, et elle seule,
+ * qui protège les pixels : ils ne sont désignés que par les adresses de bandes
+ * ou de tuiles rangées dans les IFD.
  */
 function claimedRanges(view: TiffView, exclude: Ifd | null): Array<[number, number]> {
+  const bytes = view.bytes;
+  const e = view.endian;
   const ranges: Array<[number, number]> = [[0, 8]];
-  const ifds = [view.ifd0, view.exifIfd, view.gpsIfd, view.interopIfd, view.ifd1];
-  for (const ifd of ifds) {
-    if (!ifd || ifd === exclude) continue;
+
+  const revendiquer = (o: number, l: number) => {
+    if (l <= 0) return;
+    if (o < 8 || o + l > bytes.length) {
+      // Une adresse qui sort du bloc signifie que notre lecture de la structure
+      // est fausse quelque part. On refuse plutôt que d'écrire sur la foi d'une
+      // carte partiellement fausse.
+      throw new ExifError(
+        'STRUCTURE_INATTENDUE',
+        "Ce fichier a une structure que nous ne savons pas modifier sans risque. Il n'a pas été touché.",
+      );
+    }
+    ranges.push([o, o + l]);
+  };
+
+  for (const ifd of toutesLesIfd(bytes, e)) {
+    // Comparaison par adresse : la même IFD relue est le même objet logique.
+    if (exclude && ifd.offset === exclude.offset) continue;
     ranges.push([ifd.offset, ifd.nextPointerOffset + 4]);
     for (const en of ifd.entries) {
       if (en.valueOffset !== null && en.valueLength > 0) {
-        ranges.push([en.valueOffset, en.valueOffset + en.valueLength]);
+        revendiquer(en.valueOffset, en.valueLength);
       }
     }
-  }
-  // La vignette est référencée par IFD1 et doit rester intacte.
-  if (view.ifd1) {
-    const off = view.ifd1.entries.find((x) => x.tag === 0x0201);
-    const len = view.ifd1.entries.find((x) => x.tag === 0x0202);
-    if (off && len && off.valueOffset === null && len.valueOffset === null) {
-      const o = readU32(view.bytes, off.entryOffset + 8, view.endian);
-      const l = readU32(view.bytes, len.entryOffset + 8, view.endian);
-      if (o > 0 && l > 0 && o + l <= view.bytes.length) ranges.push([o, o + l]);
+    for (const [tagAdresses, tagLongueurs] of PAIRES_DE_DONNEES) {
+      const a = ifd.entries.find((x) => x.tag === tagAdresses);
+      const l = ifd.entries.find((x) => x.tag === tagLongueurs);
+      if (!a || !l) continue;
+      const adresses = valeursEntieres(bytes, e, a);
+      const longueurs = valeursEntieres(bytes, e, l);
+      if (adresses.length !== longueurs.length || adresses.length === 0) {
+        // On ne devine pas la longueur d'une bande dont on n'a pas le compte.
+        throw new ExifError(
+          'STRUCTURE_INATTENDUE',
+          "Ce fichier a une structure que nous ne savons pas modifier sans risque. Il n'a pas été touché.",
+        );
+      }
+      for (let k = 0; k < adresses.length; k++) revendiquer(adresses[k], longueurs[k]);
     }
   }
   return ranges;
