@@ -70,7 +70,7 @@ await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
 
 console.log('\nChargement de la page');
 check('aucune erreur JavaScript au chargement', erreursConsole.length === 0, erreursConsole[0]);
-check('le titre est en place', (await page.title()).includes('Geotagor'));
+check('le titre est en place', (await page.title()).includes('Geotager'));
 check("l'état vide est visible", await page.locator('#etat-vide').isVisible());
 check("l'état actif est masqué", !(await page.locator('#etat-actif').isVisible()));
 

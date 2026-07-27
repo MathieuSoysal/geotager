@@ -32,7 +32,7 @@ import { createHash } from 'node:crypto';
 // the corpus at the root of the repository and failed on an uncaught exception,
 // which made it look as though the engine were at fault.
 const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
-const tmp = mkdtempSync(join(tmpdir(), 'geotagor-'));
+const tmp = mkdtempSync(join(tmpdir(), 'geotager-'));
 
 let passed = 0;
 let failed = 0;
