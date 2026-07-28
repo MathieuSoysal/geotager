@@ -1,126 +1,142 @@
 # Geotager
 
-Voir, modifier et supprimer la position GPS d'une photo, **entièrement dans le navigateur**.
+*[Version française](README.fr.md)*
 
-Aucun serveur, aucun compte, aucune publicité, aucun traceur. Le site est un ensemble de fichiers
-statiques&nbsp;; le traitement des images a lieu dans un Web Worker, sur votre machine.
+View, change and remove the GPS location of a photo, **entirely in the browser**.
 
-## État
+No server, no account, no ads, no trackers. The site is a set of static files; image processing
+happens in a Web Worker, on your machine.
 
-**V1.1 — les quatre opérations sur tous les formats d'image.** Lire, corriger, ajouter et effacer
-un lieu sur JPEG, HEIC, AVIF, PNG, WebP et TIFF. Ajouter n'agrandit rien sur place&nbsp;: sur une
-photo d'iPhone, le nouveau bloc est ajouté en fin de fichier et une seule adresse est repointée,
-si bien qu'aucun octet existant ne bouge. Corriger et effacer ne déplacent pas un octet du tout&nbsp;:
-le fichier produit a exactement la taille de l'original.
+## Status
 
-Deux limites, dites *avant* l'action et non après&nbsp;: un WebP de forme simple n'a aucun
-emplacement prévu pour un lieu, et **un négatif numérique — DNG, NEF, CR2 — n'accepte pas qu'on lui
-en ajoute un**, parce qu'un négatif est un TIFF et qu'abîmer un original serait irréparable.
+**V1.1 — all four operations on every image format.** Read, change, add and remove a location on
+JPEG, HEIC, AVIF, PNG, WebP and TIFF. Adding grows nothing in place: on an iPhone photo, the new
+block is appended at the end of the file and a single address is repointed, so no existing byte
+moves. Changing and removing move no byte at all: the file produced is exactly the size of the
+original.
 
-Les vidéos sont hors de portée pour l'instant, y compris en lecture&nbsp;: une vidéo range le lieu
-à plusieurs endroits, parfois en toutes lettres, et aucun corpus public sous licence libre ne
-fournit de vidéo réelle pour l'éprouver.
+Two limits, announced *before* you act rather than after: a simple-form WebP has nowhere to put a
+location, and **a camera raw file — DNG, NEF, CR2 — will not accept having one added**, because a
+raw file is a TIFF and damaging an original would be irreversible.
 
-| Format | Lire | Corriger | Ajouter | Effacer |
+Videos are out of reach for now, reading included: a video keeps the location in several places at
+once, sometimes spelled out in words, and no public corpus under a free licence provides a real
+video to prove it against.
+
+| Format | Read | Change | Add | Remove |
 |---|---|---|---|---|
-| JPEG | oui | oui | oui | oui |
-| HEIC, AVIF *(iPhone)* | oui | oui | oui | oui |
-| PNG | oui | oui | oui | oui |
-| WebP *(forme étendue)* | oui | oui | oui | oui |
-| TIFF *(hors fichiers bruts)* | oui | oui | oui | oui |
-| Vidéos (MOV, MP4) | pas encore | pas encore | pas encore | pas encore |
+| JPEG | yes | yes | yes | yes |
+| HEIC, AVIF *(iPhone)* | yes | yes | yes | yes |
+| PNG | yes | yes | yes | yes |
+| WebP *(extended form)* | yes | yes | yes | yes |
+| TIFF *(excluding camera raw)* | yes | yes | yes | yes |
+| Videos (MOV, MP4) | not yet | not yet | not yet | not yet |
 
-*« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont
-deux opérations différentes&nbsp;: la première ne change pas la taille du fichier, la seconde si.
-Le tableau de la page d'accueil est rendu depuis `src/lib/exif/capacites.ts`, que le moteur lit
-aussi&nbsp;; il ne peut donc pas dériver de ce que le code sait faire.*
+*“Change” replaces a location that is already there, “add” creates one where there is none. They are
+two different operations: the first does not change the file size, the second does. The table on
+each page is rendered from `src/lib/exif/capacites.ts`, which the engine reads too, so it cannot
+drift from what the code can actually do.*
 
-## Ce que le moteur garantit
+## What the engine guarantees
 
-- **Aucun réencodage.** Les pixels ne sont jamais touchés. Seuls les octets de la position changent.
-- **Édition sur place quand c'est possible.** Corriger ou effacer une position produit un fichier de
-  **taille strictement identique** : rien n'est déplacé, donc MakerNote, vignette, profil
-  colorimétrique et segments constructeur sont préservés *par construction*.
-- **Création sans réécriture.** Ajouter une position à un fichier qui n'en a pas n'insère rien au
-  milieu du bloc TIFF : un nouvel IFD0 est ajouté à la fin et l'en-tête est repointé dessus. Les
-  offsets absolus existants restent valides — c'est précisément ce qu'une réécriture classique casse.
-- **Preuve à l'octet près.** Le moteur annonce les plages qu'il écrit, et le fichier produit est
-  comparé à l'original **partout ailleurs**. Une comparaison de tailles ne prouverait rien&nbsp;: un
-  défaut qui efface 200&nbsp;Ko de données constructeur la passerait sans un mot. C'est aussi ce qui
-  permet d'écrire dans une photo de plusieurs mégaoctets sans jamais la décoder&nbsp;: on ne prouve
-  pas que l'image est restée lisible, on prouve que ses octets n'ont pas bougé.
-- **Vérification après écriture, en trois temps.** Notre lecteur relit le fichier produit en
-  repartant du premier octet. Un **second moteur, écrit par d'autres**, relit le bloc de position —
-  c'est là que vit le défaut d'ordre des octets qu'une auto-relecture ne peut pas voir. Puis il
-  relit le fichier entier, sous réserve qu'il ait su ouvrir l'original&nbsp;: il ne connaît pas tous
-  les formats, et son silence sur un fichier qu'il n'ouvre pas ne prouverait rien. Un écart de plus
-  d'un mètre, un résidu après effacement ou un désaccord annulent l'opération et rendent l'original
-  intact. Voir.
-- **Aucune copie oubliée.** Une image peut ranger le lieu une seconde fois dans un paquet de texte
-  descriptif. Il est purgé — le lieu seul, pas le titre ni l'auteur —, puis **re-balayé**&nbsp;: s'il
-  en subsiste la moindre trace, ou si le paquet est compressé et donc illisible pour ce moteur,
-  l'effacement échoue plutôt que de rendre un fichier qu'on croirait propre.
+- **No re-encoding.** Pixels are never touched. Only the bytes of the location change.
+- **In-place editing where possible.** Changing or removing a location produces a file of
+  **strictly identical size**: nothing moves, so MakerNote, thumbnail, colour profile and vendor
+  segments survive *by construction*.
+- **Creation without rewriting.** Adding a location to a file that has none inserts nothing in the
+  middle of the TIFF block: a new IFD0 is appended at the end and the header is repointed at it.
+  Existing absolute offsets stay valid — which is precisely what a naive rewrite breaks.
+- **Byte-exact proof.** The engine declares the ranges it writes, and the file produced is compared
+  to the original **everywhere else**. Comparing sizes would prove nothing: a defect wiping 200 KB
+  of vendor data would sail straight through. It is also what lets us write into a photo of several
+  megabytes without ever decoding it: we do not prove the image is still readable, we prove its
+  bytes did not move.
+- **Verification after writing, in three stages.** Our reader reads the file back from the first
+  byte. A **second engine, written by other people**, reads the location block — that is where the
+  byte-order defect lives, the one a self-recheck cannot see. Then it reads the whole file, provided
+  it could open the original: it does not know every format, and its silence about a file it cannot
+  open would prove nothing. A gap of more than a metre, a residue after removal, or a disagreement
+  cancels the operation and hands the original back intact. See.
+- **No forgotten copy.** An image can keep the location a second time in a descriptive text packet.
+  It is purged — the location only, not the title or the author — then **swept again**: if any trace
+  survives, or if the packet is compressed and therefore unreadable to this engine, the removal
+  fails rather than hand back a file you would believe was clean.
 
-## Développement
+## Languages
+
+English is served at `/`, French at `/fr/`. Both pages are rendered from the same components and the
+same capability matrix; only the words differ, and they live in `src/lib/i18n/`. The engine never
+returns a sentence — it returns a key — so a missing translation is a compile error, not a French
+sentence on an English page.
+
+## Development
 
 ```bash
 npm install
-npm run dev        # serveur local
-npm run build      # construit dist/ puis exécute les contrôles bloquants
+npm run dev        # local server
+npm run build      # builds dist/ then runs the blocking checks
 ```
 
 ### Tests
 
 ```bash
-npm run fixtures   # récupère de vraies photos de test (non committées)
-npm test           # moteur EXIF, avec ExifTool comme oracle indépendant — 316 assertions
-npm run test:e2e   # parcours complet dans Chromium, fichiers relus par ExifTool — 52 assertions
-npm run test:all   # la chaîne entière
+npm run fixtures   # fetches real test photos (not committed)
+npm test           # EXIF engine, with ExifTool as an independent oracle — 316 assertions
+npm run test:e2e   # full journey in Chromium, files read back by ExifTool — 104 assertions
+npm run test:all   # the whole chain
 ```
 
-Chaque case du tableau ci-dessus est adossée à un test qui l'exécute réellement sur une vraie photo
-de ce format&nbsp;— y compris les cases à « pas encore », dont le test exige qu'aucun fichier
-témoin n'existe. Ce n'est donc plus une discipline mais une propriété&nbsp;: une case ouverte sans
-preuve fait échouer la chaîne. Le tableau de la page d'accueil est rendu depuis la même constante que celle que lit
-le moteur, et le script de corpus fait échouer la chaîne si un fichier requis manque.
+Every cell of the table above is backed by a test that actually performs the operation on a real
+photo of that format — including the “not yet” cells, whose test requires that no witness file
+exists. It is therefore no longer a discipline but a property: opening a cell without proof fails
+the chain.
 
-ExifTool est requis pour les tests (`apt install libimage-exiftool-perl`). Il n'est **jamais**
-utilisé par l'application&nbsp;: il sert d'oracle externe, parce qu'un moteur qui se relit lui-même
-ne prouve rien — un encodeur et un décodeur symétriquement faux s'accordent parfaitement.
+ExifTool is required for the tests (`apt install libimage-exiftool-perl`). It is **never** used by
+the application: it serves as an external oracle, because an engine that reads itself back proves
+nothing — an encoder and a decoder that are symmetrically wrong agree perfectly. libheif
+(`apt install libheif-examples` plus its decoder plugins) plays the same role for decoding: ExifTool
+says what a file *contains*, libheif says it still *decodes*.
 
-Le corpus n'est pas committé et n'est pas fabriqué : ce sont de vraies photos d'appareils réels —
-iPhone 11 Pro Max, iPhone 11 Pro, Nokia 8.3, Galaxy S10, Pixel 4a, HTC Desire, Nikon. Un fichier
-généré pour l'occasion valide le code contre lui-même ; seule une photo réellement sortie d'un
-appareil expose les cas qui cassent, et ce corpus-là en expose plusieurs : ordre des octets inversé,
-bloc rangé en fin de fichier, coordonnées à zéro, préambule parasite. Aucun corpus public ne
-fournissant de PNG ni de TIFF géolocalisé, le lieu de départ y est inscrit par ExifTool — une
-implémentation indépendante de la nôtre — dans un vrai fichier d'appareil. Sources et licences dans
-[`CREDITS.md`](CREDITS.md).
+The corpus is not committed and not fabricated: these are real photos from real devices — iPhone 11
+Pro Max, iPhone 11 Pro, Nokia 8.3, Galaxy S10, Pixel 4a, HTC Desire, Nikon — plus four real digital
+negatives (DNG, NEF, CR2, and a Kodak DCS whose filename says `.TIF`). A file generated for the
+occasion validates the code against itself; only a photo that genuinely came out of a device exposes
+the cases that break, and this corpus exposes several: reversed byte order, a block stored at the
+end of the file, zeroed coordinates, a parasitic preamble. As no public corpus provides a geotagged
+PNG or TIFF, the starting location is written into a real device file by ExifTool — an
+implementation independent of ours. Sources and licences in [`CREDITS.md`](CREDITS.md).
 
-### Intégration continue
+### Continuous integration
 
-`.github/workflows/ci.yml` installe ExifTool et rejoue `npm run test:all` sur chaque proposition de
-modification. Sans cela, la matrice ci-dessus ne serait vérifiée par rien d'automatique : la build
-Cloudflare ne lance que `npm run build`, et son image ne contient pas ExifTool.
+`.github/workflows/ci.yml` installs the external oracles and replays `npm run test:all` on every
+proposed change. Without it the matrix above would be verified by nothing automatic: the Cloudflare
+build only runs `npm run build`, and its image contains neither ExifTool nor libheif.
 
-### Contrôles de build
+### Build checks
 
-`scripts/check-build.mjs` échoue **en code non nul** — Cloudflare ne lit que cela — si&nbsp;:
+`scripts/check-build.mjs` exits **non-zero** — the only thing Cloudflare reads — if:
 
-- une ressource tierce est chargée par une page (le critère qui ne souffre aucune exception) ;
-- un `<title>` dépasse 60 caractères ou une meta description 155 ;
-- une page n'a pas exactement un `<h1>` ;
-- un des blocs de contenu obligatoires manque du HTML servi ;
-- le JavaScript dépasse 150 Ko gzip ;
-- un `X-Robots-Tag` apparaît sous un motif relatif dans `_headers`.
+- a page loads a third-party resource (the one criterion that admits no exception);
+- a `<title>` exceeds 60 characters or a meta description 155;
+- a page does not have exactly one `<h1>`;
+- one of the required content blocks is missing from the served HTML, in that page's language;
+- a page fails to declare every language, itself included, plus `x-default`;
+- a README's table disagrees with the table actually served;
+- JavaScript exceeds 150 KB gzipped;
+- an `X-Robots-Tag` appears under a relative pattern in `_headers`;
+- the deployment guard has been removed from the repository.
 
-## Déploiement
+## Deployment
 
-Cloudflare Workers avec assets statiques, en intégration Git. `wrangler.jsonc` ne déclare aucun
-champ `main` : il n'y a pas de code Worker, seulement des fichiers servis. `workers_dev` est à
-`false` pour qu'aucun domaine technique indexable ne double le site.
+Cloudflare Workers with static assets, through the Git integration. `wrangler.jsonc` declares no
+`main` field: there is no Worker code, only files being served.
+
+`scripts/deploy.mjs` decides, from the branch being built, whether to upload a version or promote to
+production — a decision that used to live only in a dashboard setting, and that once put unreviewed
+code online. For it to protect anything, **both** build commands in the dashboard must be
+`npm run deploy`.
 
 ## Licence
 
-MIT. Sur un outil qui affirme ne rien envoyer, un code lisible est le seul argument que vous pouvez
-vérifier vous-même.
+MIT. On a tool that claims to send nothing anywhere, readable code is the only argument you can
+check for yourself.

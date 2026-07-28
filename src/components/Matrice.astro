@@ -1,0 +1,48 @@
+---
+/**
+ * The format by operation table, rendered from `capacites.ts`.
+ *
+ * The engine reads the same constant, so the table cannot drift from what the
+ * code can do. The constant carries only booleans: the words, labels, columns,
+ * "yes" and "not yet", come from the dictionary, so both languages necessarily
+ * state the same truth.
+ */
+import { MATRICE, cellules } from '../lib/exif/capacites.ts';
+import type { Dictionnaire } from '../lib/i18n/types.ts';
+
+interface Props {
+  dico: Dictionnaire;
+}
+const { dico: T } = Astro.props;
+
+// A row's label is that of its first format: that is what names it, so the
+// dictionary carries one entry per row.
+const lignes = MATRICE.map((l) => ({
+  ...(T.matrice.lignes[l.formats[0]] ?? { libelle: l.formats[0] }),
+  cases: cellules(l.capacites),
+}));
+---
+
+<table>
+  <thead>
+    <tr><th>{T.matrice.format}</th>{T.matrice.colonnes.map((c) => <th>{c}</th>)}</tr>
+  </thead>
+  <tbody>
+    {
+      lignes.map((ligne) => (
+        <tr>
+          <td>
+            {ligne.libelle}
+            {ligne.mention && (
+              <>
+                {' '}
+                <span class="pill">{ligne.mention}</span>
+              </>
+            )}
+          </td>
+          {ligne.cases.map((v) => <td>{v ? T.matrice.oui : T.matrice.pasEncore}</td>)}
+        </tr>
+      ))
+    }
+  </tbody>
+</table>

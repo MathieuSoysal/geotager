@@ -47,14 +47,17 @@ const rel = (f) => relative(DIR, f);
  * as `&#39;`, so counting the HTML's bytes would overstate the title by four
  * characters per apostrophe.
  */
-function longueurVisible(s) {
+/** Decodes HTML entities, to compare text rather than escaping. */
+function texteVisible(s) {
   return s
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
     .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
-    .trim().length;
+    .trim();
 }
+
+const longueurVisible = (s) => texteVisible(s).length;
 
 // 1. Structure and caps
 
@@ -105,6 +108,31 @@ for (const f of textes) {
 
 // 3. Titles, metas and content served without JavaScript
 
+/*
+ * The expected content blocks, per language. They must exist in the served
+ * HTML, so without JavaScript. A language missing from this table fails the
+ * build: adding a page without adding its checks would mean publishing a page
+ * nothing verifies.
+ */
+const BLOCS_OBLIGATOIRES = {
+  fr: [
+    ['pourquoi vos fichiers ne partent pas', /Pourquoi vos fichiers ne partent pas/i],
+    ["mode d'emploi", /Mode d'emploi/i],
+    ['limites par format', /ce qu'il ne sait pas encore/i],
+    ["ce qu'est une donnée GPS", /Ce qu'est une donnée GPS/i],
+    ['vie privée', /Ce qu'un géotag révèle/i],
+    ['vérification externe', /exiftool/i],
+  ],
+  en: [
+    ['why your files never leave', /Why your files never leave/i],
+    ['how to use it', /How to use it/i],
+    ['per-format limits', /what it cannot do yet/i],
+    ['what GPS data is', /What GPS data in a photo actually is/i],
+    ['privacy', /What a geotag gives away/i],
+    ['external verification', /exiftool/i],
+  ],
+};
+
 for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   const html = readFileSync(f, 'utf8');
   const title = html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim();
@@ -126,17 +154,32 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   const h1 = [...html.matchAll(/<h1[\s>]/gi)].length;
   if (h1 !== 1) echecs.push(`${rel(f)} contient ${h1} <h1>, il en faut exactement un`);
 
-  // The content must exist without JavaScript: it is checked on the served HTML.
-  const obligatoires = [
-    ['pourquoi vos fichiers ne partent pas', /Pourquoi vos fichiers ne partent pas/i],
-    ["mode d'emploi", /Mode d'emploi/i],
-    ['limites par format', /ce qu'il ne sait pas encore/i],
-    ["ce qu'est une donnée GPS", /Ce qu'est une donnée GPS/i],
-    ['vie privée', /Ce qu'un géotag révèle/i],
-    ['vérification externe', /exiftool/i],
-  ];
-  for (const [nom, re] of obligatoires) {
-    if (!re.test(html)) echecs.push(`${rel(f)} : le bloc « ${nom} » est absent du HTML servi`);
+  // The content must exist without JavaScript: it is checked on the served
+  // HTML, and in the language the page declares. An English page searched for
+  // French headings would look empty.
+  const lang = html.match(/<html[^>]+lang=["']([a-z-]+)["']/i)?.[1] ?? '';
+  // Astro escapes apostrophes coming from an expression: "qu'il" becomes
+  // "qu&#39;il". Searching for the raw text in escaped HTML would find nothing,
+  // and would make a full page look empty.
+  const lisible = texteVisible(html);
+  const attendus = BLOCS_OBLIGATOIRES[lang];
+  if (!attendus) {
+    echecs.push(`${rel(f)} : langue « ${lang} » inconnue du contrôle de contenu`);
+  } else {
+    for (const [nom, re] of attendus) {
+      if (!re.test(lisible)) echecs.push(`${rel(f)} : le bloc « ${nom} » est absent du HTML servi`);
+    }
+  }
+
+  // Reciprocal links between languages: each page must announce every
+  // language, itself included, without which Google ignores the declaration.
+  for (const l of Object.keys(BLOCS_OBLIGATOIRES)) {
+    if (!new RegExp(`hreflang=["']${l}["']`, 'i').test(html)) {
+      echecs.push(`${rel(f)} : aucun lien alternatif ne déclare la langue « ${l} »`);
+    }
+  }
+  if (!/hreflang=["']x-default["']/i.test(html)) {
+    echecs.push(`${rel(f)} : aucun lien alternatif « x-default »`);
   }
 }
 
@@ -230,27 +273,33 @@ if (existsSync(headers)) {
  * Cells are compared, not labels: the parenthesised note stays free on both
  * sides.
  */
-{
+for (const [fichierReadme, page] of [
+  ['README.md', join(DIR, 'index.html')],
+  ['README.fr.md', join(DIR, 'fr', 'index.html')],
+]) {
+  if (!existsSync(fichierReadme) || !existsSync(page)) {
+    echecs.push(`${fichierReadme} ou ${rel(page)} est absent : le tableau n'est comparé à rien`);
+    continue;
+  }
   const sansBalises = (s) =>
     s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const html = readFileSync(join(DIR, 'index.html'), 'utf8');
+  const html = readFileSync(page, 'utf8');
   const corps = html.match(/<table>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i)?.[1] ?? '';
   const servi = [...corps.matchAll(/<tr>([\s\S]*?)<\/tr>/gi)].map((m) =>
     [...m[1].matchAll(/<td>([\s\S]*?)<\/td>/gi)].map((c) => sansBalises(c[1])),
   );
 
-  const readme = readFileSync('README.md', 'utf8');
-  const lu = readme
+  const lu = readFileSync(fichierReadme, 'utf8')
     .split('\n')
-    .filter((l) => /^\|/.test(l) && !/^\|\s*-+/.test(l) && !/\|\s*Format\s*\|/.test(l))
+    .filter((l) => /^\|/.test(l) && !/^\|\s*-+/.test(l) && !/\|\s*(Format)\s*\|/.test(l))
     .map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
 
   if (servi.length === 0) {
-    echecs.push('dist/index.html : aucun tableau de capacités trouvé dans la page servie');
+    echecs.push(`${rel(page)} : aucun tableau de capacités trouvé dans la page servie`);
   } else if (lu.length !== servi.length) {
     echecs.push(
-      `README.md : le tableau a ${lu.length} lignes, la page servie en compte ${servi.length}`,
+      `${fichierReadme} : le tableau a ${lu.length} lignes, ${rel(page)} en compte ${servi.length}`,
     );
   } else {
     lu.forEach((ligne, i) => {
@@ -258,8 +307,8 @@ if (existsSync(headers)) {
       const vraies = servi[i].slice(1).join('|');
       if (dites !== vraies) {
         echecs.push(
-          `README.md : « ${ligne[0]} » annonce ${dites.replace(/\|/g, '/')}, ` +
-            `la page servie dit ${vraies.replace(/\|/g, '/')}`,
+          `${fichierReadme} : « ${ligne[0]} » annonce ${dites.replace(/\|/g, '/')}, ` +
+            `${rel(page)} dit ${vraies.replace(/\|/g, '/')}`,
         );
       }
     });

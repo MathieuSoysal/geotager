@@ -17,6 +17,8 @@ export type Format =
   | 'inconnu';
 
 /** The route chosen to act on the file, decided at read time. */
+import type { Motif } from './capacites.ts';
+
 export type Route = 'P1' | 'P2' | 'lecture-seule';
 
 export interface PhotoRead {
@@ -32,14 +34,21 @@ export interface PhotoRead {
    * everything is not available on every format.
    */
   can: { read: boolean; write: boolean; erase: boolean; eraseAll: boolean };
-  /** Displayable sentence, without container jargon. */
-  routeReason: string;
+  /**
+   * Why the tool can or cannot act on this file: a key, not a sentence. The
+   * engine no longer picks the wording; the interface looks it up in the
+   * dictionary for its language.
+   */
+  motif: Motif;
   position: LatLon | null;
   altitude: number | null;
   takenAt: string | null;
   camera: string | null;
-  /** Readable tags, for the collapsed "other information" panel. */
-  details: Array<{ label: string; value: string }>;
+  /**
+   * Human-readable details for the collapsed panel. The key is a stable
+   * identifier, never a label: the interface translates it.
+   */
+  details: Array<{ cle: string; value: string }>;
 }
 
 export interface WriteOk {
@@ -60,7 +69,14 @@ export interface WriteFail {
   id: string;
   name: string;
   code: string;
+  /** Engine message, in plain text. Used as a fallback and for logging. */
   message: string;
+  /**
+   * Set when the refusal was already announced before the operation ran, so
+   * the interface can repeat the exact sentence the user read, in their
+   * language. What they were told and what they get cannot contradict.
+   */
+  motif?: Motif;
 }
 
 export type WriteResult = WriteOk | WriteFail;

@@ -1,7 +1,7 @@
 /**
  * What the tool can do, format by format. Single source.
  *
- * The home page table is rendered from this constant, and the engine reads it
+ * Each page's table is rendered from this constant, and the engine reads it
  * too. The table can therefore no longer drift from the code: the rule that a
  * cell only turns to yes once its test is green stops being a discipline and
  * becomes a mechanical property.
@@ -36,9 +36,6 @@ const RIEN: Capacites = {
 export interface LigneMatrice {
   /** Formats covered by the row, in display order. */
   formats: Format[];
-  libelle: string;
-  /** Short note shown next to the label, where there is one. */
-  mention?: string;
   capacites: Capacites;
 }
 
@@ -49,13 +46,10 @@ export interface LigneMatrice {
 export const MATRICE: LigneMatrice[] = [
   {
     formats: ['jpeg'],
-    libelle: 'JPEG',
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
   {
     formats: ['heic', 'avif'],
-    libelle: 'HEIC, AVIF',
-    mention: 'iPhone',
     // "Add" grows nothing in place: the new block goes into a box appended at
     // the end of the file, and the single item location table entry concerned
     // is repointed. The file grows, no existing byte moves. Stays closed file
@@ -65,27 +59,20 @@ export const MATRICE: LigneMatrice[] = [
   },
   {
     formats: ['png'],
-    libelle: 'PNG',
     // No internal absolute offsets: growing a chunk invalidates nothing, so
     // adding is safe. It is the only format here in that position.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
   {
     formats: ['webp'],
-    libelle: 'WebP',
     // The simple form has no slot for a location: there is nothing to read or
     // correct there, and creating one is out of reach. The interface says so
     // file by file, before the action.
-    mention: 'forme étendue',
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
   {
     formats: ['tiff'],
-    libelle: 'TIFF',
-    // In plain words: a camera raw file is a TIFF, and the row would otherwise
-    // announce an add it refuses on those.
-    mention: 'hors fichiers bruts',
-    // A digital negative is a TIFF, and adding bytes to one would damage an
+    // A camera raw file is a TIFF, and adding bytes to one would damage an
     // irreplaceable original. "Add" is therefore only open to files that prove
     // they are ordinary images, from an allowlist tested both ways on real
     // DNG, NEF and CR2 files and real TIFFs. On a negative, the container says
@@ -97,7 +84,7 @@ export const MATRICE: LigneMatrice[] = [
   // second reader opens neither MOV nor MP4. The cell was wrong. It stays
   // wrong until a real video can test it, and no freely-licensed public corpus
   // provides one.
-  { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: RIEN },
+  { formats: ['video'], capacites: RIEN },
 ];
 
 /** What the tool can do with a format, regardless of the file received. */
@@ -108,12 +95,14 @@ export function capacitesDe(format: Format): Capacites {
   return RIEN;
 }
 
-/** The table columns, in order. */
-export const COLONNES = ['Lire', 'Corriger', 'Ajouter', 'Effacer'] as const;
-
-export function cellules(c: Capacites): string[] {
-  const dire = (v: boolean) => (v ? 'oui' : 'pas encore');
-  return [dire(c.lire), dire(c.corriger), dire(c.ajouter), dire(c.effacer)];
+/**
+ * The four cells of a row, in column order.
+ *
+ * Returns booleans, not words: the table states the same truth in every
+ * language, and the dictionary chooses how to say it.
+ */
+export function cellules(c: Capacites): boolean[] {
+  return [c.lire, c.corriger, c.ajouter, c.effacer];
 }
 
 // Sentences
@@ -138,30 +127,7 @@ export type Motif =
   | 'video'
   | 'inconnu';
 
-// No container jargon in these sentences: no "EXIF", no "metadata", no "IFD",
-// no "container", and no internal box or chunk name.
-const PHRASES: Record<Motif, string> = {
-  ok: 'La position sera écrite dans le fichier, sans retoucher l’image.',
-  'sans-lieu':
-    'Cette photo ne porte aucun lieu. Nous savons en retirer un, mais pas encore en ajouter un à ce type de photo.',
-  'sans-emplacement': 'Ce fichier ne contient aucune information de lieu à modifier.',
-  'forme-inhabituelle':
-    'Le lieu est enregistré ici d’une façon inhabituelle. Nous savons le lire, mais le modifier risquerait d’abîmer la photo : nous préférons ne pas y toucher.',
-  'rangement-inconnu':
-    'Cette photo range ses informations d’une façon que nous ne savons pas encore manipuler sans risque.',
-  'copie-ailleurs':
-    'Cette photo range aussi le lieu à un autre endroit, sous une forme que nous ne savons pas encore retirer. Nous préférons ne rien retirer plutôt que d’en oublier une copie.',
-  'copie-compressee':
-    'Cette image range aussi le lieu sous une forme compressée que nous ne savons pas encore rouvrir. Nous préférons ne rien retirer plutôt que d’en oublier une copie.',
-  'lecture-seule':
-    'Nous savons lire la position de ce fichier, mais pas encore la modifier sans risquer de l’abîmer.',
-  'sans-lieu-possible':
-    'Cette image n’a pas d’emplacement prévu pour un lieu, et nous ne savons pas encore lui en créer un.',
-  video:
-    'Nous ne savons pas encore travailler sur les vidéos : une vidéo range le lieu à plusieurs endroits, parfois en toutes lettres, et nous préférons ne rien promettre que nous ne tenions.',
-  inconnu: 'Nous ne reconnaissons pas ce type de fichier.',
-};
-
-export function phraseDe(motif: Motif): string {
-  return PHRASES[motif];
-}
+// The sentences themselves live in src/lib/i18n/: the engine returns a reason
+// key and the interface picks the words. That is what allows a second language
+// without touching a line of binary surgery, and what makes a missing sentence
+// a compile error rather than a French word on an English page.
