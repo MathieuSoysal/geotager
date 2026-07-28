@@ -16,6 +16,18 @@ const DIST = 'dist';
 const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const PORT = 4319;
 
+/**
+ * The CSP actually served, read from `public/_headers`.
+ *
+ * It is read rather than copied: a policy copied here would drift from the one
+ * the host serves, and the test would end up validating a page nobody receives.
+ * Until now this server set no header at all, so a `style` attribute refused in
+ * production went unnoticed in the tests, and there was one, on the template.
+ */
+const CSP = readFileSync('public/_headers', 'utf8')
+  .match(/^\s*Content-Security-Policy:\s*(.+)$/m)[1]
+  .trim();
+
 const MIME = {
   '.xml': 'application/xml; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -61,7 +73,10 @@ const serveur = createServer((req, res) => {
     res.writeHead(404).end('non trouvé');
     return;
   }
-  res.writeHead(200, { 'content-type': MIME[extname(f)] ?? 'application/octet-stream' });
+  res.writeHead(200, {
+    'content-type': MIME[extname(f)] ?? 'application/octet-stream',
+    'Content-Security-Policy': CSP,
+  });
   res.end(readFileSync(f));
 });
 await new Promise((r) => serveur.listen(PORT, r));
@@ -412,6 +427,36 @@ check("la zone de dépôt est un label lié à un input de fichier",
   }));
 check('une région live existe pour les annonces',
   await page.locator('#annonce[aria-live="polite"]').count() === 1);
+
+console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
+check('le décor est hors de l\'arbre d\'accessibilité',
+  await page.evaluate(() => {
+    const d = document.getElementById('decor');
+    return !!d
+      && d.getAttribute('aria-hidden') === 'true'
+      && getComputedStyle(d).pointerEvents === 'none'
+      && d.querySelectorAll('[tabindex],a,button,input').length === 0;
+  }));
+// The shape is computed at build time by the same module as the loop: it is
+// therefore already in the served HTML, and nothing appears on startup.
+const tracesServies = await page.locator('#decor path[d]').count();
+check('la forme est déjà dessinée dans le HTML servi', tracesServies === 3, String(tracesServies));
+
+// The stylesheet's blanket rule only cuts CSS animations. A rAF loop escapes
+// it: it is up to the script to read the preference, and that is precisely what
+// this check verifies.
+{
+  const calme = await navigateur.newContext({ reducedMotion: 'reduce' });
+  const pageCalme = await calme.newPage();
+  await pageCalme.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+  const avant = await pageCalme.locator('#decor path').first().getAttribute('d');
+  await pageCalme.waitForTimeout(2000);
+  const apres = await pageCalme.locator('#decor path').first().getAttribute('d');
+  const grave = readFileSync(join(DIST, 'index.html'), 'utf8').match(/d="(M[^"]*)"/)[1];
+  check('« moins de mouvement » : la forme ne bouge pas', avant === apres);
+  check('« moins de mouvement » : c\'est l\'image gravée au build', avant === grave);
+  await calme.close();
+}
 
 await navigateur.close();
 serveur.close();
