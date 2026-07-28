@@ -388,6 +388,86 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 .alerte.attention { background: rgba(255, 176, 32, .12); border-color: rgba(255, 176, 32, .35); color: #ffd28a; }
 .alerte.grave { background: rgba(255, 51, 133, .12); border-color: rgba(255, 51, 133, .4); color: #ffb0cf; }
 
+/* --- carte de choix du lieu --------------------------------------- */
+
+/*
+ * La carte grandit DANS `.panel`, qui défile déjà (`overflow-y: auto`) à
+ * l'intérieur de la rangée `1fr` de `.stage`. Rien sous elle ne bouge, et la
+ * hauteur verrouillée de la scène tient sans qu'on y touche.
+ *
+ * Aucune position n'est écrite ici : tout ce qui bouge est posé par le CSSOM
+ * depuis `carte.ts`. La politique de sécurité refuse les attributs `style`
+ * SERVIS, pas les écritures du JavaScript.
+ */
+.carte-bloc { display: flex; flex-direction: column; gap: .55rem; align-items: flex-start; }
+.carte-bloc > div { width: 100%; }
+.aide.avis { margin: 0 0 .5rem; }
+
+.carte-cadre {
+  position: relative; width: 100%; aspect-ratio: 4 / 3; max-height: 42svh;
+  border-radius: 1.2rem; overflow: hidden;
+  border: 1.5px solid var(--bordure); background: var(--panel-haut);
+}
+
+.carte-vue {
+  position: absolute; inset: 0; overflow: hidden;
+  cursor: grab; touch-action: none; user-select: none;
+}
+.carte-vue.glisse { cursor: grabbing; }
+.carte-vue:focus-visible { outline: 2px solid var(--pink); outline-offset: -2px; }
+
+.carte-tuiles { position: absolute; top: 0; left: 0; will-change: transform; }
+.carte-tuile {
+  position: absolute; top: 0; left: 0; width: 256px; height: 256px;
+  /* Les tuiles arrivent l'une après l'autre : sans cela, chacune clignote. */
+  pointer-events: none; -webkit-user-drag: none;
+}
+
+/*
+ * Le repère est une mire centrée sur le point, et non une goutte à pointe.
+ *
+ * Deux raisons. La première est de fond : ici le point visé est le centre de la
+ * vue, et une mire dit « ce pixel-ci » sans qu'on ait à deviner où tombe une
+ * pointe. La seconde est une leçon : la goutte demandait `rotate: -45deg`, et
+ * les propriétés individuelles de transformation s'appliquent AVANT `transform`.
+ * La translation posée par le script se retrouvait tournée de 45°, et le repère
+ * atterrissait 275 px au-dessus de la carte. Ne jamais poser `rotate`, `scale`
+ * ou `translate` sur un élément que le script déplace par `transform`.
+ */
+.carte-repere, .carte-origine { position: absolute; top: 0; left: 0; pointer-events: none; }
+.carte-repere {
+  width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  border-radius: 50%; border: 2.5px solid var(--pink);
+  background: rgba(255, 51, 133, .16);
+  box-shadow: 0 0 0 1.5px var(--encre), 0 0 0 7px rgba(255, 51, 133, .13);
+}
+.carte-repere::after {
+  content: ''; position: absolute; inset: 0; margin: auto;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--pink);
+  box-shadow: 0 0 0 1.5px var(--encre);
+}
+.carte-origine {
+  width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%;
+  background: var(--muted); border: 2px solid var(--encre); opacity: .85;
+}
+
+.carte-zoom { position: absolute; top: .55rem; right: .55rem; display: flex; flex-direction: column; gap: .3rem; }
+.carte-zoom button {
+  width: 2rem; height: 2rem; border-radius: .6rem; cursor: pointer;
+  background: var(--panel); color: var(--text); border: 1px solid var(--bordure);
+  font: inherit; font-size: 1.1rem; line-height: 1; display: grid; place-items: center;
+}
+.carte-zoom button:hover { background: var(--panel-haut); color: var(--pink); }
+
+.carte-pied {
+  display: flex; justify-content: space-between; gap: .8rem; flex-wrap: wrap;
+  margin: .45rem 0 0;
+}
+.carte-pied a { color: var(--muted); }
+.carte-pied a:hover { color: var(--pink); }
+
+@media (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
+
 .scrollcue { display: flex; justify-content: center; padding: .2rem 0 1.1rem; }
 .scrollcue a { color: var(--muted); font-size: .82rem; text-decoration: none; }
 .scrollcue a:hover { color: var(--pink); }

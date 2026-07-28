@@ -1392,3 +1392,66 @@ bon côté du seuil. `.sub` à 320 × 568 est le point le plus tendu et le premi
 dégradés devaient encore forcer.
 
 **Bloque :** non.
+
+## [V1.2] Q-044 — La carte devient un viseur, sur activation explicite
+
+**Contexte :** Q-025 a retenu « coordonnées seules, aucune carte en V0 », et Q-003 « la carte n'est
+pas un viseur ». Les deux s'appuient sur `docs/gate1/att_carte.md`, dont le §1 démontre qu'aucun
+zoom entier ne satisfait `r ∈ [8,46 ; 10] m/px` — **avec `maxZoom = 14` et sans imagerie** — et
+dont le §2 mesure un écran vide 77 à 94 % du temps, **parce qu'il n'y a que des contours
+administratifs à afficher**. Ces deux calculs restent justes. Ils ne portent simplement plus sur le
+même objet : avec de vraies tuiles, `metresParPixel(46,5°, 17) = 0,82 m/px` et l'écran n'est jamais
+vide. Le test `Précision d'un clic — la table du Gate 1 fait foi` reprend la table de l'attestation
+telle quelle, pour que toucher à la constante fasse échouer la build en pointant vers le document
+où le nombre fait autorité.
+
+Q-003 avait d'ailleurs prévu ce cas. Son option C — « on ajoute un fond de tuiles » — était admise
+**sur activation explicite seulement**. C'est exactement le régime retenu ici : ce n'est pas un
+revirement, c'est la porte que Q-003 avait laissée entrouverte, et qu'on franchit.
+
+**Options :**
+
+- **A.** Carte SVG maison sans tuiles (Q-008). Ne coûte aucune requête, et ne sait toujours pas
+  viser : c'est précisément ce que l'attestation a démontré.
+- **B.** Tuiles OpenStreetMap, carte repliée par défaut, module de carte chargé à la demande.
+- **C.** Auto-héberger les tuiles (PMTiles sur R2). Supprime le tiers, et sort du périmètre : le
+  rendu vectoriel demande MapLibre, écarté à 273 Ko gzip, et l'extrait ne tient pas dans les assets
+  statiques.
+- **D.** Intégrer Google Maps en `<iframe>`. **Techniquement incapable de rendre le service :** un
+  cadre ne peut pas dire à la page qui le contient où l'utilisateur a cliqué. Écarté sur ce fait,
+  avant même la question du coût ou du pistage.
+
+**Retenu : B.** Le bouton « Placer sur une carte » est replié. Tant que personne ne l'ouvre, ni le
+code de la carte ni une seule tuile n'est demandé — l'îlot les charge en `import()` dynamique, dans
+un module de 1 640 o gzip. Le parcours complet du test de bout en bout tourne carte fermée et
+continue d'affirmer, mot pour mot, « aucune requête vers un domaine tiers ». C'est ce contrôle
+inchangé qui prouve que la fonctionnalité est facultative.
+
+**Ce que cela coûte, et qui est écrit sur les deux pages :**
+
+- « Aucune requête n'apparaît » devient « aucune requête n'apparaît tant que vous n'ouvrez pas la
+  carte ». Les deux pages, les deux README et le test disent désormais la même chose.
+- Les URL de tuiles disent à l'OSMF quelle zone est regardée. La carte ouvre donc au zoom 13, le
+  quartier et non le pas de porte, et l'avertissement est affiché **avant** le clic.
+- Les requêtes portent `Referer: https://geotager.app/`, et non rien. La politique d'usage de
+  l'OSMF demande que le client s'identifie ; `referrerPolicy = 'origin'` est le plus petit accord
+  possible avec l'en-tête `Referrer-Policy: no-referrer` du site. C'est écrit dans les deux pages.
+- `Permissions-Policy: geolocation=()` n'est pas touché. Il n'y a pas de bouton « me localiser »,
+  et le navigateur lui-même l'interdit.
+
+**Le critère « aucune ressource tierce » avait un trou, et il est refermé au passage.** Les motifs
+de `check-build.mjs` ne voient que des formes HTML et CSS. Une URL construite par concaténation en
+JavaScript ne déclenchait aucun d'eux : un fond de carte tiers serait passé sans un mot. Un
+contrôle §2 bis inventorie désormais toute URL absolue littérale du JavaScript servi, contre
+l'union des listes blanches. Il naît vert — aucun fichier n'en plaçait dans le bundle — et il est
+strictement plus fort que ce qui existait.
+
+**`accuracyMetres` trouve enfin une source, et on n'en dit rien à l'écran.** Le champ est plumé
+depuis l'origine jusqu'à `GPSHPositioningError` ; il n'avait aucune valeur honnête à quoi le
+relier. Le zoom en est une. Mais `tiff.ts` saute ce champ sur la voie P1, et `conteneurs.ts` le
+sait déjà : « La voie P1 ne peut pas ajouter d'entrée, donc pas inscrire une précision que le
+fichier ne portait pas déjà. On ne l'annoncera pas. » L'interface ne l'annonce donc pas non plus.
+Une précision inscrite sur certains fichiers et pas sur d'autres, présentée comme acquise, serait
+exactement le genre de demi-vérité que le reste des tests existe pour empêcher.
+
+**Bloque :** non.

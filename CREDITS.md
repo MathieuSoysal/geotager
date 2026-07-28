@@ -26,7 +26,8 @@ entrée Q-012) :
 | `exifr` | ^7.1.3 | MIT | Lecture des métadonnées, et **relecture croisée** après écriture |
 | `client-zip` | ^2.5.0 | MIT | Export ZIP en mode lot |
 
-**Poids réel mesuré sur la build : 43 130 o gzip, soit 28,1 % du budget de 150 Ko.**
+**Poids réel mesuré sur la build : 52 708 o gzip, soit 34,3 % du budget de 150 Ko.** Dont 1 640 o
+pour la carte, dans un module à part que rien ne télécharge tant que personne ne l'ouvre.
 
 ### Développement seulement
 
@@ -84,9 +85,31 @@ Les woff2 embarquent déjà Brotli : les recompresser ne gagne rien (−0,5 %).
 
 | Source | Licence | Usage |
 |---|---|---|
+| `tile.openstreetmap.org` — tuiles rendues | Données **ODbL**, rendu © les contributeurs OpenStreetMap | Fond de la carte de choix du lieu. **Chargé depuis un serveur tiers, et le seul du projet.** |
 | `geo.api.gouv.fr` — communes | Licence Ouverte (à confirmer dans les mentions légales du service) | Index de lieux : nom, INSEE, code postal, mairie, population, surface |
 | data.gouv.fr — contours administratifs 2025 | ODbL | Contours départementaux et communaux |
 | `raw.pixls.us` | CC0 | Corpus de test, fichiers garantis non retouchés |
+
+### Les tuiles OpenStreetMap, et ce qu'elles coûtent
+
+Ce n'est pas un paquet npm : aucune ligne de code tierce n'entre dans la build. Ce sont des **images
+chargées à la demande** depuis `tile.openstreetmap.org`, et elles sont à ce titre la seule exception
+au « zéro requête tierce » — inerte tant que l'utilisateur n'ouvre pas la carte.
+
+Trois obligations, toutes tenues dans le produit :
+
+- **Attribution visible** dès que la carte l'est : « © OpenStreetMap contributors », liée à
+  `openstreetmap.org/copyright`. C'est la condition de l'ODbL comme de la politique d'usage.
+- **Volume faible.** La politique de la fondation tolère les usages légers et décourage les
+  applications distribuées qui tapent sur ses serveurs. Une ouverture de carte coûte une dizaine de
+  tuiles ; le zoom d'ouverture est volontairement bas.
+- **Réversibilité.** Le gabarit d'URL est une constante unique (`TUILES`, dans
+  `src/lib/ui/carte.ts`). Changer de fournisseur pour un service dont les conditions couvrent
+  explicitement l'usage web est une modification d'une ligne, et c'est à faire avant que le trafic
+  n'arrive.
+
+Écartés pour ce rôle : les fournisseurs à clé d'API (la clé serait publique dans le bundle) et
+`maps.wikimedia.org` (réservé aux projets Wikimedia).
 
 L'ODbL des contours impose une attribution et une clause de partage à l'identique sur les données
 dérivées : à honorer dans le pied de page et dans `public/geo/LICENSE`.

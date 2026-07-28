@@ -68,6 +68,17 @@ export interface Dictionnaire {
     ouPrise: string;
     aideCoords: string;
     aideCoordsFort: string;
+    /** La carte de choix du lieu — repliée tant qu'on ne la demande pas. */
+    ouvrirCarte: string;
+    fermerCarte: string;
+    avisCarte: string;
+    carteLabel: string;
+    carteAide: string;
+    zoomAvant: string;
+    zoomArriere: string;
+    contributeurs: string;
+    repereOrigine: string;
+    positionChoisie: (p: string) => string;
     telecharger: string;
     effacer: string;
     effacerTout: string;
