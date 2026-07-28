@@ -13,6 +13,20 @@
  * 2. Les panneaux sont des couleurs opaques, pas des `backdrop-filter`. Même
  *    raison de coût, et le contraste devient déterministe au lieu de dépendre
  *    de ce qui passe derrière.
+ *
+ * Le décor animé de `.decor` (V1.2) n'est pas un retour en arrière sur le
+ * point 1 : il n'anime aucune propriété CSS. C'est une boucle `rAF` qui
+ * réécrit l'attribut `d` de quatre <path>, sur une surface bornée et composée à
+ * part, sans flou et sans `backdrop-filter`. Voir Q-040.
+ *
+ * Il emploie en revanche `mix-blend-mode: screen`, ce que Q-040 avait écarté —
+ * sous `isolation: isolate`, qui limite le groupe de fusion au calque lui-même.
+ * Les formes se mélangent entre elles, jamais avec la page : le grief du point
+ * 1 visait une surface plein écran relisant le fond à chaque image. Voir Q-042.
+ *
+ * Les opacités des dégradés sont plafonnées par le contraste et non par le
+ * goût, et le plafond a été relevé en éclaircissant le texte du héros — de
+ * 0,0380 à 0,0940. C'est ce qui paie la couleur. Voir Q-042.
  */
 
 :root {
@@ -26,6 +40,11 @@
   --amber: #ffb020;
   --indigo: #8b87ff;
   --encre: #1a0a12;
+  /* Le texte qui passe au-dessus du décor. Voir le bloc du héros plus bas :
+     ces trois valeurs sont ce qui autorise la couleur des formes. */
+  --clair: #ded9e2;
+  --clair-mono: #ded9e2;
+  --rose-clair: #ff93bd;
   --bordure: rgba(244, 241, 245, 0.12);
   --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -37,11 +56,18 @@
 body {
   margin: 0;
   background: var(--bg);
-  /* Les trois formes de la maquette, en dégradés statiques. */
+  /*
+   * Les formes de la maquette, en dégradés statiques — et c'est ici que la
+   * couleur remplit l'écran. Un dégradé radial ne coûte qu'une passe de shader,
+   * une fois : il peut donc être franc et couvrir toute la fenêtre, là où la
+   * surface animée doit rester bornée sous peine de tomber à douze images par
+   * seconde. La quatrième, ambre, répond à la quatrième forme du décor.
+   */
   background-image:
-    radial-gradient(60rem 60rem at 8% -10%, rgba(255, 51, 133, 0.28), transparent 60%),
-    radial-gradient(50rem 50rem at 96% 6%, rgba(74, 70, 201, 0.30), transparent 62%),
-    radial-gradient(44rem 44rem at 62% 108%, rgba(0, 211, 197, 0.16), transparent 60%);
+    radial-gradient(72rem 72rem at 2% -14%, rgba(255, 51, 133, 0.42), transparent 62%),
+    radial-gradient(64rem 64rem at 99% 0%, rgba(139, 135, 255, 0.36), transparent 64%),
+    radial-gradient(58rem 58rem at 46% 114%, rgba(0, 211, 197, 0.26), transparent 62%),
+    radial-gradient(50rem 50rem at 96% 96%, rgba(255, 176, 32, 0.20), transparent 60%);
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--sans);
@@ -53,8 +79,133 @@ body {
 .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.25rem; }
 /* Un élément flex dont la marge transversale vaut `auto` cesse d'être étiré :
    sans cette largeur, le gabarit se réduit à son contenu et la barre se
-   retrouve tassée au centre. */
-.app > .wrap { width: 100%; }
+   retrouve tassée au centre.
+
+   Les trois déclarations qui suivent étaient un attribut `style` sur le
+   gabarit. La CSP du site ne porte pas `'unsafe-inline'`, et `style-src` régit
+   aussi `style-src-attr` : en production, le navigateur refusait l'attribut et
+   la colonne ne s'étirait pas. Aucun test ne servait l'en-tête, donc rien ne le
+   disait. C'est réparé des deux côtés — la règle ici, l'en-tête dans le test. */
+.app > .wrap { width: 100%; display: flex; flex-direction: column; flex: 1; }
+
+/* --- décor : hors flux, hors focus, hors métrique --- */
+/*
+ * `position: fixed` : le calque ne participe à aucune mise en page. Il ne peut
+ * donc pas décaler la grille à hauteur verrouillée de `.stage`, ni entrer dans
+ * le CLS, et sa boîte est entièrement connue avant qu'aucun script ne tourne.
+ * Un SVG en ligne n'est pas candidat au LCP : le <h1> reste l'élément mesuré.
+ *
+ * `min()` et non `clamp()` : un plancher en `rem` dépasserait la largeur d'un
+ * téléphone de 360 px, et un élément `fixed` n'est pas rogné par le
+ * `overflow-x: hidden` de `body` — qui n'est pas son bloc conteneur. Ce serait
+ * une barre de défilement horizontale.
+ *
+ * Les deux axes sont bornés, et pas seulement la largeur. Le calque est carré :
+ * sans la borne en hauteur, un téléphone couché — 844 × 390 — recevrait un
+ * carré de 640 px dans une fenêtre de 390 px de haut. La forme noierait tout le
+ * héros et emporterait le contraste sous le texte. `svh` est la mesure prudente
+ * (barres d'outils affichées), et c'est déjà l'unité de `.app`.
+ */
+.decor {
+  position: fixed;
+  /*
+   * La surface animée est bornée, et la mesure ne laisse pas le choix. Étendue
+   * à la fenêtre entière, elle coûtait 33 ms par image sur un portable et
+   * 83 ms — douze images par seconde — sur un 2560. Le détail : le mélange en
+   * double le coût, la surface fait le reste (50 ms sans lui). Ce qui remplit
+   * l'écran, ce sont les dégradés statiques de `body` : une passe de shader,
+   * zéro travail par image. Ce qui bouge reste borné. Voir Q-043.
+   */
+  left: 50%; top: 50%;
+  translate: -50% -50%;
+  width: min(96vw, 94svh, 52rem);
+  aspect-ratio: 1;
+  z-index: 0;
+  pointer-events: none;
+  contain: strict;
+  /* Couche propre : réécrire `d` ne repeint alors que ce calque. */
+  will-change: transform;
+  transition: opacity .3s ease, transform .3s ease;
+  /*
+   * `isolate` est ce qui rend le `screen` ci-dessous acceptable. Sans lui, le
+   * groupe de fusion serait la page entière : chaque image relirait le fond,
+   * et c'est précisément le mécanisme que `att_budget.md` §1 a classé BLOQUANT.
+   * Isolé, le groupe se limite à ce calque-ci, déjà borné et déjà composé à
+   * part — les quatre formes se mélangent entre elles, jamais avec la page.
+   */
+  isolation: isolate;
+}
+.decor svg { display: block; width: 100%; height: 100%; }
+/*
+ * Superposées en `source-over`, quatre couleurs translucides sur un fond sombre
+ * ne s'additionnent pas : elles se neutralisent, et les recouvrements virent au
+ * gris. `screen` les garde lumineuses, ce qui est toute la différence entre une
+ * brume et de la couleur. L'argument de coût qui l'avait écarté valait à 0,12
+ * d'opacité, où l'écart avec `source-over` restait sous trois niveaux sur 255 ;
+ * il ne vaut plus à 0,27.
+ */
+.decor path { mix-blend-mode: screen; }
+
+/* Les jetons restent la source unique. `stop-color` et `stop-opacity` sont de
+   vraies propriétés CSS, où `var()` se résout — ce qui n'est pas le cas dans
+   un attribut de présentation. */
+.bd-rose stop { stop-color: var(--pink); }
+.bd-indigo stop { stop-color: var(--indigo); }
+.bd-teal stop { stop-color: var(--teal); }
+.bd-ambre stop { stop-color: var(--amber); }
+/*
+ * Plafonnées par le contraste, et le plafond a été relevé exprès. Tant que le
+ * sous-titre était `--muted`, le fond ne pouvait pas dépasser L = 0,038 et la
+ * couleur restait un murmure. Le texte du héros éclairci (voir plus bas) porte
+ * la limite à 0,094 : c'est ce qui paie ces opacités-là. Voir Q-042.
+ */
+.bd-rose .dedans { stop-opacity: .27; } .bd-rose .milieu { stop-opacity: .19; }
+.bd-indigo .dedans { stop-opacity: .22; } .bd-indigo .milieu { stop-opacity: .155; }
+.bd-teal .dedans { stop-opacity: .155; } .bd-teal .milieu { stop-opacity: .11; }
+.bd-ambre .dedans { stop-opacity: .13; } .bd-ambre .milieu { stop-opacity: .09; }
+.decor .dehors { stop-opacity: 0; }
+
+/*
+ * Fenêtre basse — un téléphone couché, typiquement. Le héros n'y tient pas
+ * d'un seul tenant : le titre et le sous-titre naissent sous la ligne de
+ * flottaison, et pour les lire il faut défiler. Or le calque est `fixed` et
+ * centré : le texte vient donc nécessairement croiser son centre, c'est-à-dire
+ * l'endroit le plus dense du dégradé. Mesuré à 844 × 390 : 4,05:1 sous `.sub`,
+ * sous le seuil de 4,5:1. Les mêmes opacités à 45 % ramènent à 5,4:1.
+ *
+ * C'est aux arrêts du dégradé et non à l'opacité du calque, pour que le réglage
+ * se compose avec `.repos`, `.parti` et le glisser-déposer au lieu d'entrer en
+ * conflit de spécificité avec eux.
+ */
+@media (max-height: 40rem) {
+  .bd-rose .dedans { stop-opacity: .054; } .bd-rose .milieu { stop-opacity: .039; }
+  .bd-indigo .dedans { stop-opacity: .04; } .bd-indigo .milieu { stop-opacity: .029; }
+  .bd-teal .dedans { stop-opacity: .027; } .bd-teal .milieu { stop-opacity: .019; }
+}
+/* Plus la fenêtre est basse, plus la part du décor que le texte doit traverser
+   est grande : le réglage précédent tient à 640 px de haut (5,7:1) mais plus à
+   360 (4,5:1). Deuxième palier, mesuré, pour les vrais téléphones couchés. */
+@media (max-height: 26rem) {
+  .bd-rose .dedans { stop-opacity: .026; } .bd-rose .milieu { stop-opacity: .019; }
+  .bd-indigo .dedans { stop-opacity: .02; } .bd-indigo .milieu { stop-opacity: .014; }
+  .bd-teal .dedans { stop-opacity: .013; } .bd-teal .milieu { stop-opacity: .009; }
+}
+
+/* Tout ce qui se lit passe devant. Une boîte statique se peint AVANT une boîte
+   positionnée : sans cette règle, `#contenu` — qui est un frère de `.app`, pas
+   un descendant — passerait sous le décor. */
+.app, #contenu { position: relative; z-index: 1; }
+
+/* Le geste est accusé au compositeur seul, comme la bulle plus bas. Exclure
+   `.parti` : hors du héros, le décor ne doit pas se rallumer sous l'article. */
+body.glisse .decor:not(.parti) { transform: scale(1.07); opacity: 1; }
+
+/* Une photo est chargée : l'îlot est opaque, chaque image serait dépensée
+   derrière une surface pleine. */
+.decor.repos { opacity: .3; }
+/* Le héros est sorti de l'écran : plus rien à décorer, et le texte de
+   l'article ne passe jamais au-dessus d'une couleur qui bouge. */
+.decor.parti { opacity: 0; will-change: auto; }
 
 :focus-visible {
   outline: 3px solid var(--pink);
@@ -119,9 +270,12 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
   gap: .7rem; padding: 1.5rem; background: var(--pink); color: var(--encre);
   font-family: var(--sans); border-radius: 58% 42% 46% 54% / 52% 58% 42% 48%;
   box-shadow: 0 0 6rem -1rem rgba(255, 51, 133, .8);
-  transition: transform .2s ease;
+  /* La courbe dépasse 1 avant de revenir : la bulle rebondit au lieu de
+     glisser. C'est le seul endroit de la page où ce ressort a sa place — le
+     geste principal peut se permettre d'être un peu joueur. */
+  transition: transform .34s cubic-bezier(.34, 1.56, .64, 1);
 }
-.bubble:hover, .bubble:focus-within { transform: scale(1.04); }
+.bubble:hover, .bubble:focus-within { transform: scale(1.05); }
 .bubble svg { width: 2.9rem; height: 2.9rem; }
 .bubble b { font-size: 1.2rem; font-weight: 600; line-height: 1.15; display: block; }
 .bubble small { font-size: .9rem; opacity: .75; display: block; margin-top: .15rem; }
@@ -131,9 +285,21 @@ h1 {
   font-weight: 800; font-size: clamp(1.5rem, 3.6vw, 2.25rem); line-height: 1.08;
   letter-spacing: -.035em; margin: .3rem 0 0; max-width: 20rem;
 }
-h1 em { font-style: normal; color: var(--pink); }
-.sub { margin: 0; color: var(--muted); max-width: 30rem; font-size: .95rem; }
-.formats { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin: .2rem 0 0; }
+/*
+ * Le texte du héros est plus clair que le reste de la page, et ce n'est pas une
+ * coquetterie : c'est lui qui paie la couleur du décor. Un fond ne peut pas
+ * dépasser une luminance que le texte posé dessus rend illisible, et le
+ * sous-titre en `--muted` plafonnait le décor à L = 0,038 — d'où un décor qu'il
+ * fallait deviner. Éclairci, il porte la limite à 0,094, et les formes peuvent
+ * enfin avoir la couleur qu'on leur voulait. Les trois valeurs sont choisies
+ * par le calcul, pas à l'œil : voir Q-042.
+ *
+ * `--muted` n'est pas touché : ailleurs sur la page, aucun texte ne passe
+ * au-dessus du décor, et l'y éclaircir n'achèterait rien.
+ */
+h1 em { font-style: normal; color: var(--rose-clair); }
+.sub { margin: 0; color: var(--clair); max-width: 30rem; font-size: .95rem; }
+.formats { font-family: var(--mono); font-size: .72rem; color: var(--clair-mono); margin: .2rem 0 0; }
 
 body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(255, 51, 133, .95); }
 

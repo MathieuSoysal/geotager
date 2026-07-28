@@ -258,7 +258,11 @@ forme organique est de toute façon **invisible**.
 - **C.** Maquette littérale. Attaque simultanément INP, LCP et l'autonomie, sans qu'aucune
   optimisation JS ne puisse le rattraper.
 
-**Retenu provisoirement :** **A**, avec **B** si le mouvement est jugé indispensable.
+**Retenu : A**, appliqué — les trois `radial-gradient` statiques de `body` sont la réponse au décor de
+la maquette, et ils le restent. **Le mouvement a ensuite été jugé indispensable**, et c'est la branche
+**B qui a été ouverte, dans une variante qu'aucune des options ci-dessus ne décrit** : la forme n'est
+pas figée puis translatée, elle est **recalculée** à chaque image. Cette variante ouvre donc son
+entrée propre : voir **Q-040**.
 
 **Bloque :** non.
 
@@ -1136,5 +1140,255 @@ Deux défauts voisins, trouvés en même temps et corrigés dans le même lot :
 Enfin, le tableau du `README.md` est écrit à la main et pouvait dériver de `MATRICE` — c'est pourtant
 le premier que lit quelqu'un qui découvre le projet. Un contrôle de build compare ses cellules à la
 constante, et il a été vérifié **en échec** avant d'être vérifié au vert.
+
+**Bloque :** non.
+
+---
+
+## [V1.2] Q-040 — Le décor reprend du mouvement, et il est calculé en JavaScript
+
+**Contexte :** Q-009 avait retenu **A** — décor statique — avec **B** — formes figées animées en
+`transform` — comme repli si le mouvement devenait indispensable. Il l'est devenu. Mais la forme
+demandée n'est pas une forme figée qu'on déplace : c'est une silhouette dont le contour **se
+déforme**, à la manière de Squoosh. Aucune propriété CSS ne sait faire cela sans revenir au
+`border-radius` que `att_budget.md` §1 a classé BLOQUANT. La seule voie est de recalculer la
+géométrie hors CSS.
+
+**Options :**
+- **A.** S'en tenir à Q-009 : pas de mouvement. Coût nul, et le décor ne raconte rien.
+- **B.** Formes SVG figées, animées en `transform`/`opacity` seuls. Compositeur seul, zéro thread
+  principal — mais le contour ne se déforme pas, et c'est précisément ce qu'on voulait.
+- **C.** Une boucle `requestAnimationFrame` qui réécrit l'attribut `d` de trois `<path>` à chaque
+  image, à partir d'une somme de sinus. Vraie déformation. **Travail sur le thread principal**, soit
+  exactement la catégorie de coût que `att_budget.md` §1 a attaquée — d'où cette entrée.
+
+**Retenu : C**, sous cinq conditions qui font toute la différence avec la maquette d'origine :
+
+1. **Aucune propriété non compositable n'est animée.** Aucun `@keyframes`, aucun `border-radius`. Ce
+   qui change est une géométrie SVG, pas une propriété CSS.
+2. **Aucun `filter`, aucun `mix-blend-mode`, aucun `backdrop-filter`.** La douceur vient d'un
+   `<radialGradient gradientUnits="userSpaceOnUse">` statique — le repère est la boîte de vue et non
+   la boîte englobante du tracé, qui changerait à chaque image. `screen` a été écarté par le calcul :
+   sur un fond à L ≈ 0,008 et une opacité ≤ 0,12, l'écart avec `source-over` vaut `a·B·(1−C) ≤ 0,011`,
+   **moins de trois niveaux sur 255** — invisible, et il coûtait une lecture du fond par image.
+3. **La surface est bornée**, `min(90vw, 40rem)`, et le calque est composé à part (`will-change`,
+   `contain: strict`) : réécrire `d` ne repeint jamais la page derrière.
+4. **La boucle s'arrête** dès qu'elle ne sert plus : héros hors écran (`IntersectionObserver` sur
+   `.stage` — le calque étant `fixed`, l'observer sur lui-même ne dirait jamais rien), photo chargée
+   (`MutationObserver` sur `#etat-actif[hidden]`, ce qui évite de toucher à `app.ts`), onglet caché.
+   Elle ne démarre qu'après un `requestIdleCallback`, pour ne pas disputer le LCP au `<h1>`.
+5. **`prefers-reduced-motion: reduce` est lu en JavaScript.** La règle générale de `global.css`
+   (`* { animation: none !important; transition: none !important }`) **ne coupe pas une boucle rAF** :
+   c'est le piège de cette option, et il est traité explicitement. Dans ce cas la boucle ne démarre
+   jamais, et la forme affichée est celle **gravée dans le HTML au build** — le même module de
+   géométrie est appelé par `Page.astro` et par le client, si bien qu'il n'y a rien à charger et rien
+   qui saute.
+
+**Ce que ça coûte, chiffres à l'appui :**
+
+| | |
+|---|---|
+| JS ajouté | **MESURÉ : +1 070 o gzip.** Budget 48 374 → **49 444 o, 32,2 % des 150 Ko** |
+| HTML ajouté | **MESURÉ : 3 × ~247 caractères** de tracé gravé, plus l'échafaudage `<svg>`/`<defs>` |
+| Trigonométrie par image | **18 appels**, pas 216 : `sin(u + mθ)` est développé et `cos(mθ)`/`sin(mθ)` tabulés une fois |
+| Coût par image | **MESURÉ : p95 de l'intervalle inter-image 16,8 ms** sous ralentissement CPU ×4 — la cadence d'écran, aucune image manquée |
+| Mémoire de couche | ESTIMÉ 6,5 Mo @ 640 px DPR 2 ; 3,8 Mo @ 412 px DPR 2,625 — contre 10,4 Mo **par surface** au §1 de `att_budget.md` |
+| CLS | **MESURÉ nul** : la boîte du `<h1>` est identique à 0 s et à 6 s. `position: fixed`, hors flux, boîte connue avant tout script |
+| LCP | inchangé : un SVG en ligne n'est pas candidat LCP, et le `<h1>` ne bouge pas |
+
+**Contraste — la contrainte qui a réellement dimensionné le décor.** `--muted #a49cac` sur
+`--bg #17161b` vaut ≈ 6,8:1. Pour rester à 4,5:1, la luminance relative composite sous `.sub` et
+`.formats` ne peut pas dépasser **0,0380** ; cible retenue **0,0292** (5:1). L'empilement de parité
+avec la maquette (rose .22 / indigo .18 / teal .12) composite à **L = 0,0604 → 3,59:1, non conforme**.
+L'empilement retenu — **rose .12 / indigo .09 / teal .06** — est **MESURÉ** au pire de seize secondes
+d'animation, texte rendu transparent pour ne lire que le fond. Les décalages statiques par couche
+interdisent aux trois maxima de se superposer, ce qui est ce qui tient la marge.
+
+**Le calque est borné sur les deux axes**, `min(90vw, 90svh, 40rem)`. La largeur seule ne suffisait
+pas : le calque est carré, et un téléphone couché — 844 × 390 — recevait un carré de 640 px dans une
+fenêtre de 390 px de haut.
+
+**Et une fenêtre basse demande un décor plus discret, ce que seule la mesure a montré.** Quand le
+héros ne tient pas d'un seul tenant, le titre et le sous-titre naissent sous la ligne de flottaison ;
+pour les lire il faut défiler, et comme le calque est `fixed` et centré, le texte vient
+**nécessairement** croiser son centre — l'endroit le plus dense du dégradé. Mesuré sur écran haut, le
+texte reste au contraire sous ce centre, là où le dégradé s'est déjà éteint. D'où deux paliers, aux
+arrêts du dégradé plutôt qu'à l'opacité du calque, pour se composer avec `.repos`, `.parti` et le
+glisser-déposer au lieu d'entrer en conflit de spécificité avec eux : **45 % sous 40 rem de haut,
+22 % sous 26 rem**. Sans eux, 844 × 390 tombait à **4,05:1** et 740 × 360 à 4,49:1.
+
+Matrice **MESURÉE** (luminance maximale du fond sous `.sub`, texte amené au centre de l'écran quand
+il naît hors cadre — le mesurer sans défiler donnerait un chiffre flatteur qui ne décrit rien) :
+
+| fenêtre | calque | tient | centré | derrière la bulle | L fond | ratio |
+|---|---|---|---|---|---|---|
+| 320 × 568 | 288² | oui | oui | oui | 0,0258 | 5,22:1 |
+| 360 × 780 | 324² | oui | oui | oui | 0,0158 | 6,02:1 |
+| 390 × 844 | 351² | oui | oui | oui | 0,0139 | 6,20:1 |
+| **844 × 390** couché | 351² | oui | oui | oui | 0,0272 | **5,13:1** |
+| **740 × 360** couché étroit | 324² | oui | oui | oui | 0,0326 | **4,79:1** |
+| 1024 × 640 basse | 576² | oui | oui | oui | 0,0197 | 5,68:1 |
+| 768 × 1024 | 640² | oui | oui | oui | 0,0251 | 5,28:1 |
+| 1024 × 768 | 640² | oui | oui | oui | 0,0264 | 5,19:1 |
+| 1440 × 900 | 640² | oui | oui | oui | 0,0221 | 5,49:1 |
+| 2560 × 1440 | 640² | oui | oui | oui | 0,0178 | 5,84:1 |
+
+Le pire cas est **4,79:1**, au-dessus du seuil de 4,5:1. Il reste sous la cible de 5:1 parce qu'à
+cette taille l'essentiel de ce qui est mesuré n'est plus le décor mais les trois `radial-gradient`
+statiques de `body`, que cette entrée ne touche pas.
+
+**Une limite connue, hors de cette entrée :** sur une fenêtre basse, le `<h1>`, `.sub` et `.formats`
+naissent sous la ligne de flottaison — à 844 × 390 la scène fait 577 px de haut. C'est **antérieur au
+décor** et vérifié identique sur `main` : la scène est verrouillée à la hauteur de la fenêtre
+(`min-height: 100svh`), et son contenu n'est pas compressé en dessous. Le décor n'y change rien ; il
+s'y adapte seulement.
+
+**Vérifié aussi :** décor hors de l'arbre d'accessibilité (`aria-hidden`, `pointer-events: none`,
+aucun élément focalisable), centré à moins de 1,5 px du centre de la fenêtre, effectivement derrière
+la bulle (`elementFromPoint` au centre de `.bubble` ne renvoie jamais le décor), immobile et
+strictement égal à l'image gravée sous `reducedMotion: 'reduce'`, à l'arrêt une fois le héros sorti
+de l'écran et reparti au retour.
+
+**Bloque :** non.
+
+---
+
+## [V1.2] Q-041 — Un attribut `style` que la CSP refusait, et qu'aucun test ne servait
+
+**Contexte :** le gabarit portait `style="display:flex;flex-direction:column;flex:1"` sur
+`.app > .wrap`. La CSP du site est `style-src 'self'`, sans `'unsafe-inline'`. En CSP niveau 3,
+`style-src-attr` se replie sur `style-src`, et `'self'` ne correspond jamais à un attribut en ligne :
+**le navigateur refusait donc ces trois déclarations en production**, et la colonne ne s'étirait pas.
+La feuille de style porte d'ailleurs déjà, deux lignes plus haut, un commentaire sur le fait qu'un
+élément flex cesse d'être étiré — quelqu'un avait vu le symptôme sans en voir la cause.
+
+Ce défaut est resté invisible parce que **le serveur du test de bout en bout ne posait aucun
+en-tête** : il servait `dist/` avec le seul `content-type`. La page testée n'était pas la page
+servie. C'est la classe de défaut la plus coûteuse — un contrôle qui existe, qui est vert, et qui ne
+regarde pas ce qu'il prétend regarder.
+
+**Retenu :** les trois déclarations passent dans `global.css`, sur la règle `.app > .wrap` qui
+existait déjà, et l'attribut disparaît. Aucun changement de comportement voulu : cela **rétablit** ce
+que la CSP empêchait.
+
+Surtout, le serveur du test lit désormais la politique dans `public/_headers` et la sert. Elle est
+**lue et non recopiée** : une politique recopiée dériverait de celle que sert l'hébergeur, et le test
+finirait par valider une page que personne ne reçoit. L'assertion « aucune erreur JavaScript sur tout
+le parcours » couvre les refus de la CSP, si bien que toute violation future échoue le lot — c'est
+exactement ce contrôle qui a échoué avant le correctif, puis passé après.
+
+Vérifié : `src/` ne contient plus aucun attribut `style`, aucun `setAttribute('style', …)` et aucune
+écriture `.style.` — la boucle du décor n'écrit que l'attribut `d`, qui est une géométrie et non un
+style, et le CSSOM n'est de toute façon pas régi par la CSP.
+
+**Bloque :** non.
+
+---
+
+## [V1.2] Q-042 — Le décor prend des couleurs, et c'est le texte qui les paie
+
+**Contexte :** le décor de Q-040 était juste, mesuré, et terne. Les opacités retenues
+(rose .12 / indigo .09 / teal .06) ne venaient pas d'un choix esthétique : elles étaient tout ce que
+le contraste autorisait. Le calcul est le même dans les deux sens — un fond ne peut pas dépasser la
+luminance que le texte posé dessus rend illisible — et le texte du héros était `--muted #a49cac`,
+d'où un plafond de **L ≤ 0,0380**. À ce plafond, quatre couleurs sur un fond sombre sont un murmure.
+
+Demande : s'inspirer de Squoosh, et que ce soit un peu amusant. Squoosh peut se permettre des formes
+franches parce que **son texte est clair**. C'est le vrai levier, et il n'est pas dans le décor.
+
+**Retenu :** éclaircir le texte du héros — et seulement lui — pour acheter la couleur.
+
+| | avant | après | plafond du fond |
+|---|---|---|---|
+| `.sub` | `--muted #a49cac` | `--clair #ded9e2` | 0,0381 → **0,1181** |
+| `.formats` | `--muted #a49cac` | `--clair-mono #cfc9d4` | 0,0381 → **0,0940** |
+| `h1 em` | `--pink #ff3385` | `--rose-clair #ff7fae` | 0,0511 → 0,0983 |
+
+Le plafond contraignant passe de **0,0380 à 0,0940**, soit deux fois et demie de couleur en plus.
+`--muted` n'est pas touché : ailleurs sur la page, aucun texte ne passe au-dessus du décor.
+
+Le reste suit ce budget : une **quatrième couche ambre** (le jeton existait, il ne servait pas au
+décor), des amplitudes portées de 0,175 à ~0,21 et des périodes raccourcies — le mouvement doit
+s'apercevoir, pas se deviner — et un calque agrandi à `min(96vw, 94svh, 52rem)`.
+
+**Deux corrections que seule l'image a montrées, et qu'aucune mesure n'aurait données :**
+
+1. **Les recouvrements viraient au gris.** Quatre couleurs translucides en `source-over` sur un fond
+   sombre ne s'additionnent pas, elles se neutralisent. `mix-blend-mode: screen` les garde lumineuses.
+   **Cela revient sur l'argument de Q-040**, et il faut le dire : j'y avais écarté `screen` en
+   calculant que l'écart avec `source-over` restait sous trois niveaux sur 255. Ce calcul était juste
+   **à 0,12 d'opacité**. Il ne l'est plus à 0,27. Ce qui rend le blend acceptable ici n'est donc pas
+   ce calcul mais **`isolation: isolate`** : le groupe de fusion se limite au calque, déjà borné et
+   déjà composé à part. Les quatre formes se mélangent entre elles, **jamais avec la page** — le
+   grief du §1 de `att_budget.md` visait une surface plein écran qui relit le fond à chaque image.
+2. **Les formes se cumulaient vers le blanc.** Serrées sur un même centre, en `screen`, quatre
+   couleurs donnent du blanc. Les décalages statiques sont passés d'environ ±15 à ±27 unités, et la
+   boîte de vue de 200 à 220 : chaque teinte tient désormais son quartier. Le rayon du dégradé
+   (76) est en outre passé **sous** le rayon maximal du tracé (~75 selon la couche), si bien que le
+   remplissage s'éteint avant le bord : plus de contour net, et toujours aucun `filter: blur()`.
+
+Un ressort, enfin, sur la bulle — `cubic-bezier(.34, 1.56, .64, 1)` dépasse 1 avant de revenir. Une
+seule propriété, compositable, sur le seul geste qui compte.
+
+**Contraste, MESURÉ** sur dix fenêtres, chaque texte contre **son** seuil (le `<h1>` est du grand
+texte : `clamp(1.5rem, 3.6vw, 2.25rem)` en graisse 800, donc ≥ 24 px gras partout, seuil 3:1) :
+
+| | pire mesuré | seuil | marge |
+|---|---|---|---|
+| `h1` | 6,84:1 | 3:1 | large |
+| `h1 em` | **3,70:1** | 3:1 | +23 % |
+| `.sub` | 7,33:1 | 4,5:1 | +63 % |
+| `.formats` | 6,37:1 | 4,5:1 | +42 % |
+
+Les paliers de fenêtre basse de Q-040 restent en place et gardent leur rôle.
+
+**Bloque :** non.
+
+---
+
+## [V1.2] Q-043 — Ce qui remplit l'écran est statique, ce qui bouge est borné
+
+**Contexte :** demande de pousser plus loin vers Squoosh, dont le fond vit d'un bord à l'autre. Le
+décor de Q-042 restait un médaillon au centre. La réponse évidente — étendre le calque animé à toute
+la fenêtre — a été essayée, mesurée, et retirée.
+
+**Mesuré**, p95 de l'intervalle inter-image sur 120 images, calque étendu à la fenêtre :
+
+| | tel quel | sans `screen` | boucle arrêtée |
+|---|---|---|---|
+| 1440 × 900 @DPR2 | 33,4 ms | 16,8 ms | 16,7 ms |
+| 2560 × 1440 | **83,4 ms** | 50,1 ms | 16,8 ms |
+
+Les deux facteurs comptent, et aucun ne se rattrape : le mélange double le coût, la surface fait le
+reste. À 83 ms, c'est douze images par seconde sur un grand écran. Une réécriture de géométrie par
+image ne passe pas à l'échelle de la fenêtre — c'est exactement ce que le §1 de `att_budget.md`
+soutenait, vérifié cette fois sur le code réel plutôt que sur la maquette.
+
+**Retenu : séparer ce qui remplit de ce qui bouge.**
+
+- **Ce qui remplit l'écran est statique.** Les `radial-gradient` de `body` passent de trois à quatre
+  (l'ambre répond à la quatrième forme) et deviennent francs : 0,42 / 0,36 / 0,26 / 0,20 contre
+  0,28 / 0,30 / 0,16. Un dégradé radial coûte une passe de shader, une fois. Il peut donc couvrir
+  toute la fenêtre sans rien coûter par image.
+- **Ce qui bouge reste borné**, `min(96vw, 94svh, 52rem)`, avec son mélange et sa boucle.
+
+**Mesuré après :** 16,7 ms à 1440 × 900 @DPR2 **et** à 2560 × 1440 — la cadence d'écran, aux deux
+tailles, contre 83 ms avant. Le fond est plus coloré qu'à aucun moment, et la boucle a retrouvé son
+coût d'origine.
+
+**Contraste.** Des dégradés plus francs consomment le budget du texte : `.formats` est tombé à
+4,28:1. Deux jetons éclaircis le rendent — `--clair-mono` rejoint `--clair` (#ded9e2) et
+`--rose-clair` passe à #ff93bd. Matrice **MESURÉE** sur dix fenêtres, chaque texte contre son seuil :
+
+| | pire | seuil | marge |
+|---|---|---|---|
+| `h1` | 6,49:1 | 3:1 | large |
+| `h1 em` | 3,93:1 | 3:1 | +31 % |
+| `.sub` | **4,81:1** | 4,5:1 | +7 % |
+| `.formats` | 4,99:1 | 4,5:1 | +11 % |
+
+Les marges sont plus minces qu'en Q-042 : c'est le prix de la couleur, il est mesuré, et il reste du
+bon côté du seuil. `.sub` à 320 × 568 est le point le plus tendu et le premier à surveiller si les
+dégradés devaient encore forcer.
 
 **Bloque :** non.
