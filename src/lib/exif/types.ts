@@ -17,6 +17,8 @@ export type Format =
   | 'inconnu';
 
 /** Voie retenue pour agir sur le fichier, décidée à la lecture. */
+import type { Motif } from './capacites.ts';
+
 export type Route = 'P1' | 'P2' | 'lecture-seule';
 
 export interface PhotoRead {
@@ -32,14 +34,21 @@ export interface PhotoRead {
    * n'existe pas sur tous les formats.
    */
   can: { read: boolean; write: boolean; erase: boolean; eraseAll: boolean };
-  /** Phrase affichable, sans jargon de conteneur. */
-  routeReason: string;
+  /**
+   * POURQUOI l'outil peut ou ne peut pas agir sur ce fichier — une clé, pas une
+   * phrase. Le moteur ne choisit plus les mots : l'interface les prend dans le
+   * dictionnaire de sa langue.
+   */
+  motif: Motif;
   position: LatLon | null;
   altitude: number | null;
   takenAt: string | null;
   camera: string | null;
-  /** Tags lisibles, pour la zone repliée « autres informations ». */
-  details: Array<{ label: string; value: string }>;
+  /**
+   * Informations lisibles, pour la zone repliée. La CLÉ est un identifiant
+   * stable, jamais un libellé : c'est l'interface qui le traduit.
+   */
+  details: Array<{ cle: string; value: string }>;
 }
 
 export interface WriteOk {
@@ -60,7 +69,14 @@ export interface WriteFail {
   id: string;
   name: string;
   code: string;
+  /** Message du moteur, en clair. Sert de secours et de trace de journal. */
   message: string;
+  /**
+   * Renseigné quand le refus était DÉJÀ annoncé avant l'action : l'interface
+   * réaffiche alors exactement la phrase que l'utilisateur avait lue, dans sa
+   * langue. Ce qu'il a lu et ce qu'il obtient ne peuvent pas se contredire.
+   */
+  motif?: Motif;
 }
 
 export type WriteResult = WriteOk | WriteFail;

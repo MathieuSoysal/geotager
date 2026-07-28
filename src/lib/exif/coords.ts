@@ -85,8 +85,8 @@ export function distanceMetres(a: LatLon, b: LatLon): number {
 }
 
 /** Distance rendue lisible, sans fausse précision. */
-export function formatDistance(m: number): string {
+export function formatDistance(m: number, virgule = '.'): string {
   if (m < 1000) return `${Math.round(m)} m`;
-  if (m < 100_000) return `${(m / 1000).toFixed(1).replace('.', ',')} km`;
+  if (m < 100_000) return `${(m / 1000).toFixed(1).replace('.', virgule)} km`;
   return `${Math.round(m / 1000)} km`;
 }

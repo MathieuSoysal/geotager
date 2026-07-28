@@ -26,11 +26,22 @@ jobs:
 
       # ExifTool sert d'oracle indépendant : un moteur qui se relit lui-même ne
       # prouve rien. Il n'est jamais utilisé par l'application elle-même.
-      - name: Installer ExifTool
+      #
+      # libheif en est un second, et d'une autre nature : ExifTool dit ce que le
+      # fichier CONTIENT, libheif dit qu'il se DÉCODE encore. Un fichier dont on
+      # a déplacé le bloc de position peut satisfaire le premier et plus le
+      # second. Ni l'un ni l'autre n'est utilisé par l'application.
+      - name: Installer les oracles externes
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libimage-exiftool-perl
+          # Sur Ubuntu 24.04, libheif ne décode rien tout seul : ses décodeurs
+          # sont des paquets séparés. Sans libde265 il n'ouvre aucun HEIC, sans
+          # dav1d aucun AVIF — et l'oracle rendrait « illisible » sur des
+          # fichiers parfaitement sains.
+          sudo apt-get install -y -qq libimage-exiftool-perl libheif-examples \
+            libheif-plugin-libde265 libheif-plugin-dav1d libheif-plugin-aomdec
           exiftool -ver
+          heif-info --version || true
 
       - run: npm ci
 

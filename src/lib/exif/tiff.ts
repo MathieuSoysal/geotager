@@ -660,6 +660,87 @@ export function writePositionInTiff(
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Négatif numérique, ou image ordinaire ?                             */
+/* ------------------------------------------------------------------ */
+
+const TAG_NEW_SUBFILE_TYPE = 0x00fe;
+const TAG_COMPRESSION = 0x0103;
+const TAG_PHOTOMETRIC = 0x0106;
+const TAG_STRIP_OFFSETS = 0x0111;
+const TAG_TILE_OFFSETS = 0x0144;
+
+/** Tags qu'une image ordinaire ne porte pas, et qu'un négatif porte. */
+const MARQUEURS_DE_NEGATIF = [
+  0xc612, // DNGVersion
+  0xc613, // DNGBackwardVersion
+  0xc614, // UniqueCameraModel
+  0xc61a, // BlackLevel
+  0xc61d, // WhiteLevel
+  0xc621, // ColorMatrix1
+  0xc622, // ColorMatrix2
+  0xc65d, // RawDataUniqueID
+  0x828d, // CFARepeatPatternDim
+  0x828e, // CFAPattern
+  TAG_SUB_IFDS,
+];
+
+const COMPRESSIONS_ORDINAIRES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 32773, 32946]);
+const PHOTOMETRIES_ORDINAIRES = new Set([0, 1, 2, 3, 4, 5, 6, 8]);
+
+/**
+ * Vrai si ce bloc décrit une image ordinaire, et non un négatif numérique.
+ *
+ * Un DNG, un NEF, un CR2 sont des TIFF : ajouter des octets à l'un d'eux
+ * abîmerait un original irremplaçable. La question n'est donc pas « est-ce un
+ * négatif ? » mais « ce fichier PROUVE-t-il qu'il est une image ordinaire ? ».
+ * C'est une liste blanche : tout ce qui sort de l'énuméré est refusé, y compris
+ * un format brut qui n'existe pas encore.
+ *
+ * Écrit à partir d'une mesure, pas d'une conjecture — et la mesure a démenti la
+ * conjecture. La première page d'un DNG et d'un NEF est un aperçu RVB non
+ * compressé : sur les seuls tags de couleur et de compression, elle est
+ * indiscernable d'un TIFF ordinaire. Ce qui la trahit est qu'elle s'annonce
+ * comme une image RÉDUITE, et que les vraies données vivent dans un
+ * sous-répertoire.
+ *
+ * Chaque négatif du corpus est écarté par au moins deux règles indépendantes,
+ * sauf le CR2, qui l'est parce qu'il ne déclare aucune interprétation
+ * photométrique — un TIFF sans elle n'est pas une image conforme, c'est un
+ * conteneur pour autre chose.
+ */
+export function estUneImageOrdinaire(view: TiffView): boolean {
+  const bytes = view.bytes;
+  const e = view.endian;
+
+  // Un marqueur de négatif OÙ QUE CE SOIT ferme la question : un DNG range les
+  // siens dans un sous-répertoire, pas dans sa première page.
+  for (const ifd of toutesLesIfd(bytes, e)) {
+    for (const en of ifd.entries) if (MARQUEURS_DE_NEGATIF.includes(en.tag)) return false;
+  }
+
+  const entree = (tag: number) => view.ifd0.entries.find((x) => x.tag === tag) ?? null;
+  /** Première composante, ou `null` si l'entrée manque OU est illisible. */
+  const premiere = (tag: number): number | null => {
+    const en = entree(tag);
+    if (!en) return null;
+    const v = valeursEntieres(bytes, e, en);
+    return v.length ? v[0] : null;
+  };
+
+  // La première page doit être l'image elle-même, pas un aperçu réduit.
+  const genre = entree(TAG_NEW_SUBFILE_TYPE);
+  if (genre !== null && premiere(TAG_NEW_SUBFILE_TYPE) !== 0) return false;
+
+  const photo = premiere(TAG_PHOTOMETRIC);
+  if (photo === null || !PHOTOMETRIES_ORDINAIRES.has(photo)) return false;
+  const compression = premiere(TAG_COMPRESSION);
+  if (compression === null || !COMPRESSIONS_ORDINAIRES.has(compression)) return false;
+
+  // Et les pixels doivent être désignés depuis cette page-là.
+  return entree(TAG_STRIP_OFFSETS) !== null || entree(TAG_TILE_OFFSETS) !== null;
+}
+
 /** Bloc TIFF minimal, pour un fichier dépourvu de toute métadonnée. */
 export function emptyTiff(endian: Endian = 'LE'): Uint8Array {
   const b = new Uint8Array(8 + 2 + 4);

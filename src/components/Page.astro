@@ -1,0 +1,229 @@
+---
+/**
+ * La coquille commune aux deux langues.
+ *
+ * Tout ce qui est structure vit ici une seule fois ; seuls les mots changent,
+ * et ils viennent du dictionnaire. L'article sous la ligne de flottaison est
+ * fourni par la page appelante — c'est de la prose, pas des étiquettes, et la
+ * découper en clés la rendrait illisible à écrire comme à relire.
+ */
+import '../styles/global.css';
+import type { Dictionnaire } from '../lib/i18n/types.ts';
+import { DICOS, LANGUES, LANGUE_PAR_DEFAUT } from '../lib/i18n/index.ts';
+
+interface Props {
+  dico: Dictionnaire;
+}
+const { dico: T } = Astro.props;
+
+const site = 'https://geotager.app';
+const url = site + T.base;
+
+// Liens réciproques entre les deux langues, plus x-default sur la langue
+// servie à la racine. Réciproques : chaque page annonce TOUTES les langues,
+// elle-même comprise, sans quoi Google ignore la déclaration.
+const alternates = LANGUES.map((l) => ({ lang: l, href: site + DICOS[l].base }));
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Geotager',
+  url,
+  applicationCategory: 'MultimediaApplication',
+  applicationSubCategory: T.meta.sousCategorie,
+  operatingSystem: T.meta.systeme,
+  inLanguage: T.htmlLang,
+  isAccessibleForFree: true,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+  featureList: T.meta.fonctions,
+  description: T.meta.description,
+};
+---
+
+<!doctype html>
+<html lang={T.htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#FF3385" />
+    <title>{T.meta.titre}</title>
+    <meta name="description" content={T.meta.description} />
+    <link rel="canonical" href={url} />
+    {alternates.map((a) => <link rel="alternate" hreflang={a.lang} href={a.href} />)}
+    <link rel="alternate" hreflang="x-default" href={site + DICOS[LANGUE_PAR_DEFAUT].base} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Geotager" />
+    <meta property="og:title" content={T.meta.titre} />
+    <meta property="og:description" content={T.meta.description} />
+    <meta property="og:url" content={url} />
+    <meta property="og:locale" content={T.ogLocale} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z' fill='%23FF3385'/%3E%3Ccircle cx='20' cy='17.4' r='5.7' fill='%2317161B'/%3E%3C/svg%3E"
+    />
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </head>
+  <body>
+    <a class="saut" href="#contenu">{T.nav.aller}</a>
+
+    <div class="app">
+      <div class="wrap" style="display:flex;flex-direction:column;flex:1">
+        <div class="bar">
+          <a class="brand" href={T.base}>
+            <svg viewBox="0 0 40 40" aria-hidden="true">
+              <path
+                d="M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z"
+                fill="#FF3385"></path>
+              <circle cx="20" cy="17.4" r="5.7" fill="#17161B"></circle>
+            </svg>
+            Geotager
+          </a>
+        </div>
+
+        <div class="stage">
+          <!-- Les étapes sont rendues dès l'état vide : leur hauteur est ainsi
+               réservée, et l'arrivée d'une photo ne décale rien. -->
+          <ol class="steps" id="etapes" aria-label={T.etapes.titre}>
+            <li class="step on" data-etape="1"><span class="no">1</span> {T.etapes.deposer}</li>
+            <li class="step" data-etape="2"><span class="no">2</span> {T.etapes.choisir}</li>
+            <li class="step" data-etape="3"><span class="no">3</span> {T.etapes.telecharger}</li>
+          </ol>
+
+          <!-- ÉTAT VIDE — la bulle est un label : sans JavaScript, elle ouvre
+               quand même le sélecteur de fichier. Le contrôle principal n'est
+               jamais inerte. -->
+          <div class="drop" id="etat-vide">
+            <label class="bubble" for="picker">
+              <svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                <circle cx="22" cy="22" r="8.5"></circle>
+                <circle cx="22" cy="22" r="2" fill="currentColor" stroke="none"></circle>
+                <path d="M22 3v8M22 33v8M3 22h8M33 22h8"></path>
+              </svg>
+              <span><b>{T.hero.deposez}</b><small>{T.hero.ouCollez}</small></span>
+              <!-- Les vidéos restent acceptées bien qu'aucune opération ne leur
+                   soit ouverte : mieux vaut prendre le fichier et EXPLIQUER
+                   qu'on ne sait pas encore le traiter, que le refuser sans un
+                   mot. La phrase existe pour ça. -->
+              <input id="picker" type="file" accept="image/*,video/*,.heic,.heif,.avif,.tif,.tiff" multiple />
+            </label>
+            <h1>{T.hero.titre} <em>{T.hero.titreEm}</em></h1>
+            <p class="sub">{T.hero.sous}</p>
+            <p class="formats">{T.hero.formats}</p>
+          </div>
+
+          <!-- ÉTAT ACTIF — occupe exactement la même zone. -->
+          <div class="island" id="etat-actif" hidden>
+            <div class="island-hd">
+              <div class="filename">
+                <span class="nm" id="nom-fichier"></span>
+                <span class="pill" id="pill-format"></span>
+                <span class="pill hot" id="pill-position" hidden></span>
+              </div>
+              <button class="btn ghost xs" type="button" id="changer">{T.app.changer}</button>
+            </div>
+            <div class="panel">
+              <div id="lot" hidden>
+                <p class="aide" id="lot-resume"></p>
+                <div class="file-list" id="lot-liste"></div>
+              </div>
+
+              <div id="alerte-format" class="alerte" hidden></div>
+
+              <div>
+                <label class="champ" for="coords">{T.app.ouPrise}</label>
+                <div class="box">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#FF3385" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.3-4.3"></path>
+                  </svg>
+                  <input
+                    id="coords"
+                    type="text"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    placeholder="43.9493, 4.8055"
+                    aria-describedby="coords-aide"
+                  />
+                </div>
+                <p class="aide" id="coords-aide">
+                  {T.app.aideCoords}<b>{T.app.aideCoordsFort}</b>
+                </p>
+              </div>
+
+              <div class="result" id="resultat" hidden>
+                <span class="n" id="resultat-coords"></span>
+                <span class="l" id="resultat-detail"></span>
+              </div>
+
+              <button class="btn primary" type="button" id="telecharger" disabled>
+                {T.app.telecharger}
+              </button>
+
+              <div class="minor">
+                <button class="btn ghost" type="button" id="effacer">{T.app.effacer}</button>
+                <button class="btn ghost" type="button" id="effacer-tout">{T.app.effacerTout}</button>
+              </div>
+
+              <details class="details" id="autres" hidden>
+                <summary>{T.app.autres}</summary>
+                <dl id="autres-liste"></dl>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <div class="scrollcue">
+          <a href="#contenu">{T.hero.defiler}</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="visually-hidden" role="status" aria-live="polite" id="annonce"></p>
+
+    <!-- ============ SOUS LA LIGNE DE FLOTTAISON ============ -->
+    <div class="wrap" id="contenu">
+      <div class="pitch">
+        {
+          T.pitch.map((c, i) => (
+            <div class={`card c${i + 1}`}>
+              <h2>{c.titre}</h2>
+              <p>{c.texte}</p>
+            </div>
+          ))
+        }
+      </div>
+
+      <article class="contenu"><slot /></article>
+
+      <footer>
+        <!-- La navigation vit ici plutôt qu'en tête : ces liens mènent à des
+             sections de lecture, pas à l'outil. Les remonter au-dessus du
+             titre disputerait l'attention au seul geste qui compte — déposer
+             une photo. Le choix de langue les accompagne. -->
+        <nav class="main" aria-label={T.nav.sections}>
+          <a href="#vie-privee">{T.nav.viePrivee}</a>
+          <a href="#mode-emploi">{T.nav.modeEmploi}</a>
+          <a href="#verifier">{T.nav.verifier}</a>
+          {
+            LANGUES.filter((l) => l !== T.langue).map((l) => (
+              <a href={DICOS[l].base} lang={DICOS[l].htmlLang} rel="alternate">
+                {DICOS[l].meta.nomLangue}
+              </a>
+            ))
+          }
+        </nav>
+        <!-- L'espace est explicite : entre une expression et la balise qui la
+             suit, celui de la mise en forme est supprimé au rendu, et la ligne
+             se lisait « licence MIT :github.com/… ». -->
+        <p>
+          {T.pied}{' '}
+          <a href="https://github.com/MathieuSoysal/geotager">github.com/MathieuSoysal/geotager</a>.
+        </p>
+      </footer>
+    </div>
+
+    <script>
+      import '../lib/ui/app.ts';
+    </script>
+  </body>
+</html>

@@ -21,7 +21,7 @@ import {
   memesOctetsHorsPlages,
   toutEffacer,
 } from '../lib/exif/conteneurs.ts';
-import { type Capacites, type Motif, capacitesDe, phraseDe } from '../lib/exif/capacites.ts';
+import { type Capacites, type Motif, capacitesDe } from '../lib/exif/capacites.ts';
 import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres } from '../lib/exif/coords.ts';
@@ -57,7 +57,6 @@ interface Sonde {
   position: LatLon | null;
   capacites: Capacites;
   motif: Motif;
-  phrase: string;
 }
 
 function sonder(bytes: Uint8Array): Sonde {
@@ -66,10 +65,10 @@ function sonder(bytes: Uint8Array): Sonde {
   const vide = { format, conteneur: null, blocs: [], position: null };
 
   if (format === 'inconnu') {
-    return { ...vide, capacites: statiques, motif: 'inconnu', phrase: phraseDe('inconnu') };
+    return { ...vide, capacites: statiques, motif: 'inconnu' };
   }
   if (format === 'video') {
-    return { ...vide, capacites: statiques, motif: 'video', phrase: phraseDe('video') };
+    return { ...vide, capacites: statiques, motif: 'video' };
   }
 
   const conteneur = conteneurDe(bytes);
@@ -78,7 +77,7 @@ function sonder(bytes: Uint8Array): Sonde {
   if (!conteneur || !(statiques.corriger || statiques.ajouter || statiques.effacer)) {
     const motif: Motif = format === 'gif' ? 'sans-lieu-possible' : 'lecture-seule';
     return { ...vide, capacites: { ...statiques, corriger: false, ajouter: false, effacer: false },
-      motif, phrase: phraseDe(motif) };
+      motif };
   }
 
   let blocs: BlocLu[] = [];
@@ -88,7 +87,7 @@ function sonder(bytes: Uint8Array): Sonde {
     // Un fichier dont la structure est illisible n'est pas modifiable ; il
     // reste lisible par ailleurs, via l'autre lecteur.
     return { ...vide, conteneur, capacites: { ...statiques, corriger: false, ajouter: false, effacer: false },
-      motif: 'rangement-inconnu', phrase: phraseDe('rangement-inconnu') };
+      motif: 'rangement-inconnu' };
   }
 
   const position = blocs.find((b) => b.position)?.position ?? null;
@@ -135,7 +134,7 @@ function sonder(bytes: Uint8Array): Sonde {
     motif = 'sans-lieu';
   }
 
-  return { format, conteneur, blocs, position, capacites, motif, phrase: phraseDe(motif) };
+  return { format, conteneur, blocs, position, capacites, motif };
 }
 
 /**
@@ -171,7 +170,7 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   let altitude: number | null = null;
   let takenAt: string | null = null;
   let camera: string | null = null;
-  const details: Array<{ label: string; value: string }> = [];
+  const details: Array<{ cle: string; value: string }> = [];
 
   try {
     const tags = (await exifr.parse(buffer, {
@@ -193,21 +192,15 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
       const model = typeof tags.Model === 'string' ? tags.Model.trim() : '';
       camera = [make, model].filter(Boolean).join(' ') || null;
 
-      const interessants: Array<[string, string]> = [
-        ['Orientation', 'Orientation'],
-        ['ExposureTime', "Temps de pose"],
-        ['FNumber', 'Ouverture'],
-        ['ISO', 'Sensibilité'],
-        ['FocalLength', 'Focale'],
-        ['LensModel', 'Objectif'],
-        ['Software', 'Logiciel'],
-        ['Artist', 'Auteur'],
-        ['Copyright', 'Copyright'],
+      // Des CLÉS, pas des libellés : l'interface les traduit dans sa langue.
+      const interessants = [
+        'Orientation', 'ExposureTime', 'FNumber', 'ISO', 'FocalLength',
+        'LensModel', 'Software', 'Artist', 'Copyright',
       ];
-      for (const [cle, label] of interessants) {
+      for (const cle of interessants) {
         const v = tags[cle];
         if (v !== undefined && v !== null && String(v).trim()) {
-          details.push({ label, value: String(v) });
+          details.push({ cle, value: String(v) });
         }
       }
     }
@@ -221,7 +214,7 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
     size: bytes.length,
     format,
     can: projeter(sonde),
-    routeReason: sonde.phrase,
+    motif: sonde.motif,
     position,
     altitude,
     takenAt,
@@ -343,12 +336,13 @@ async function appliquer(
   // précédente : l'annonce et le comportement lisent ainsi la même source.
   const sonde = sonder(bytes);
 
-  const echec = (code: string, message: string): WriteResult => ({
+  const echec = (code: string, message: string, motif?: Motif): WriteResult => ({
     ok: false,
     id,
     name,
     code,
     message,
+    motif,
   });
 
   const { capacites, conteneur } = sonde;
@@ -361,9 +355,12 @@ async function appliquer(
         ? capacites.effacer
         : capacites.effacerTout;
 
-  // Le refus reprend mot pour mot la phrase déjà annoncée avant l'action : ce
-  // que l'utilisateur a lu et ce qu'il obtient ne peuvent pas se contredire.
-  if (!permise || !conteneur) return echec('FORMAT_NON_MODIFIABLE', sonde.phrase);
+  // Le refus reprend le MOTIF déjà annoncé avant l'action : ce que l'utilisateur
+  // a lu et ce qu'il obtient ne peuvent pas se contredire, quelle que soit la
+  // langue dans laquelle il l'a lu.
+  if (!permise || !conteneur) {
+    return echec('FORMAT_NON_MODIFIABLE', 'Opération non permise sur ce fichier.', sonde.motif);
+  }
 
   try {
     let produit: Ecriture;

@@ -252,6 +252,9 @@ article.contenu th { color: var(--muted); font-weight: 500; }
 
 footer { padding: 3rem 0; font-size: .82rem; color: var(--muted); border-top: 1px solid var(--bordure); margin-top: 3rem; }
 footer a { color: var(--muted); }
+/* Le retrait négatif compense le rembourrage horizontal des pastilles, pour
+   que le premier lien s'aligne sur le texte du dessous plutôt que de flotter. */
+footer nav.main { margin: 0 0 1.2rem -.8rem; }
 
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;

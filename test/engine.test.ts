@@ -27,6 +27,9 @@ import {
 import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
 import { createHash } from 'node:crypto';
+import { commandePour } from '../scripts/deploy.mjs';
+import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
+import type { Format } from '../src/lib/exif/types.ts';
 
 // Même valeur par défaut que scripts/fetch-fixtures.mjs : sans cela, le banc
 // cherchait le corpus à la racine du dépôt et échouait par une exception non
@@ -99,6 +102,58 @@ function empreintesDesItems(fichier: string): string {
     .filter((x) => x.type !== 'Exif')
     .map((x) => `${x.id}:${x.type}:${createHash('sha256').update(b.subarray(x.debut, x.debut + x.longueur)).digest('hex').slice(0, 16)}`)
     .join('|');
+}
+
+/**
+ * Entrées de la table des emplacements qui ont bougé entre deux états.
+ *
+ * « La table est intacte » est le bon témoin tant que rien ne change de
+ * longueur. Dès qu'on ajoute un lieu, une entrée DOIT bouger — et une seule.
+ * C'est cette assertion-là qui prouve que repointer l'item de position n'a
+ * déplacé aucun autre item.
+ */
+function diffDesEmplacements(avant: Uint8Array, apres: Uint8Array): string[] {
+  const decouper = (b: Uint8Array) => new Map(
+    empreinteDesEmplacements(b).split('|').filter(Boolean).map((e) => [e.split(':')[0], e]),
+  );
+  const a = decouper(avant);
+  const z = decouper(apres);
+  const bouges: string[] = [];
+  for (const [id, ligne] of z) if (a.get(id) !== ligne) bouges.push(id);
+  for (const id of a.keys()) if (!z.has(id)) bouges.push(id);
+  return bouges;
+}
+
+/**
+ * Vrai si libheif — un décodeur tiers — sait encore décoder ce fichier.
+ *
+ * ExifTool dit ce que le fichier CONTIENT ; celui-ci dit qu'il se DÉCODE
+ * encore. Ce sont deux questions différentes, et déplacer un bloc de position
+ * peut très bien satisfaire la première sans la seconde.
+ *
+ * L'absence de l'outil ne vaut PAS un décodage réussi, et ne doit pas non plus
+ * se confondre avec un échec de décodage : le premier appel tranche une fois
+ * pour toutes, pour que « heif-convert n'est pas installé » se lise dans le
+ * rapport au lieu de se déguiser en régression du moteur.
+ */
+let libheifPresent: boolean | null = null;
+function seDecodeEncore(fichier: string): boolean {
+  if (libheifPresent === null) {
+    try {
+      execFileSync('heif-info', ['--version'], { stdio: 'pipe' });
+      libheifPresent = true;
+    } catch {
+      libheifPresent = false;
+      console.log('  !!   heif-convert est absent : installez libheif-examples');
+    }
+  }
+  if (!libheifPresent) return false;
+  try {
+    execFileSync('heif-convert', [fichier, join(tmp, `decode-${Date.now()}.png`)], { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Nombre d'entrées réellement présentes dans le MakerNote, selon ExifTool. */
@@ -257,6 +312,33 @@ scenario('Tout effacer', () => {
   const dims = exif(['-s', '-s', '-s', '-ImageSize', out]).trim();
   check('l\'image reste décodable et de même taille', dims === exif(['-s', '-s', '-s', '-ImageSize', path]).trim(),
     `« ${dims} »`);
+});
+
+// Q-036. Perdre le profil décale visiblement les couleurs dans toute
+// application gérée en couleur : c'est une dégradation de l'image, pas un
+// retrait d'information. PNG et WebP le conservaient déjà ; le JPEG était le
+// seul écart avec att_exif.md §4.
+scenario('Tout effacer garde le profil de couleurs d\'un JPEG', () => {
+  const path = join(FIXTURES, 'Canon_40D.jpg');
+  const src = new Uint8Array(readFileSync(path));
+  const empreinteProfil = (f: string) =>
+    createHash('sha256').update(exif(['-b', '-ICC_Profile', f])).digest('hex');
+
+  const avant = empreinteProfil(path);
+  check('le fichier de départ porte bien un profil',
+    exif(['-s', '-s', '-s', '-ICC_Profile:ProfileDescription', path]).trim() !== '');
+
+  const res = stripAllMetadata(src);
+  const out = join(tmp, 'strip-icc.jpg');
+  writeFileSync(out, res.bytes);
+
+  check('le fichier a rétréci', res.bytes.length < src.length);
+  const reste = exif(['-a', '-G1', '-s', '-EXIF:all', '-XMP:all', '-IPTC:all', out]).trim();
+  check('aucun tag EXIF, XMP ou IPTC résiduel', reste === '', reste.slice(0, 200));
+  check('le profil de couleurs est intact au bit près', empreinteProfil(out) === avant);
+  check('l\'image reste décodable et de même taille',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', path]).trim());
 });
 
 scenario('Fichiers refusés proprement', () => {
@@ -489,23 +571,140 @@ scenario('bloc-en-queue.heif — un bloc rangé en fin de fichier', () => {
   check('les items secondaires sont intacts', empreintesDesItems(out) === empreintesDesItems(chemin));
 });
 
-scenario('iphone-sans-lieu.heic — l\'ajout est refusé, pas tenté', () => {
+scenario('iphone-sans-lieu.heic — effacer une photo sans lieu ne touche rien', () => {
   const src = new Uint8Array(readFileSync(join(FIXTURES, 'iphone-sans-lieu.heic')));
   const c = conteneurOuEchec(src);
   check('aucune position au départ', lirePosition(c, src) === null);
 
-  let code = '';
-  try {
-    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
-  } catch (e: any) {
-    code = e.code;
-  }
-  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
-
-  // L'effacement d'un fichier sans position réussit sans rien toucher.
+  // Demander le retrait de ce qui n'est pas là doit rendre l'original, pas une
+  // copie « nettoyée » dont un octet aurait bougé au passage.
   const res = effacerPosition(c, src);
   check('l\'effacement ne touche rien', res.bytes.length === src.length &&
     memesOctetsHorsPlages(src, res.bytes, []));
+});
+
+/* ------------------------------------------------------------------ */
+/* L'ajout sur HEIC et AVIF                                            */
+/*                                                                     */
+/* On n'agrandit rien sur place : le nouveau bloc va dans une boîte     */
+/* ajoutée en fin de fichier, et la seule entrée de la table des        */
+/* emplacements qui le concerne est repointée. Ce que ces scénarios     */
+/* prouvent, c'est qu'une seule entrée bouge, qu'aucun autre item ne    */
+/* change d'un bit, et qu'un décodeur tiers ouvre encore le résultat.   */
+/* ------------------------------------------------------------------ */
+
+/** Chemin nominal de l'ajout, quel que soit le point de départ. */
+function verifierAjout(nom: string, chemin: string, src: Uint8Array, etiquette: string): void {
+  const c = conteneurOuEchec(src);
+  const avantItems = empreintesDesItems(chemin);
+
+  check(`${etiquette} : aucune position au départ`, lirePosition(c, src) === null);
+  check(`${etiquette} : l'ajout est annoncé possible avant l'action`,
+    c.accepteAjout?.(src) === true);
+
+  const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, `add-${nom}`);
+  writeFileSync(out, res.bytes);
+
+  check(`${etiquette} : voie P2 (bloc reconstruit)`, res.route === 'P2');
+  check(`${etiquette} : le fichier grandit`, res.bytes.length > src.length,
+    `${src.length} -> ${res.bytes.length}`);
+  check(`${etiquette} : rien n'a changé hors des plages annoncées`,
+    memesOctetsHorsPlages(src, res.bytes, res.changed));
+
+  const relu = exifPosition(out);
+  check(`${etiquette} : ExifTool relit la position demandée`,
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1,
+    relu ? `écart ${distanceMetres(relu, AVIGNON).toFixed(4)} m` : 'aucune position relue');
+
+  const bouges = diffDesEmplacements(src, res.bytes);
+  check(`${etiquette} : une seule entrée de la table a bougé`, bouges.length === 1,
+    `entrées déplacées : ${bouges.join(', ') || 'aucune'}`);
+  check(`${etiquette} : les items secondaires sont intacts au bit près`,
+    empreintesDesItems(out) === avantItems);
+  check(`${etiquette} : l'image reste de même taille pour ExifTool`,
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() ===
+      exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim());
+  const validation = exif(['-validate', '-warning', '-a', out]);
+  check(`${etiquette} : ExifTool ne signale aucun défaut de structure`,
+    !/error|corrupt/i.test(validation), validation.trim().slice(0, 160));
+
+  // Règle de symétrie, la même qu'en Q-030 pour le second lecteur : s'il savait
+  // ouvrir l'entrée, il doit savoir ouvrir la sortie. S'il ne savait pas —
+  // décodeur absent, format non pris en charge par cette installation —, son
+  // silence ne vaut PAS un échec de notre part. Un oracle qu'on interroge sans
+  // savoir s'il sait répondre ne prouve rien dans un sens comme dans l'autre.
+  const ouvraitAvant = seDecodeEncore(chemin);
+  check(`${etiquette} : un décodeur tiers ouvre encore le fichier`,
+    !ouvraitAvant || seDecodeEncore(out),
+    ouvraitAvant ? 'libheif refuse la sortie' : "libheif n'ouvrait pas déjà l'entrée — sans objet");
+}
+
+scenario('iphone-sans-lieu.heic — ajout d\'une position', () => {
+  const chemin = join(FIXTURES, 'iphone-sans-lieu.heic');
+  verifierAjout('iphone-sans-lieu.heic', chemin,
+    new Uint8Array(readFileSync(chemin)), 'iPhone sans lieu');
+});
+
+// Après effacement, l'entrée qui désigne le bloc de position a disparu d'IFD0 :
+// réécrire un lieu n'est donc plus une correction mais bien une création. C'est
+// le seul moyen d'éprouver l'ajout sur un AVIF réel — aucun AVIF du corpus
+// n'arrive dépourvu de bloc de position.
+for (const nom of ['iphone.heic', 'photo.avif'] as const) {
+  scenario(`${nom} — effacer puis ajouter`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const efface = effacerPosition(conteneurOuEchec(src), src).bytes;
+    const intermediaire = join(tmp, `vide-${nom}`);
+    writeFileSync(intermediaire, efface);
+    verifierAjout(nom, intermediaire, efface, `${nom} vidé`);
+  });
+}
+
+scenario('L\'ajout est refusé quand le fichier ne s\'y prête pas', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'iphone.heic')));
+  const c = conteneurOuEchec(src);
+
+  // Une boîte finale qui déclare la taille 0 s'étend jusqu'à la fin du fichier :
+  // elle avalerait tout ce qu'on ajouterait derrière, et le bloc de position
+  // deviendrait des données d'image aux yeux de tout lecteur.
+  const boiteSansFin = new Uint8Array(src);
+  let o = 0;
+  let dernierDebut = 0;
+  while (o + 8 <= boiteSansFin.length) {
+    const taille = (boiteSansFin[o] * 0x1000000 + (boiteSansFin[o + 1] << 16) +
+      (boiteSansFin[o + 2] << 8) + boiteSansFin[o + 3]) >>> 0;
+    if (taille < 8 || o + taille > boiteSansFin.length) break;
+    dernierDebut = o;
+    o += taille;
+  }
+  boiteSansFin.set([0, 0, 0, 0], dernierDebut);
+  check('une boîte finale sans fin déclarée ferme l\'ajout',
+    c.accepteAjout?.(boiteSansFin) === false);
+
+  // Des octets qu'aucune boîte ne revendique : notre lecture de la structure
+  // est fausse quelque part, on ne bâtit rien dessus.
+  const avecTraine = new Uint8Array(src.length + 3);
+  avecTraine.set(src, 0);
+  check('des octets en trop après la dernière boîte ferment l\'ajout',
+    c.accepteAjout?.(avecTraine) === false);
+
+  // Sans item de position à repointer, il faudrait faire grandir la table des
+  // items : hors de portée de cette voie, et annoncé comme tel.
+  const sansItem = new Uint8Array(src);
+  const marque = [0x45, 0x78, 0x69, 0x66]; // « Exif »
+  for (let i = 0; i + 4 <= sansItem.length && i < 65536; i++) {
+    if (marque.every((x, k) => sansItem[i + k] === x)) sansItem[i] = 0x5a; // « Zxif »
+  }
+  check('sans emplacement à repointer, l\'ajout est fermé',
+    c.accepteAjout?.(sansItem) === false);
+  let code = '';
+  try {
+    ecrirePosition(c, sansItem, AVIGNON.lat, AVIGNON.lon);
+  } catch (e: any) {
+    code = e.code;
+  }
+  check('et le refus porte un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
 });
 
 for (const [nom, quoi] of [
@@ -826,19 +1025,198 @@ for (const [nom, quoi] of [
   });
 }
 
-scenario('gros-boutiste.tif — l\'ajout est refusé sur un TIFF', () => {
-  const src = new Uint8Array(readFileSync(join(FIXTURES, 'gros-boutiste.tif')));
+/* ------------------------------------------------------------------ */
+/* Le discriminant : image ordinaire ou négatif numérique               */
+/*                                                                     */
+/* Un DNG, un NEF, un CR2 sont des TIFF. La liste blanche ne vaut que   */
+/* si elle est éprouvée DANS LES DEUX SENS sur de vrais fichiers : elle */
+/* doit accepter les images ordinaires et écarter tous les négatifs.    */
+/* Un discriminant qui n'aurait jamais vu de négatif ne prouverait rien.*/
+/* ------------------------------------------------------------------ */
+
+for (const [nom, quoi] of [
+  ['negatif.dng', 'Canon EOS-1D X, le négatif canonique'],
+  ['negatif.nef', 'Nikon COOLSCAN V ED, un brut de scanner'],
+  ['negatif.cr2', 'Canon EOS 40D, brut propriétaire'],
+  ['negatif.tif', 'Kodak EOS DCS 3 — un négatif qui EST un « .tif »'],
+] as const) {
+  scenario(`${nom} — ${quoi} : l'ajout est refusé`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const c = conteneurOuEchec(src);
+
+    check('le fichier est bien reconnu comme un TIFF', c.format === 'tiff');
+    check('l\'ajout est annoncé impossible AVANT l\'action',
+      c.accepteAjout?.(src) === false);
+
+    let code = '';
+    try {
+      ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+    } catch (e: any) {
+      code = e.code;
+    }
+    check('et il est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+
+    // Un refus qui aurait quand même touché le fichier serait pire qu'un refus.
+    const apres = new Uint8Array(readFileSync(chemin));
+    check('l\'original n\'a pas été touché d\'un octet',
+      Buffer.compare(Buffer.from(src), Buffer.from(apres)) === 0);
+  });
+}
+
+for (const nom of ['gros-boutiste.tif', 'multi-bandes.tif'] as const) {
+  scenario(`${nom} — une image ordinaire accepte un lieu`, () => {
+    const chemin = join(FIXTURES, nom);
+    const src = new Uint8Array(readFileSync(chemin));
+    const c = conteneurOuEchec(src);
+    const avant = inventory(chemin);
+    const pixelsAvant = exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim();
+
+    check('aucune position au départ', lirePosition(c, src) === null);
+    check('l\'ajout est annoncé possible AVANT l\'action', c.accepteAjout?.(src) === true);
+
+    const res = ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
+    const out = join(tmp, `add-${nom}`);
+    writeFileSync(out, res.bytes);
+
+    check('voie P2 (bloc reconstruit)', res.route === 'P2');
+    check('le fichier grandit', res.bytes.length > src.length,
+      `${src.length} -> ${res.bytes.length}`);
+    check('rien n\'a changé hors des plages annoncées',
+      memesOctetsHorsPlages(src, res.bytes, res.changed));
+    const relu = exifPosition(out);
+    check('ExifTool relit la position demandée',
+      relu !== null && distanceMetres(relu, AVIGNON) < 0.1,
+      relu ? `écart ${distanceMetres(relu, AVIGNON).toFixed(4)} m` : 'aucune position relue');
+    check('les bandes de pixels sont intactes',
+      exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
+    check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+      diffResume(avant, inventory(out)));
+    const validation = exif(['-validate', '-warning', '-a', out]);
+    check('ExifTool ne signale aucun défaut de structure',
+      !/error|corrupt/i.test(validation), validation.trim().slice(0, 160));
+  });
+}
+
+// Corriger et effacer restent ouverts sur un négatif : c'est à longueur
+// constante, et la carte des plages de tiff.ts protège les bandes de pixels.
+// Ce comportement préexiste à ce lot et n'était adossé à rien — il l'est ici.
+scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
+  const chemin = join(FIXTURES, 'negatif.dng');
+  const src = new Uint8Array(readFileSync(chemin));
   const c = conteneurOuEchec(src);
-  check('aucune position au départ', lirePosition(c, src) === null);
-  let code = '';
-  try {
-    ecrirePosition(c, src, AVIGNON.lat, AVIGNON.lon);
-  } catch (e: any) {
-    code = e.code;
+  const pixelsAvant = exif(['-s', '-s', '-s', '-ImageSize', chemin]).trim();
+  const avant = inventory(chemin);
+
+  const res = effacerPosition(c, src);
+  const out = join(tmp, 'del-negatif.dng');
+  writeFileSync(out, res.bytes);
+
+  check('l\'effacement est à longueur strictement constante',
+    res.bytes.length === src.length, `${src.length} -> ${res.bytes.length}`);
+  check('rien hors des plages annoncées', memesOctetsHorsPlages(src, res.bytes, res.changed));
+  check('aucun tag GPS résiduel', exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+  check('les données du négatif sont intactes',
+    exif(['-s', '-s', '-s', '-ImageSize', out]).trim() === pixelsAvant);
+  check('tout le reste est préservé', JSON.stringify(avant) === JSON.stringify(inventory(out)),
+    diffResume(avant, inventory(out)));
+});
+
+/* ------------------------------------------------------------------ */
+/* Le tableau ne peut pas mentir                                       */
+/*                                                                     */
+/* La page rend le tableau depuis capacites.ts, donc il ne peut pas     */
+/* diverger de ce que le MOTEUR croit savoir faire. Mais rien ne le     */
+/* reliait à ce que le moteur SAIT faire : « une case ne passe à oui    */
+/* qu'une fois son test vert » restait une discipline écrite. Ce        */
+/* scénario en fait une propriété mécanique — il exécute réellement     */
+/* chaque opération annoncée, sur un vrai fichier de ce format-là.      */
+/* ------------------------------------------------------------------ */
+
+/** Un fichier réel PORTEUR d'un lieu, par format. Sans lui, aucune preuve. */
+const TEMOINS: Partial<Record<Format, string>> = {
+  jpeg: 'DSCN0010.jpg',
+  heic: 'iphone.heic',
+  avif: 'photo.avif',
+  png: 'avec-lieu.png',
+  webp: 'avec-lieu.webp',
+  tiff: 'avec-lieu.tif',
+};
+
+scenario('Chaque case du tableau est adossée à une opération réelle', () => {
+  for (const ligne of MATRICE) {
+    for (const format of ligne.formats) {
+      const c = ligne.capacites;
+      const annonce = [c.lire, c.corriger, c.ajouter, c.effacer];
+      const temoin = TEMOINS[format];
+
+      // Une ligne qui annonce quoi que ce soit doit avoir de quoi le prouver.
+      // C'est ici que se voit une case ouverte qu'aucun fichier n'éprouve.
+      if (!temoin) {
+        check(`${format} : une case à « oui » sans fichier témoin`,
+          annonce.every((x) => x === false),
+          `annoncé ${cellules(c).join('/')} sans aucun fichier pour l'éprouver`);
+        continue;
+      }
+
+      const chemin = join(FIXTURES, temoin);
+      const src = new Uint8Array(readFileSync(chemin));
+      const conteneur = conteneurOuEchec(src);
+
+      check(`${format} : « Lire » dit vrai`,
+        (lirePosition(conteneur, src) !== null) === c.lire, temoin);
+
+      const corrige = (() => {
+        try { return ecrirePosition(conteneur, src, AVIGNON.lat, AVIGNON.lon).bytes; }
+        catch { return null; }
+      })();
+      check(`${format} : « Corriger » dit vrai`, (corrige !== null) === c.corriger, temoin);
+
+      const vide = (() => {
+        try { return effacerPosition(conteneur, src).bytes; }
+        catch { return null; }
+      })();
+      check(`${format} : « Effacer » dit vrai`, (vide !== null) === c.effacer, temoin);
+      if (vide) {
+        const out = join(tmp, `matrice-vide-${temoin}`);
+        writeFileSync(out, vide);
+        check(`${format} : « Effacer » retire vraiment le lieu`,
+          exif(['-a', '-G1', '-s', '-GPS:all', out]).trim() === '');
+      }
+
+      // « Ajouter » se prouve sur un fichier qui ne porte plus de lieu — donc
+      // sur la sortie de l'effacement, quel que soit le format.
+      if (vide) {
+        const ajoute = (() => {
+          try { return ecrirePosition(conteneur, vide, AVIGNON.lat, AVIGNON.lon).bytes; }
+          catch { return null; }
+        })();
+        check(`${format} : « Ajouter » dit vrai`, (ajoute !== null) === c.ajouter, temoin);
+        if (ajoute) {
+          const out = join(tmp, `matrice-ajout-${temoin}`);
+          writeFileSync(out, ajoute);
+          const relu = exifPosition(out);
+          check(`${format} : « Ajouter » inscrit vraiment le lieu`,
+            relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+        }
+      }
+    }
   }
-  // Un négatif numérique est un TIFF. On ne saurait pas les distinguer de façon
-  // fiable, et une heuristique fausse détruirait ici un original.
-  check('l\'ajout est refusé avec un code explicite', code === 'AJOUT_IMPOSSIBLE', code);
+});
+
+// Q-038 : une build a promu en production depuis une branche de travail parce
+// qu'un réglage de tableau de bord le demandait et que rien dans le dépôt ne
+// s'y opposait. La décision est revenue dans le dépôt ; encore faut-il qu'un
+// test l'exerce, sinon le garde-fou n'est qu'un ornement.
+scenario('Le garde-fou de déploiement ne promeut que depuis main', () => {
+  check('la branche de production promeut',
+    JSON.stringify(commandePour('main')) === JSON.stringify(['wrangler', 'deploy']));
+  for (const branche of ['claude/geotager-v1-1-final-cases-kqjsif', 'main-truqué', 'Main', 'mainx']) {
+    check(`« ${branche} » téléverse sans promouvoir`,
+      JSON.stringify(commandePour(branche)) === JSON.stringify(['wrangler', 'versions', 'upload']));
+  }
+  check('une branche inconnue est refusée, pas devinée', commandePour('') === null);
+  check('une branche faite d\'espaces est refusée aussi', commandePour('   ') === null);
 });
 
 scenario('Un TIFF large est refusé plutôt que lu de travers', () => {

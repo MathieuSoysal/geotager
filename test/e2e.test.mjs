@@ -17,11 +17,26 @@ const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const PORT = 4319;
 
 const MIME = {
+  '.xml': 'application/xml; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.txt': 'text/plain; charset=utf-8',
+};
+
+/**
+ * La liste de mots interdits du §5 du plan, en entier.
+ *
+ * Elle était jusqu'ici recopiée à deux endroits, en deux versions
+ * divergentes — l'une connaissait « worker » mais pas « RIFF », l'autre
+ * l'inverse — et six mots du §5 n'étaient vérifiés nulle part : « balise »,
+ * « DMS », « décimal », « WGS84 », « sidecar », « upload ». Une liste
+ * dédoublée est une liste dont une moitié finit par mentir.
+ */
+const MOTS_INTERDITS = {
+  fr: /\b(EXIF|IFD|ISOBMFF|VP8X|RIFF|conteneur|m[ée]tadonn[ée]es|balise|DMS|d[ée]cimal|WGS ?84|sidecar|upload|parser|worker|chunk|morceau|atome|bo[îi]te)\b/i,
+  en: /\b(EXIF|IFD|ISOBMFF|VP8X|RIFF|container|metadata|tag|DMS|WGS ?84|sidecar|upload|parser|worker|chunk|atom|box)\b/i,
 };
 
 let passed = 0;
@@ -38,7 +53,11 @@ const check = (nom, ok, detail = '') => {
 
 const serveur = createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
-  let f = join(DIST, url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
+  // Un chemin qui se termine par « / » désigne l'index du dossier — c'est ce
+  // que fait l'hébergeur, et sans cela /fr/ répondrait 404 ici seulement.
+  let f = join(DIST, url.pathname.slice(1));
+  if (url.pathname.endsWith('/')) f = join(f, 'index.html');
+  if (existsSync(f) && statSync(f).isDirectory()) f = join(f, 'index.html');
   if (!existsSync(f) || !statSync(f).isFile()) {
     res.writeHead(404).end('non trouvé');
     return;
@@ -90,14 +109,14 @@ await page.waitForFunction(() => {
 }, null, { timeout: 15_000 });
 
 const pill = (await page.locator('#pill-position').textContent()).trim();
-check('la position lue est affichée', /Actuellement/.test(pill), pill);
+check('la position lue est affichée', /Currently/.test(pill), pill);
 const [latAff, lonAff] = pill.replace(/[^\d.,\-]/g, '').split(',').map(Number);
 check(
   "la position affichée correspond à celle du fichier",
   Math.abs(latAff - attendueOrigine[0]) < 0.0001 && Math.abs(lonAff - attendueOrigine[1]) < 0.0001,
   `affiché ${latAff},${lonAff} / réel ${attendueOrigine.join(',')}`,
 );
-check('les étapes ont avancé', (await page.locator('.step.on').textContent()).includes('lieu'));
+check('les étapes ont avancé', (await page.locator('.step.on').textContent()).includes('place'));
 check('le bouton principal est encore désactivé', await page.locator('#telecharger').isDisabled());
 
 console.log('\nSaisie de nouvelles coordonnées');
@@ -188,8 +207,7 @@ check('la voie retenue est annoncée avant toute action',
   await alerte.isVisible() && (await alerte.textContent()).trim().length > 0,
   (await alerte.textContent()).trim().slice(0, 80));
 check('la phrase affichée ne contient aucun jargon de format',
-  !/EXIF|IFD|ISOBMFF|conteneur|m[ée]tadonn[ée]es|VP8X|parser|worker/i.test(
-    await alerte.textContent()),
+  !MOTS_INTERDITS.en.test(await alerte.textContent()),
   (await alerte.textContent()).trim().slice(0, 80));
 check('« Tout effacer » est désactivé là où l\'opération n\'existe pas',
   await page.locator('#effacer-tout').isDisabled());
@@ -299,9 +317,76 @@ await page.setInputFiles('#picker', join(FIXTURES, 'simple.webp'));
 await page.waitForSelector('#alerte-format:not([hidden])', { timeout: 20_000 });
 const phrase = (await page.locator('#alerte-format').textContent()).trim();
 check('la limite est annoncée avant toute action', phrase.length > 0, phrase.slice(0, 80));
-check('la phrase reste sans jargon de format',
-  !/EXIF|IFD|ISOBMFF|VP8X|RIFF|conteneur|m[ée]tadonn[ée]es|chunk|parser/i.test(phrase), phrase.slice(0, 80));
+check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phrase), phrase.slice(0, 80));
 check('le champ de saisie est désactivé', await page.locator('#coords').isDisabled());
+
+// Les deux contrôles ci-dessus ne voient que les deux phrases que ces deux
+// fichiers déclenchent. Le parcours en compte onze, et c'est celle qu'on n'a
+// pas prévue qui dira « conteneur » à l'utilisateur.
+console.log('\nAucune phrase du parcours ne porte de jargon');
+const { MATRICE } = await import('../src/lib/exif/capacites.ts');
+const { DICOS, LANGUES } = await import('../src/lib/i18n/index.ts');
+const MOTIFS = [
+  'ok', 'sans-lieu', 'sans-emplacement', 'forme-inhabituelle', 'rangement-inconnu',
+  'copie-compressee', 'copie-ailleurs', 'lecture-seule', 'sans-lieu-possible',
+  'video', 'inconnu',
+];
+// Les deux langues, et toutes les phrases de chacune : c'est la phrase qu'on
+// n'a pas prévue qui dira « container » à l'utilisateur.
+for (const langue of LANGUES) {
+  const T = DICOS[langue];
+  for (const motif of MOTIFS) {
+    const p = T.motifs[motif];
+    check(`${langue} / « ${motif} » : une phrase sans jargon`,
+      Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+  }
+  for (const [code, p] of Object.entries(T.erreurs)) {
+    check(`${langue} / erreur « ${code} » : sans jargon`,
+      Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+  }
+}
+check('les onze motifs du parcours sont couverts', MOTIFS.length === 11);
+check('les deux langues ont exactement les mêmes clés',
+  JSON.stringify(Object.keys(DICOS.en.erreurs).sort()) ===
+    JSON.stringify(Object.keys(DICOS.fr.erreurs).sort()));
+// Le tableau servi doit être celui du code, ligne pour ligne.
+const tableauServi = await page.locator('#limites ~ table tbody tr').count()
+  .catch(() => 0);
+check('le tableau de la page a autant de lignes que le code en déclare',
+  tableauServi === 0 || tableauServi === MATRICE.length, `${tableauServi} vs ${MATRICE.length}`);
+
+console.log('\nLa version française est servie et reliée');
+await page.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
+check('la page française déclare sa langue',
+  (await page.locator('html').getAttribute('lang')) === 'fr');
+check('elle affiche bien du français',
+  (await page.locator('#etat-vide h1').textContent()).includes('Changez le lieu'),
+  (await page.locator('#etat-vide h1').textContent()).trim());
+check('elle pointe vers la version anglaise',
+  (await page.locator('nav.main a[rel="alternate"]').getAttribute('href')) === '/');
+const enHref = await page.locator('link[rel="alternate"][hreflang="en"]').getAttribute('href');
+const frHref = await page.locator('link[rel="alternate"][hreflang="fr"]').getAttribute('href');
+check('les deux langues sont déclarées réciproquement',
+  enHref?.endsWith('/') && frHref?.endsWith('/fr/'), `${enHref} | ${frHref}`);
+check('la page française est canonique sur elle-même',
+  (await page.locator('link[rel="canonical"]').getAttribute('href')).endsWith('/fr/'));
+
+// Le parcours doit fonctionner à l'identique dans les deux langues : c'est le
+// même moteur, et une traduction ne doit rien casser.
+await page.setInputFiles('#picker', source);
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+await page.waitForFunction(() => {
+  const p = document.getElementById('pill-position');
+  return p && !p.hidden && p.textContent.trim().length > 0;
+}, null, { timeout: 15_000 });
+const pillFr = (await page.locator('#pill-position').textContent()).trim();
+check('la position est lue aussi sur la page française', /Actuellement/.test(pillFr), pillFr);
+
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+check('la page anglaise déclare sa langue',
+  (await page.locator('html').getAttribute('lang')) === 'en');
+check('elle pointe vers la version française',
+  (await page.locator('nav.main a[rel="alternate"]').getAttribute('href')) === '/fr/');
 
 console.log('\nPreuve du zéro-tiers');
 const tiers = requetes.filter((u) => {

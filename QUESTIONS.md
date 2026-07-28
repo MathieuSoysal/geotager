@@ -60,8 +60,35 @@ produit vaut la peine d'être construit, et elle doit être posée avant le spik
 **Retenu provisoirement :** **B**, parce que c'est la seule option qui ne promet rien qu'on ne
 tienne. La suppression — le cas d'usage n°1 — reste intégralement couverte sur HEIC.
 
-**Bloque :** **oui** pour le lancement du spike complet. Les étapes S1 (poids) et S3 (HEIC sur cible
-hôte) peuvent démarrer sans la réponse ; le reste non.
+**TRANCHÉ le 27/07/2026 — par la mesure, et le spike Rust n'a plus d'objet.**
+
+La prémisse « la voie JS ne sait pas écrire dans un ISOBMFF » était exacte mais mal employée : elle
+conclut qu'on ne sait pas **réécrire** un conteneur, et on en avait déduit qu'on ne sait pas y
+**ajouter**. Or l'astuce qui a rendu P2 sûr sur TIFF s'applique ici — on n'agrandit rien sur place.
+Le nouveau bloc va dans une boîte `mdat` ajoutée **en fin de fichier**, et la seule entrée d'`iloc`
+qui concerne l'item de position est repointée. Aucun autre décalage ne devient faux puisque aucun
+autre octet ne bouge ; l'ancien contenu devient de l'espace mort, exactement comme l'ancien IFD0.
+
+**Éprouvé avant d'écrire une ligne de produit**, par fabrication manuelle sur quatre photos réelles —
+`iphone.heic`, `iphone-sans-lieu.heic`, `photo.avif`, `bloc-en-queue.heif` :
+
+| Oracle | Verdict |
+|---|---|
+| `exiftool -GPSLatitude -GPSLongitude` | relit exactement la position écrite, à sa nouvelle place |
+| `exiftool -validate -warning -a` | `Validate : OK` sur les quatre |
+| `heif-info` / `heif-convert` (libheif 1.17) | décode encore, HEIC **et** AVIF |
+| Chromium, `createImageBitmap` | décode l'AVIF repointé, 400×300, comme l'original |
+
+Relevé au passage sur les six fichiers du corpus : `offset_size = 4`, `length_size = 4`,
+`base_offset_size = 0`, aucun octet après la dernière boîte. Les cinq refus du code portent
+précisément sur ces suppositions-là, pour qu'aucune ne soit tacite.
+
+Ce que la voie ne sait toujours pas faire : donner un lieu à un fichier qui n'a **aucun** item de
+position — il faudrait agrandir la table des items, donc décaler tout ce qui suit. Refusé
+explicitement, et annoncé avant l'action.
+
+**Bloque :** plus rien. Le spike Rust/WASM n'est pas lancé, et Q-018 (compiler le WASM ailleurs que
+chez Cloudflare) devient sans objet tant qu'aucune autre raison ne le ressuscite.
 
 ---
 
@@ -146,7 +173,32 @@ l'architecture saute par optimisation.
 
 **Retenu provisoirement :** **A**.
 
-**Bloque :** non.
+**MISE À JOUR du 27/07/2026 : A était encore trop généreuse — la lecture non plus n'existait pas.**
+
+L'option A conservait la lecture. Vérifié en exécutant le moteur : **aucune ligne de code ne lit une
+vidéo.** Le sondage court-circuite sur le format et rend « aucune position » sans consulter le
+moindre lecteur, et le second lecteur — celui écrit par d'autres — n'ouvre ni MOV ni MP4. La case
+« Lire » était donc à « oui » sans rien derrière depuis l'origine. Voir Q-039.
+
+Ce qui manque pour rouvrir quoi que ce soit est **un fichier**, pas du code. Recherche menée le
+27/07/2026, toutes négatives : `ianare/exif-samples`, `drewnoakes/metadata-extractor-images`,
+`Exiv2/exiv2`, `exiftool/exiftool`, `gopro/gpmf-parser`, `google/spatial-media` ne contiennent aucun
+`.mov`/`.mp4`/`.m4v`/`.3gp` ; Wikimedia Commons n'accepte ni `video/quicktime` ni `video/mp4` (0
+résultat sur les deux types). Aucun corpus public sous licence libre ne fournit donc de vidéo réelle.
+
+Une vidéo a bien été fournie pour ce lot — un vrai MP4 Android de 4 877 320 o — mais elle a été
+**purgée à l'envoi** : ni `©xyz`, ni `@xyz`, ni `ISO6709`, ni `udta`, ni `location.name` ;
+`moov/meta/ilst` ne porte plus que `com.android.version`, et les entrées voisines sont des boîtes
+`skip` remises à zéro. Le conteneur reste réel et pourrait servir de support au précédent Q-035 —
+lieu inscrit par ExifTool — mais il lui faudrait d'abord une **adresse durable** : le lien fourni
+expire, et `test/fixtures/` n'est pas committé.
+
+Ce qu'il faudrait pour ouvrir « Effacer », inchangé et toujours non tenu : un balayage résiduel qui
+cherche des **toponymes** et pas seulement des coordonnées. Un fichier qui n'a plus de latitude mais
+dit encore « Avignon » n'est pas effacé, et c'est le seul endroit du produit où l'effacement peut
+mentir sans qu'aucun contrôle actuel ne s'en aperçoive.
+
+**Bloque :** non. La ligne entière est à « pas encore », ce qui est désormais exact.
 
 ---
 
@@ -689,6 +741,20 @@ demanderait un écrivain de conteneur. Le tableau à trois colonnes ne savait pa
 **Retenu provisoirement :** **A**, parce que la quatrième colonne dit une vérité que la troisième ne
 pouvait pas dire, et parce qu'elle rend le tableau vérifiable case par case par un test.
 
+**MISE À JOUR du 27/07/2026 : l'option C n'est plus écartée, et les trois cases sont ouvertes.**
+
+L'entrée disait « rien dans ce portage ne l'a rendu moins risqué ». C'était vrai du portage ; ce ne
+l'est plus depuis qu'on a cessé de chercher à agrandir l'item sur place. Voir Q-002 pour la mesure
+qui l'établit.
+
+Sur **HEIC et AVIF**, « Ajouter » est ouvert : boîte ajoutée en fin de fichier, une seule adresse
+repointée. Sur **TIFF**, il l'est aussi, mais aux seuls fichiers qui prouvent être une image
+ordinaire — voir la mise à jour de Q-029.
+
+La quatrième colonne garde tout son sens : « Corriger » et « Ajouter » restent deux opérations
+différentes, la première ne changeant pas la taille du fichier et la seconde si. Ce que la mesure a
+changé, c'est la valeur des cases, pas la forme du tableau.
+
 **Bloque :** non.
 
 ---
@@ -710,6 +776,41 @@ les deux autres.
 **Retenu provisoirement :** **A**, parce qu'un chemin d'écriture que nous ne pouvons pas éprouver
 est un chemin que nous ne devons pas livrer, et que celui-là écrirait au milieu d'un fichier de
 plusieurs mégaoctets.
+
+**MISE À JOUR du 27/07/2026 : A tient, et le même raisonnement ouvre l'ajout sur TIFF.**
+
+Les deuxième et troisième formes de rangement restent refusées, pour la raison inchangée : aucun
+fichier public ne les exerce sur un bloc de position. S'y ajoutent désormais trois refus de même
+nature pour l'ajout, tous mesurés plutôt que supposés — un décalage de base non nul, une boîte
+finale qui déclare la taille 0, des octets qu'aucune boîte ne revendique.
+
+**Sur TIFF, la case « Ajouter » s'ouvre, et le discriminant a été éprouvé dans les deux sens.** Un
+DNG, un NEF, un CR2 sont des TIFF ; le corpus gagne quatre négatifs CC0 de `raw.pixls.us`, dont un
+**Kodak EOS DCS 3 dont le nom de fichier dit « .TIF »** — le piège exact que la case devait éviter.
+
+La mesure a démenti la conjecture, et c'est ce qui justifie d'avoir mesuré. On pariait sur
+`PhotometricInterpretation` et `Compression` : relevés sur de vrais fichiers, la première page d'un
+DNG et d'un NEF est un **aperçu RVB non compressé** (Photometric = 2, Compression = 1), donc
+indiscernable d'un TIFF ordinaire sur ces deux tags. Ce qui la trahit est qu'elle s'annonce comme
+image **réduite** (`NewSubFileType = 1`) et que les vraies données vivent dans un sous-répertoire
+(`SubIFDs`).
+
+| Fichier | NewSubFileType | Photometric | Compression | SubIFDs |
+|---|---|---|---|---|
+| `negatif.dng` | 1 | 2 | 1 | oui |
+| `negatif.nef` | 1 | 2 | 1 | oui |
+| `negatif.cr2` | absent | **absent** | 6 | non |
+| `negatif.tif` | 1 | 1 | **absent** | oui |
+| les quatre TIFF ordinaires | absent ou 0 | 2 | 5 | non |
+
+C'est une **liste blanche, échec fermé** : on n'ajoute que si le fichier prouve être une image
+ordinaire, de sorte qu'un format brut qui n'existe pas encore est refusé par construction. Chaque
+négatif est écarté par au moins deux règles indépendantes, sauf le CR2, écarté parce qu'il ne
+déclare aucune interprétation photométrique — un TIFF sans elle n'est pas une image conforme.
+
+Corriger et effacer restent ouverts sur un négatif : c'est à longueur constante et la carte des
+plages protège les bandes de pixels. Ce comportement préexistait et n'était adossé à rien ; il l'est
+désormais, sur un vrai DNG.
 
 **Bloque :** non.
 
@@ -880,6 +981,11 @@ devenu cliquable sur des formats où « tout effacer » n'existe pas, pour écho
 
 **Retenu provisoirement :** **A**.
 
+**SOLDÉ le 27/07/2026.** Les segments `APP2` porteurs de la signature `ICC_PROFILE` sont désormais
+gardés par « Tout effacer » — tous, car un profil volumineux est réparti sur plusieurs segments
+successifs qui portent la même signature. Le test compare l'empreinte du profil avant et après sur
+`Canon_40D.jpg`, qui porte un sRGB : identique au bit près. Le JPEG cesse d'être l'écart.
+
 **Bloque :** non.
 
 ---
@@ -988,3 +1094,47 @@ ce qui tient. Un garde-fou dans le dépôt, qui échouerait si une build promouv
 une branche autre que `main`, a été proposé et n'a pas été retenu dans ce lot.
 
 **Bloque :** **oui** pour le Gate 2, non pour la revue de la PR.
+
+---
+
+## [V1.1] Q-039 — Une case du tableau était à « oui » sans aucun code derrière
+
+**Contexte :** le projet affirme que le tableau « ne peut pas mentir », parce qu'il est rendu depuis
+`src/lib/exif/capacites.ts`, que le moteur lit aussi. C'est exact, mais plus étroit que la phrase ne
+le laisse croire : ce qui est mécanique, c'est l'accord **tableau ⇄ moteur**, jamais l'accord
+**case ⇄ test**. Aucun test n'importait `capacites.ts`.
+
+La ligne des vidéos a vécu six mois à « Lire : oui ». Vérifié en exécutant le moteur : le sondage
+s'arrête sur le format et rend `position: null` sans consulter aucun lecteur, et `exifr` n'ouvre ni
+MOV ni MP4. La phrase affichée à l'utilisateur disait pourtant « Nous savons lire le lieu d'une
+vidéo ». Le tableau mentait, et rien ne pouvait s'en apercevoir.
+
+**Options :**
+- **A.** Un scénario piloté par `MATRICE` qui **exécute réellement** chaque opération annoncée, sur
+  une vraie photo du format, et qui exige qu'une ligne dépourvue de fichier témoin n'annonce rien.
+  La discipline devient une propriété : une case ouverte sans preuve fait échouer la chaîne.
+- **B.** Adosser la lecture vidéo à du code, pour rendre la case vraie. Écarté ici : sans fichier
+  réel pour l'éprouver, on remplacerait une case fausse par une case non prouvée — voir Q-006.
+- **C.** Corriger la ligne et s'en tenir là. Écarté : le défaut n'est pas cette ligne-là, c'est
+  qu'aucun mécanisme ne l'aurait jamais signalée.
+
+**Retenu : A**, appliqué. Le test a immédiatement trouvé la case fausse — c'est très exactement ce
+pour quoi il existe —, et la ligne des vidéos est passée à « pas encore » sur les quatre colonnes.
+
+Deux défauts voisins, trouvés en même temps et corrigés dans le même lot :
+
+1. **Un bouton actif qui n'agissait pas.** L'application filtrait *toutes* les opérations par
+   « peut-on écrire ? », effacement compris. Sur une photo dont on savait retirer le lieu sans
+   savoir en ajouter un — cas réel du corpus —, le bouton « Effacer » était cliquable et ne faisait
+   rien. Un bouton qui n'agit pas est pire qu'un bouton grisé : il laisse croire que le fichier a
+   été traité.
+2. **La liste de mots interdits du §5 était dédoublée**, en deux versions divergentes, appliquées à
+   deux fichiers seulement. Six mots du §5 — « balise », « DMS », « décimal », « WGS84 »,
+   « sidecar », « upload » — n'étaient vérifiés nulle part. Une seule liste désormais, complète,
+   passée sur les **onze** phrases du parcours.
+
+Enfin, le tableau du `README.md` est écrit à la main et pouvait dériver de `MATRICE` — c'est pourtant
+le premier que lit quelqu'un qui découvre le projet. Un contrôle de build compare ses cellules à la
+constante, et il a été vérifié **en échec** avant d'être vérifié au vert.
+
+**Bloque :** non.

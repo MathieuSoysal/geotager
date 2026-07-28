@@ -76,6 +76,21 @@ export function parseJpegSegments(bytes: Uint8Array): Segment[] {
   return segments;
 }
 
+const ICC_SIGNATURE = [0x49, 0x43, 0x43, 0x5f, 0x50, 0x52, 0x4f, 0x46, 0x49, 0x4c, 0x45, 0x00]; // "ICC_PROFILE\0"
+
+/**
+ * Vrai si ce segment porte le profil de couleurs.
+ *
+ * Un profil ICC volumineux est réparti sur plusieurs segments APP2 successifs,
+ * qui portent tous la même signature : les reconnaître un par un les garde tous
+ * sans avoir à les recoller.
+ */
+function estProfilIcc(bytes: Uint8Array, seg: Segment): boolean {
+  if (seg.marker !== 0xe2) return false;
+  if (seg.dataStart + ICC_SIGNATURE.length > seg.dataEnd) return false;
+  return ICC_SIGNATURE.every((b, k) => bytes[seg.dataStart + k] === b);
+}
+
 /** Repère le segment APP1 porteur de l'EXIF, s'il existe. */
 export function findExifSegment(bytes: Uint8Array, segments: Segment[]): Segment | null {
   for (const seg of segments) {
@@ -184,9 +199,20 @@ export const conteneurJpeg: Conteneur = {
     return { bytes, changed: [[seg.start, Math.max(bytes.length, b.length)]] };
   },
 
+  /**
+   * Retire les informations descriptives, et garde le profil de couleurs.
+   *
+   * Perdre le profil décale visiblement les couleurs dans toute application
+   * gérée en couleur : ce serait une dégradation de l'IMAGE, alors que
+   * l'utilisateur a demandé le retrait d'informations. `png.ts` et `riff.ts` le
+   * conservaient déjà ; le JPEG était le seul écart, et `att_exif.md` §4 exige
+   * l'inverse — profil présent avant, présent après.
+   */
   toutEffacer(b): Pose {
     const segments = parseJpegSegments(b);
-    const drop = segments.filter((s) => (s.marker >= 0xe0 && s.marker <= 0xef) || s.marker === 0xfe);
+    const drop = segments.filter(
+      (s) => ((s.marker >= 0xe0 && s.marker <= 0xef) || s.marker === 0xfe) && !estProfilIcc(b, s),
+    );
     if (drop.length === 0) return { bytes: b, changed: [] };
     const keep: Array<[number, number]> = [];
     let cursor = 0;

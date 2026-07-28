@@ -1,0 +1,49 @@
+---
+/**
+ * Le tableau format × opération, rendu depuis `capacites.ts`.
+ *
+ * Le moteur lit la même constante, donc le tableau ne peut pas dériver de ce
+ * que le code sait faire. La constante ne porte plus que des BOOLÉENS : les
+ * mots — libellés, colonnes, « oui » et « pas encore » — viennent du
+ * dictionnaire, si bien que les deux langues disent nécessairement la même
+ * vérité.
+ */
+import { MATRICE, cellules } from '../lib/exif/capacites.ts';
+import type { Dictionnaire } from '../lib/i18n/types.ts';
+
+interface Props {
+  dico: Dictionnaire;
+}
+const { dico: T } = Astro.props;
+
+// Le libellé d'une ligne est celui de son premier format : c'est lui qui la
+// nomme, et le dictionnaire n'a donc qu'une entrée par ligne à porter.
+const lignes = MATRICE.map((l) => ({
+  ...(T.matrice.lignes[l.formats[0]] ?? { libelle: l.formats[0] }),
+  cases: cellules(l.capacites),
+}));
+---
+
+<table>
+  <thead>
+    <tr><th>{T.matrice.format}</th>{T.matrice.colonnes.map((c) => <th>{c}</th>)}</tr>
+  </thead>
+  <tbody>
+    {
+      lignes.map((ligne) => (
+        <tr>
+          <td>
+            {ligne.libelle}
+            {ligne.mention && (
+              <>
+                {' '}
+                <span class="pill">{ligne.mention}</span>
+              </>
+            )}
+          </td>
+          {ligne.cases.map((v) => <td>{v ? T.matrice.oui : T.matrice.pasEncore}</td>)}
+        </tr>
+      ))
+    }
+  </tbody>
+</table>
