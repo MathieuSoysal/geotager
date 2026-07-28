@@ -9,6 +9,7 @@
 import '../styles/global.css';
 import type { Dictionnaire } from '../lib/i18n/types.ts';
 import { DICOS, LANGUES, LANGUE_PAR_DEFAUT } from '../lib/i18n/index.ts';
+import { COUCHES, cheminBlob } from '../lib/ui/blob-path.ts';
 
 interface Props {
   dico: Dictionnaire;
@@ -65,6 +66,44 @@ const jsonLd = {
   </head>
   <body>
     <a class="saut" href="#contenu">{T.nav.aller}</a>
+
+    <!-- Décor. Purement ornemental : hors flux, hors focus, hors arbre
+         d'accessibilité. La première image est gravée ici, au build, par le
+         même code de géométrie que la boucle du client : le HTML servi montre
+         déjà la forme, si bien que rien n'apparaît au démarrage et qu'un
+         visiteur qui a demandé moins de mouvement la voit sans un octet de
+         JavaScript. Il vient après le lien d'évitement, qui reste premier. -->
+    <div class="decor" id="decor" aria-hidden="true">
+      <svg viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          {
+            /* `userSpaceOnUse` is not a detail: the default frame is the
+               path's bounding box, which changes every frame, so the gradient
+               would resolve anew continuously and breathe with the shape
+               instead of being the fixed field the outline reveals. */
+            COUCHES.map((c) => (
+              <radialGradient
+                id={`bd-${c.id}`}
+                class={`bd-${c.id}`}
+                gradientUnits="userSpaceOnUse"
+                cx="0"
+                cy="0"
+                r="92"
+              >
+                <stop class="dedans" offset="0" />
+                <stop class="milieu" offset=".55" />
+                <stop class="dehors" offset="1" />
+              </radialGradient>
+            ))
+          }
+        </defs>
+        {
+          COUCHES.map((c) => (
+            <path data-blob transform={c.transform} fill={`url(#bd-${c.id})`} d={cheminBlob(c, 0)} />
+          ))
+        }
+      </svg>
+    </div>
 
     <div class="app">
       <div class="wrap" style="display:flex;flex-direction:column;flex:1">
@@ -221,8 +260,15 @@ const jsonLd = {
       </footer>
     </div>
 
+    <!-- L'outil d'abord, la décoration ensuite : cet ordre est le seul moyen
+         de séparation qui reste, Astro réunissant de toute façon les scripts
+         hissés en un seul paquet. C'est pourquoi `blob.ts` ne lève jamais et
+         se retire en silence s'il ne trouve pas son calque : le test de bout en
+         bout refuse la moindre erreur de console, et une décoration n'a pas à
+         pouvoir emporter l'outil avec elle. -->
     <script>
       import '../lib/ui/app.ts';
+      import '../lib/ui/blob.ts';
     </script>
   </body>
 </html>

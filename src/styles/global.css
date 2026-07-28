@@ -13,6 +13,12 @@
  * 2. The panels are opaque colours rather than `backdrop-filter`. Same cost
  *    argument, and the contrast becomes deterministic instead of depending on
  *    whatever passes behind.
+ *
+ * The animated decor in `.decor` is not a reversal of point 1: it animates no
+ * CSS property. It is an `rAF` loop rewriting the `d` attribute of three <path>
+ * elements, on a bounded surface composited separately, with no blur, no
+ * `mix-blend-mode` and no `backdrop-filter`. The gradient opacities are capped
+ * by contrast rather than taste (composite luminance <= 0.0380 under `.sub`).
  */
 
 :root {
@@ -55,6 +61,63 @@ body {
    this width the template shrinks to its content and the bar ends up squeezed
    into the centre. */
 .app > .wrap { width: 100%; }
+
+/* Decoration: out of flow, out of focus, out of the metrics */
+/*
+ * `position: fixed`: the layer takes part in no layout. It therefore cannot
+ * shift the height-locked grid of `.stage`, cannot enter CLS, and its box is
+ * fully known before any script runs. An inline SVG is not an LCP candidate:
+ * the <h1> remains the measured element.
+ *
+ * `min()` rather than `clamp()`: a floor in `rem` would exceed the width of a
+ * 360 px phone, and a `fixed` element is not clipped by `body`'s
+ * `overflow-x: hidden`, which is not its containing block. That would be a
+ * horizontal scrollbar.
+ */
+.decor {
+  position: fixed;
+  left: 50%; top: 50%;
+  /* An independent property: `transform` stays free for drag and drop. */
+  translate: -50% -50%;
+  width: min(90vw, 40rem);
+  aspect-ratio: 1;
+  z-index: 0;
+  pointer-events: none;
+  contain: strict;
+  /* Its own layer: rewriting `d` then repaints only this layer. */
+  will-change: transform;
+  transition: opacity .3s ease, transform .3s ease;
+}
+.decor svg { display: block; width: 100%; height: 100%; }
+
+/* The tokens remain the single source. `stop-color` and `stop-opacity` are real
+   CSS properties, where `var()` resolves, which is not the case in a
+   presentation attribute. */
+.bd-rose stop { stop-color: var(--pink); }
+.bd-indigo stop { stop-color: var(--indigo); }
+.bd-teal stop { stop-color: var(--teal); }
+/* Capped by contrast: composite <= 0.0380 under `.sub`. */
+.bd-rose .dedans { stop-opacity: .12; } .bd-rose .milieu { stop-opacity: .086; }
+.bd-indigo .dedans { stop-opacity: .09; } .bd-indigo .milieu { stop-opacity: .065; }
+.bd-teal .dedans { stop-opacity: .06; } .bd-teal .milieu { stop-opacity: .043; }
+.decor .dehors { stop-opacity: 0; }
+
+/* Everything that is read goes in front. A static box paints before a
+   positioned one: without this rule `#contenu`, which is a sibling of `.app`
+   rather than a descendant, would pass under the decor. */
+.app, #contenu { position: relative; z-index: 1; }
+
+/* The gesture is acknowledged by the compositor alone, like the bubble below.
+   `.parti` is excluded: outside the hero, the decoration must not light back up
+   under the article. */
+body.glisse .decor:not(.parti) { transform: scale(1.07); opacity: 1; }
+
+/* A photo is loaded: the island is opaque, so every frame would be spent behind
+   a solid surface. */
+.decor.repos { opacity: .3; }
+/* The hero has left the screen: nothing left to decorate, and the article text
+   never passes over a colour that moves. */
+.decor.parti { opacity: 0; will-change: auto; }
 
 :focus-visible {
   outline: 3px solid var(--pink);
