@@ -1343,3 +1343,52 @@ texte : `clamp(1.5rem, 3.6vw, 2.25rem)` en graisse 800, donc ≥ 24 px gras part
 Les paliers de fenêtre basse de Q-040 restent en place et gardent leur rôle.
 
 **Bloque :** non.
+
+---
+
+## [V1.2] Q-043 — Ce qui remplit l'écran est statique, ce qui bouge est borné
+
+**Contexte :** demande de pousser plus loin vers Squoosh, dont le fond vit d'un bord à l'autre. Le
+décor de Q-042 restait un médaillon au centre. La réponse évidente — étendre le calque animé à toute
+la fenêtre — a été essayée, mesurée, et retirée.
+
+**Mesuré**, p95 de l'intervalle inter-image sur 120 images, calque étendu à la fenêtre :
+
+| | tel quel | sans `screen` | boucle arrêtée |
+|---|---|---|---|
+| 1440 × 900 @DPR2 | 33,4 ms | 16,8 ms | 16,7 ms |
+| 2560 × 1440 | **83,4 ms** | 50,1 ms | 16,8 ms |
+
+Les deux facteurs comptent, et aucun ne se rattrape : le mélange double le coût, la surface fait le
+reste. À 83 ms, c'est douze images par seconde sur un grand écran. Une réécriture de géométrie par
+image ne passe pas à l'échelle de la fenêtre — c'est exactement ce que le §1 de `att_budget.md`
+soutenait, vérifié cette fois sur le code réel plutôt que sur la maquette.
+
+**Retenu : séparer ce qui remplit de ce qui bouge.**
+
+- **Ce qui remplit l'écran est statique.** Les `radial-gradient` de `body` passent de trois à quatre
+  (l'ambre répond à la quatrième forme) et deviennent francs : 0,42 / 0,36 / 0,26 / 0,20 contre
+  0,28 / 0,30 / 0,16. Un dégradé radial coûte une passe de shader, une fois. Il peut donc couvrir
+  toute la fenêtre sans rien coûter par image.
+- **Ce qui bouge reste borné**, `min(96vw, 94svh, 52rem)`, avec son mélange et sa boucle.
+
+**Mesuré après :** 16,7 ms à 1440 × 900 @DPR2 **et** à 2560 × 1440 — la cadence d'écran, aux deux
+tailles, contre 83 ms avant. Le fond est plus coloré qu'à aucun moment, et la boucle a retrouvé son
+coût d'origine.
+
+**Contraste.** Des dégradés plus francs consomment le budget du texte : `.formats` est tombé à
+4,28:1. Deux jetons éclaircis le rendent — `--clair-mono` rejoint `--clair` (#ded9e2) et
+`--rose-clair` passe à #ff93bd. Matrice **MESURÉE** sur dix fenêtres, chaque texte contre son seuil :
+
+| | pire | seuil | marge |
+|---|---|---|---|
+| `h1` | 6,49:1 | 3:1 | large |
+| `h1 em` | 3,93:1 | 3:1 | +31 % |
+| `.sub` | **4,81:1** | 4,5:1 | +7 % |
+| `.formats` | 4,99:1 | 4,5:1 | +11 % |
+
+Les marges sont plus minces qu'en Q-042 : c'est le prix de la couleur, il est mesuré, et il reste du
+bon côté du seuil. `.sub` à 320 × 568 est le point le plus tendu et le premier à surveiller si les
+dégradés devaient encore forcer.
+
+**Bloque :** non.

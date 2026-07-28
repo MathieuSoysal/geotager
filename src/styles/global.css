@@ -43,8 +43,8 @@
   /* Le texte qui passe au-dessus du décor. Voir le bloc du héros plus bas :
      ces trois valeurs sont ce qui autorise la couleur des formes. */
   --clair: #ded9e2;
-  --clair-mono: #cfc9d4;
-  --rose-clair: #ff7fae;
+  --clair-mono: #ded9e2;
+  --rose-clair: #ff93bd;
   --bordure: rgba(244, 241, 245, 0.12);
   --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -56,11 +56,18 @@
 body {
   margin: 0;
   background: var(--bg);
-  /* Les trois formes de la maquette, en dégradés statiques. */
+  /*
+   * Les formes de la maquette, en dégradés statiques — et c'est ici que la
+   * couleur remplit l'écran. Un dégradé radial ne coûte qu'une passe de shader,
+   * une fois : il peut donc être franc et couvrir toute la fenêtre, là où la
+   * surface animée doit rester bornée sous peine de tomber à douze images par
+   * seconde. La quatrième, ambre, répond à la quatrième forme du décor.
+   */
   background-image:
-    radial-gradient(60rem 60rem at 8% -10%, rgba(255, 51, 133, 0.28), transparent 60%),
-    radial-gradient(50rem 50rem at 96% 6%, rgba(74, 70, 201, 0.30), transparent 62%),
-    radial-gradient(44rem 44rem at 62% 108%, rgba(0, 211, 197, 0.16), transparent 60%);
+    radial-gradient(72rem 72rem at 2% -14%, rgba(255, 51, 133, 0.42), transparent 62%),
+    radial-gradient(64rem 64rem at 99% 0%, rgba(139, 135, 255, 0.36), transparent 64%),
+    radial-gradient(58rem 58rem at 46% 114%, rgba(0, 211, 197, 0.26), transparent 62%),
+    radial-gradient(50rem 50rem at 96% 96%, rgba(255, 176, 32, 0.20), transparent 60%);
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--sans);
@@ -101,8 +108,15 @@ body {
  */
 .decor {
   position: fixed;
+  /*
+   * La surface animée est bornée, et la mesure ne laisse pas le choix. Étendue
+   * à la fenêtre entière, elle coûtait 33 ms par image sur un portable et
+   * 83 ms — douze images par seconde — sur un 2560. Le détail : le mélange en
+   * double le coût, la surface fait le reste (50 ms sans lui). Ce qui remplit
+   * l'écran, ce sont les dégradés statiques de `body` : une passe de shader,
+   * zéro travail par image. Ce qui bouge reste borné. Voir Q-043.
+   */
   left: 50%; top: 50%;
-  /* Propriété indépendante : `transform` reste libre pour le glisser-déposer. */
   translate: -50% -50%;
   width: min(96vw, 94svh, 52rem);
   aspect-ratio: 1;
