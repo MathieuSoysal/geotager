@@ -60,8 +60,14 @@ body {
 .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.25rem; }
 /* Un élément flex dont la marge transversale vaut `auto` cesse d'être étiré :
    sans cette largeur, le gabarit se réduit à son contenu et la barre se
-   retrouve tassée au centre. */
-.app > .wrap { width: 100%; }
+   retrouve tassée au centre.
+
+   Les trois déclarations qui suivent étaient un attribut `style` sur le
+   gabarit. La CSP du site ne porte pas `'unsafe-inline'`, et `style-src` régit
+   aussi `style-src-attr` : en production, le navigateur refusait l'attribut et
+   la colonne ne s'étirait pas. Aucun test ne servait l'en-tête, donc rien ne le
+   disait. C'est réparé des deux côtés — la règle ici, l'en-tête dans le test. */
+.app > .wrap { width: 100%; display: flex; flex-direction: column; flex: 1; }
 
 /* --- décor : hors flux, hors focus, hors métrique --- */
 /*
@@ -74,13 +80,19 @@ body {
  * téléphone de 360 px, et un élément `fixed` n'est pas rogné par le
  * `overflow-x: hidden` de `body` — qui n'est pas son bloc conteneur. Ce serait
  * une barre de défilement horizontale.
+ *
+ * Les deux axes sont bornés, et pas seulement la largeur. Le calque est carré :
+ * sans la borne en hauteur, un téléphone couché — 844 × 390 — recevrait un
+ * carré de 640 px dans une fenêtre de 390 px de haut. La forme noierait tout le
+ * héros et emporterait le contraste sous le texte. `svh` est la mesure prudente
+ * (barres d'outils affichées), et c'est déjà l'unité de `.app`.
  */
 .decor {
   position: fixed;
   left: 50%; top: 50%;
   /* Propriété indépendante : `transform` reste libre pour le glisser-déposer. */
   translate: -50% -50%;
-  width: min(90vw, 40rem);
+  width: min(90vw, 90svh, 40rem);
   aspect-ratio: 1;
   z-index: 0;
   pointer-events: none;
@@ -102,6 +114,32 @@ body {
 .bd-indigo .dedans { stop-opacity: .09; } .bd-indigo .milieu { stop-opacity: .065; }
 .bd-teal .dedans { stop-opacity: .06; } .bd-teal .milieu { stop-opacity: .043; }
 .decor .dehors { stop-opacity: 0; }
+
+/*
+ * Fenêtre basse — un téléphone couché, typiquement. Le héros n'y tient pas
+ * d'un seul tenant : le titre et le sous-titre naissent sous la ligne de
+ * flottaison, et pour les lire il faut défiler. Or le calque est `fixed` et
+ * centré : le texte vient donc nécessairement croiser son centre, c'est-à-dire
+ * l'endroit le plus dense du dégradé. Mesuré à 844 × 390 : 4,05:1 sous `.sub`,
+ * sous le seuil de 4,5:1. Les mêmes opacités à 45 % ramènent à 5,4:1.
+ *
+ * C'est aux arrêts du dégradé et non à l'opacité du calque, pour que le réglage
+ * se compose avec `.repos`, `.parti` et le glisser-déposer au lieu d'entrer en
+ * conflit de spécificité avec eux.
+ */
+@media (max-height: 40rem) {
+  .bd-rose .dedans { stop-opacity: .054; } .bd-rose .milieu { stop-opacity: .039; }
+  .bd-indigo .dedans { stop-opacity: .04; } .bd-indigo .milieu { stop-opacity: .029; }
+  .bd-teal .dedans { stop-opacity: .027; } .bd-teal .milieu { stop-opacity: .019; }
+}
+/* Plus la fenêtre est basse, plus la part du décor que le texte doit traverser
+   est grande : le réglage précédent tient à 640 px de haut (5,7:1) mais plus à
+   360 (4,5:1). Deuxième palier, mesuré, pour les vrais téléphones couchés. */
+@media (max-height: 26rem) {
+  .bd-rose .dedans { stop-opacity: .026; } .bd-rose .milieu { stop-opacity: .019; }
+  .bd-indigo .dedans { stop-opacity: .02; } .bd-indigo .milieu { stop-opacity: .014; }
+  .bd-teal .dedans { stop-opacity: .013; } .bd-teal .milieu { stop-opacity: .009; }
+}
 
 /* Tout ce qui se lit passe devant. Une boîte statique se peint AVANT une boîte
    positionnée : sans cette règle, `#contenu` — qui est un frère de `.app`, pas

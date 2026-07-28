@@ -16,6 +16,19 @@ const DIST = 'dist';
 const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const PORT = 4319;
 
+/**
+ * La CSP réellement servie, lue dans `public/_headers`.
+ *
+ * Elle est lue et non recopiée : une politique recopiée ici dériverait de celle
+ * que sert l'hébergeur, et le test finirait par valider une page que personne
+ * ne reçoit. Jusqu'ici ce serveur ne posait aucun en-tête, si bien qu'un
+ * attribut `style` refusé en production passait inaperçu dans les tests — il y
+ * en avait un, sur le gabarit.
+ */
+const CSP = readFileSync('public/_headers', 'utf8')
+  .match(/^\s*Content-Security-Policy:\s*(.+)$/m)[1]
+  .trim();
+
 const MIME = {
   '.xml': 'application/xml; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -62,7 +75,10 @@ const serveur = createServer((req, res) => {
     res.writeHead(404).end('non trouvé');
     return;
   }
-  res.writeHead(200, { 'content-type': MIME[extname(f)] ?? 'application/octet-stream' });
+  res.writeHead(200, {
+    'content-type': MIME[extname(f)] ?? 'application/octet-stream',
+    'Content-Security-Policy': CSP,
+  });
   res.end(readFileSync(f));
 });
 await new Promise((r) => serveur.listen(PORT, r));
@@ -413,6 +429,36 @@ check("la zone de dépôt est un label lié à un input de fichier",
   }));
 check('une région live existe pour les annonces',
   await page.locator('#annonce[aria-live="polite"]').count() === 1);
+
+console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
+check('le décor est hors de l\'arbre d\'accessibilité',
+  await page.evaluate(() => {
+    const d = document.getElementById('decor');
+    return !!d
+      && d.getAttribute('aria-hidden') === 'true'
+      && getComputedStyle(d).pointerEvents === 'none'
+      && d.querySelectorAll('[tabindex],a,button,input').length === 0;
+  }));
+// La forme est calculée au build par le même module que la boucle : elle est
+// donc déjà dans le HTML servi, et rien n'apparaît au démarrage.
+const tracesServies = await page.locator('#decor path[d]').count();
+check('la forme est déjà dessinée dans le HTML servi', tracesServies === 3, String(tracesServies));
+
+// La règle générale de la feuille de style ne coupe que les animations CSS.
+// Une boucle rAF lui échappe : c'est au script de lire la préférence, et c'est
+// précisément ce que ce contrôle vérifie.
+{
+  const calme = await navigateur.newContext({ reducedMotion: 'reduce' });
+  const pageCalme = await calme.newPage();
+  await pageCalme.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+  const avant = await pageCalme.locator('#decor path').first().getAttribute('d');
+  await pageCalme.waitForTimeout(2000);
+  const apres = await pageCalme.locator('#decor path').first().getAttribute('d');
+  const grave = readFileSync(join(DIST, 'index.html'), 'utf8').match(/d="(M[^"]*)"/)[1];
+  check('« moins de mouvement » : la forme ne bouge pas', avant === apres);
+  check('« moins de mouvement » : c\'est l\'image gravée au build', avant === grave);
+  await calme.close();
+}
 
 await navigateur.close();
 serveur.close();

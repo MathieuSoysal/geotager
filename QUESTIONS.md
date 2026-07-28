@@ -1200,15 +1200,85 @@ géométrie hors CSS.
 `--bg #17161b` vaut ≈ 6,8:1. Pour rester à 4,5:1, la luminance relative composite sous `.sub` et
 `.formats` ne peut pas dépasser **0,0380** ; cible retenue **0,0292** (5:1). L'empilement de parité
 avec la maquette (rose .22 / indigo .18 / teal .12) composite à **L = 0,0604 → 3,59:1, non conforme**.
-L'empilement retenu — **rose .12 / indigo .09 / teal .06** — est **MESURÉ** au pire de vingt secondes
-d'animation, texte rendu transparent pour ne lire que le fond : **L = 0,0273 (en) et 0,0277 (fr) à
-1440×900, 0,0264 à 360 px**, soit **5,10:1 au pire**. Les décalages statiques par couche interdisent
-aux trois maxima de se superposer, ce qui est ce qui tient la marge.
+L'empilement retenu — **rose .12 / indigo .09 / teal .06** — est **MESURÉ** au pire de seize secondes
+d'animation, texte rendu transparent pour ne lire que le fond. Les décalages statiques par couche
+interdisent aux trois maxima de se superposer, ce qui est ce qui tient la marge.
+
+**Le calque est borné sur les deux axes**, `min(90vw, 90svh, 40rem)`. La largeur seule ne suffisait
+pas : le calque est carré, et un téléphone couché — 844 × 390 — recevait un carré de 640 px dans une
+fenêtre de 390 px de haut.
+
+**Et une fenêtre basse demande un décor plus discret, ce que seule la mesure a montré.** Quand le
+héros ne tient pas d'un seul tenant, le titre et le sous-titre naissent sous la ligne de flottaison ;
+pour les lire il faut défiler, et comme le calque est `fixed` et centré, le texte vient
+**nécessairement** croiser son centre — l'endroit le plus dense du dégradé. Mesuré sur écran haut, le
+texte reste au contraire sous ce centre, là où le dégradé s'est déjà éteint. D'où deux paliers, aux
+arrêts du dégradé plutôt qu'à l'opacité du calque, pour se composer avec `.repos`, `.parti` et le
+glisser-déposer au lieu d'entrer en conflit de spécificité avec eux : **45 % sous 40 rem de haut,
+22 % sous 26 rem**. Sans eux, 844 × 390 tombait à **4,05:1** et 740 × 360 à 4,49:1.
+
+Matrice **MESURÉE** (luminance maximale du fond sous `.sub`, texte amené au centre de l'écran quand
+il naît hors cadre — le mesurer sans défiler donnerait un chiffre flatteur qui ne décrit rien) :
+
+| fenêtre | calque | tient | centré | derrière la bulle | L fond | ratio |
+|---|---|---|---|---|---|---|
+| 320 × 568 | 288² | oui | oui | oui | 0,0258 | 5,22:1 |
+| 360 × 780 | 324² | oui | oui | oui | 0,0158 | 6,02:1 |
+| 390 × 844 | 351² | oui | oui | oui | 0,0139 | 6,20:1 |
+| **844 × 390** couché | 351² | oui | oui | oui | 0,0272 | **5,13:1** |
+| **740 × 360** couché étroit | 324² | oui | oui | oui | 0,0326 | **4,79:1** |
+| 1024 × 640 basse | 576² | oui | oui | oui | 0,0197 | 5,68:1 |
+| 768 × 1024 | 640² | oui | oui | oui | 0,0251 | 5,28:1 |
+| 1024 × 768 | 640² | oui | oui | oui | 0,0264 | 5,19:1 |
+| 1440 × 900 | 640² | oui | oui | oui | 0,0221 | 5,49:1 |
+| 2560 × 1440 | 640² | oui | oui | oui | 0,0178 | 5,84:1 |
+
+Le pire cas est **4,79:1**, au-dessus du seuil de 4,5:1. Il reste sous la cible de 5:1 parce qu'à
+cette taille l'essentiel de ce qui est mesuré n'est plus le décor mais les trois `radial-gradient`
+statiques de `body`, que cette entrée ne touche pas.
+
+**Une limite connue, hors de cette entrée :** sur une fenêtre basse, le `<h1>`, `.sub` et `.formats`
+naissent sous la ligne de flottaison — à 844 × 390 la scène fait 577 px de haut. C'est **antérieur au
+décor** et vérifié identique sur `main` : la scène est verrouillée à la hauteur de la fenêtre
+(`min-height: 100svh`), et son contenu n'est pas compressé en dessous. Le décor n'y change rien ; il
+s'y adapte seulement.
 
 **Vérifié aussi :** décor hors de l'arbre d'accessibilité (`aria-hidden`, `pointer-events: none`,
 aucun élément focalisable), centré à moins de 1,5 px du centre de la fenêtre, effectivement derrière
 la bulle (`elementFromPoint` au centre de `.bubble` ne renvoie jamais le décor), immobile et
 strictement égal à l'image gravée sous `reducedMotion: 'reduce'`, à l'arrêt une fois le héros sorti
 de l'écran et reparti au retour.
+
+**Bloque :** non.
+
+---
+
+## [V1.2] Q-041 — Un attribut `style` que la CSP refusait, et qu'aucun test ne servait
+
+**Contexte :** le gabarit portait `style="display:flex;flex-direction:column;flex:1"` sur
+`.app > .wrap`. La CSP du site est `style-src 'self'`, sans `'unsafe-inline'`. En CSP niveau 3,
+`style-src-attr` se replie sur `style-src`, et `'self'` ne correspond jamais à un attribut en ligne :
+**le navigateur refusait donc ces trois déclarations en production**, et la colonne ne s'étirait pas.
+La feuille de style porte d'ailleurs déjà, deux lignes plus haut, un commentaire sur le fait qu'un
+élément flex cesse d'être étiré — quelqu'un avait vu le symptôme sans en voir la cause.
+
+Ce défaut est resté invisible parce que **le serveur du test de bout en bout ne posait aucun
+en-tête** : il servait `dist/` avec le seul `content-type`. La page testée n'était pas la page
+servie. C'est la classe de défaut la plus coûteuse — un contrôle qui existe, qui est vert, et qui ne
+regarde pas ce qu'il prétend regarder.
+
+**Retenu :** les trois déclarations passent dans `global.css`, sur la règle `.app > .wrap` qui
+existait déjà, et l'attribut disparaît. Aucun changement de comportement voulu : cela **rétablit** ce
+que la CSP empêchait.
+
+Surtout, le serveur du test lit désormais la politique dans `public/_headers` et la sert. Elle est
+**lue et non recopiée** : une politique recopiée dériverait de celle que sert l'hébergeur, et le test
+finirait par valider une page que personne ne reçoit. L'assertion « aucune erreur JavaScript sur tout
+le parcours » couvre les refus de la CSP, si bien que toute violation future échoue le lot — c'est
+exactement ce contrôle qui a échoué avant le correctif, puis passé après.
+
+Vérifié : `src/` ne contient plus aucun attribut `style`, aucun `setAttribute('style', …)` et aucune
+écriture `.style.` — la boucle du décor n'écrit que l'attribut `d`, qui est une géométrie et non un
+style, et le CSSOM n'est de toute façon pas régi par la CSP.
 
 **Bloque :** non.
