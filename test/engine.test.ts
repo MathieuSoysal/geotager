@@ -29,6 +29,15 @@ import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmf
 import { createHash } from 'node:crypto';
 import { commandePour } from '../scripts/deploy.mjs';
 import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
+import {
+  LAT_MAX,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  depuisPixels,
+  metresParPixel,
+  normaliserLon,
+  versPixels,
+} from '../src/lib/exif/coords.ts';
 import type { Format } from '../src/lib/exif/types.ts';
 
 // Same default as scripts/fetch-fixtures.mjs: without it the bench looked for
@@ -1209,6 +1218,104 @@ scenario('Un TIFF large est refusé plutôt que lu de travers', () => {
     code = e.code;
   }
   check('la variante large est reconnue et refusée', code === 'FORMAT_NON_PRIS_EN_CHARGE', code);
+});
+
+scenario('Projection de la carte — aller et retour', () => {
+  // The anchors. At zoom 0 the world fits in one 256 px tile: the point (0, 0)
+  // is at the centre, and the top-left corner is the limiting latitude.
+  const centre = versPixels({ lat: 0, lon: 0 }, 0);
+  check('le méridien de Greenwich et l’équateur tombent au centre',
+    Math.abs(centre.x - 128) < 1e-9 && Math.abs(centre.y - 128) < 1e-9,
+    `${centre.x} ${centre.y}`);
+  const coin = versPixels({ lat: LAT_MAX, lon: -180 }, 0);
+  check('la latitude limite est le bord de la projection, pas un point au hasard',
+    Math.abs(coin.x) < 1e-6 && Math.abs(coin.y) < 1e-6, `${coin.x} ${coin.y}`);
+
+  // The round trip. It is the property everything else depends on: a click is
+  // converted to pixels then read back as degrees, and the drift must stay
+  // invisible.
+  const lieux = [
+    { lat: 43.9493, lon: 4.8055 },
+    { lat: 0, lon: 0 },
+    { lat: 51.5074, lon: -0.1278 },
+    { lat: -33.8688, lon: 151.2093 },
+    { lat: 85, lon: 179.99 },
+    { lat: -85, lon: -179.99 },
+  ];
+  let pire = 0;
+  for (const p of lieux) {
+    for (let z = ZOOM_MIN; z <= ZOOM_MAX; z++) {
+      const px = versPixels(p, z);
+      const r = depuisPixels(px.x, px.y, z);
+      pire = Math.max(pire, Math.abs(r.lat - p.lat), Math.abs(r.lon - p.lon));
+    }
+  }
+  check('les degrés survivent au passage en pixels, à tous les zooms', pire < 1e-9, String(pire));
+
+  // The reference tiles: an error of half a world would show up here, and
+  // nowhere else.
+  const tuile = (p: { lat: number; lon: number }, z: number) => {
+    const px = versPixels(p, z);
+    return `${Math.floor(px.x / 256)}/${Math.floor(px.y / 256)}`;
+  };
+  check('Avignon tombe sur la bonne tuile au zoom 12', tuile(lieux[0], 12) === '2102/1490',
+    tuile(lieux[0], 12));
+  check('Avignon tombe sur la bonne tuile au zoom 16', tuile(lieux[0], 16) === '33642/23843',
+    tuile(lieux[0], 16));
+  check('Londres tombe sur la bonne tuile au zoom 12', tuile(lieux[2], 12) === '2046/1362',
+    tuile(lieux[2], 12));
+
+  /*
+   * The poles are not representable: clamp them to the edge rather than let the
+   * projection run off to infinity.
+   *
+   * The edge is zero to within rounding rather than zero: clamping the latitude
+   * and reprojecting it goes through a logarithm, and the result lands a few
+   * 1e-8 from the edge, on the wrong side. That is why the tile arithmetic
+   * discards rows outside [0, 2^z) instead of trusting the bound; a tile on row
+   * -1 is a request that would answer 404.
+   */
+  const pole = versPixels({ lat: 90, lon: 0 }, 5);
+  check('le pôle est ramené au bord, et reste un nombre',
+    Number.isFinite(pole.y) && Math.abs(pole.y) < 1e-6, String(pole.y));
+
+  check('une longitude qui dépasse fait le tour au lieu d’être coupée',
+    Math.abs(normaliserLon(181) - -179) < 1e-9 && Math.abs(normaliserLon(-181) - 179) < 1e-9,
+    `${normaliserLon(181)} ${normaliserLon(-181)}`);
+});
+
+scenario('Précision d’un clic — la table du Gate 1 fait foi', () => {
+  /*
+   * A published table of ground resolutions at latitude 46.5°, the one the
+   * earlier analysis used to show that a click could not aim precisely. It is
+   * reproduced as is: if somebody touches the constant, the failure points at
+   * the figures rather than at a value copied here without a source.
+   */
+  const attendu: Array<[number, number]> = [
+    [12, 26.31], [13, 13.15], [14, 6.58], [16, 1.64], [17, 0.82],
+  ];
+  for (const [z, m] of attendu) {
+    const calcule = metresParPixel(46.5, z);
+    check(`au zoom ${z}, un pixel vaut ${m} m comme l’annonce l’attestation`,
+      Math.abs(calcule - m) < 0.01, calcule.toFixed(4));
+  }
+
+  // That is what justifies reopening the question: the earlier analysis
+  // concluded it was impossible with a zoom ceiling of 14. At zoom 17, aiming
+  // at a doorway becomes a sensible operation again.
+  check('au zoom 17 un pixel descend sous le mètre, ce qui n’était pas le cas au plafond de 14',
+    metresParPixel(46.5, 17) < 1 && metresParPixel(46.5, 14) > 6);
+
+  let precedent = Infinity;
+  let croissante = true;
+  for (let z = ZOOM_MIN; z <= ZOOM_MAX; z++) {
+    const m = metresParPixel(45, z);
+    if (m >= precedent) croissante = false;
+    precedent = m;
+  }
+  check('la précision s’améliore à chaque cran de zoom, sans exception', croissante);
+  check('elle reste positive jusqu’au dernier cran, aux hautes latitudes',
+    metresParPixel(80, ZOOM_MAX) > 0);
 });
 
 console.log(`\n${passed} réussis, ${failed} échoués`);

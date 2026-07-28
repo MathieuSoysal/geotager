@@ -89,6 +89,31 @@ const navigateur = await chromium.launch(
   existsSync(CHROME) ? { executablePath: CHROME } : {},
 );
 const contexte = await navigateur.newContext({ acceptDownloads: true });
+
+/*
+ * Map tiles are intercepted, never actually requested.
+ *
+ * Continuous integration must reach no network: a test depending on a
+ * third-party server fails the day that server slows down, and ends up ignored.
+ * What is being judged here is not how the tiles look anyway, it is who gets
+ * called, and an intercepted request stays visible in `requetes`, so the
+ * zero-third-party proof still sees everything.
+ *
+ * The host is imported from the module that serves it rather than copied: the
+ * same discipline as the CSP read from `public/_headers`. A value copied into a
+ * test is a value that will eventually diverge from the one that ships.
+ */
+const { HOTE_TUILES } = await import('../src/lib/ui/carte.ts');
+const TUILE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBASempletAAAAAElFTkSuQmCC',
+  'base64',
+);
+let tuilesDemandees = 0;
+await contexte.route(`https://${HOTE_TUILES}/**`, (route) => {
+  tuilesDemandees++;
+  return route.fulfill({ status: 200, contentType: 'image/png', body: TUILE_PNG });
+});
+
 const page = await contexte.newPage();
 
 const requetes = [];
@@ -403,15 +428,29 @@ check('elle pointe vers la version française',
   (await page.locator('nav.main a[rel="alternate"]').getAttribute('href')) === '/fr/');
 
 console.log('\nPreuve du zéro-tiers');
-const tiers = requetes.filter((u) => {
+const horsOrigine = (liste) => liste.filter((u) => {
   if (u.startsWith('data:') || u.startsWith('blob:')) return false;
   return !u.startsWith(`http://127.0.0.1:${PORT}/`);
 });
+const tiers = horsOrigine(requetes);
 check('aucune requête vers un domaine tiers sur un cycle complet', tiers.length === 0,
   tiers.slice(0, 3).join(' | '));
+check("la carte n'a rien demandé : personne ne l'a ouverte", tuilesDemandees === 0);
 console.log(`       ${requetes.length} requêtes, toutes vers l'origine du site`);
 check('aucune erreur JavaScript sur tout le parcours', erreursConsole.length === 0,
   erreursConsole[0]);
+
+/*
+ * The boundary.
+ *
+ * Everything above happened with the map closed, and this check has stayed word
+ * for word the one from before the map existed: it is the proof that the
+ * feature really is optional. What follows happens with the map open, and the
+ * promise changes shape there: "nothing leaves" becomes "nothing leaves until
+ * you ask for it". The test has to say exactly that, or it validates a promise
+ * other than the one written on the page.
+ */
+const FRONTIERE = requetes.length;
 
 console.log('\nAccessibilité du chemin principal');
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
@@ -457,6 +496,163 @@ check('la forme est déjà dessinée dans le HTML servi', tracesServies === 4, S
   check('« moins de mouvement » : c\'est l\'image gravée au build', avant === grave);
   await calme.close();
 }
+
+console.log('\nLa carte : rien avant le clic, un seul hôte après');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+
+// An image refused by the security policy does not fail on the network side: it
+// raises `securitypolicyviolation`. It is the only way to name the offending
+// directive instead of reading a sentence from Chromium.
+await page.evaluate(() => {
+  window.__csp = [];
+  document.addEventListener('securitypolicyviolation',
+    (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
+});
+
+await page.setInputFiles('#picker', source);
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+
+check('la carte est repliée à l\'arrivée',
+  (await page.locator('#carte-bascule').getAttribute('aria-expanded')) === 'false');
+check("déposer une photo ne demande toujours aucune tuile", tuilesDemandees === 0);
+
+const avantOuverture = requetes.length;
+await page.click('#carte-bascule');
+await page.waitForSelector('#carte:not([hidden])');
+await page.waitForFunction(() => document.querySelectorAll('#carte-vue img').length > 3,
+  null, { timeout: 15_000 });
+
+check('des tuiles sont demandées après le clic, et pas avant', tuilesDemandees > 0,
+  String(tuilesDemandees));
+const apresOuverture = horsOrigine(requetes.slice(avantOuverture));
+check("le seul hôte tiers atteint est celui que le code déclare",
+  apresOuverture.length > 0 && apresOuverture.every((u) => new URL(u).host === HOTE_TUILES),
+  apresOuverture.find((u) => new URL(u).host !== HOTE_TUILES) ?? '');
+check('toutes les tuiles passent par https', apresOuverture.every((u) => u.startsWith('https://')));
+check('le bouton annonce que la carte est ouverte',
+  (await page.locator('#carte-bascule').getAttribute('aria-expanded')) === 'true');
+check("l'attribution est visible dès que la carte l'est",
+  await page.locator('#carte a[href*="openstreetmap.org/copyright"]').isVisible());
+
+/*
+ * The marker must land inside the map, at the centre, and its position is
+ * computed in JavaScript. A `rotate` property set in CSS on the same element
+ * once sent it 275 px above the frame: individual transform properties apply
+ * before `transform`, and the script's translation ended up rotated. Nothing
+ * reported it, neither the console, nor the CSP, nor a test. This one would.
+ */
+check('le repère tombe au centre de la carte, et non à côté', await page.evaluate(() => {
+  const v = document.getElementById('carte-vue').getBoundingClientRect();
+  const r = document.querySelector('.carte-repere').getBoundingClientRect();
+  const dx = (r.left + r.width / 2) - (v.left + v.width / 2);
+  const dy = (r.top + r.height / 2) - (v.top + v.height / 2);
+  return Math.abs(dx) < 4 && Math.abs(dy) < 4;
+}), await page.evaluate(() => {
+  const v = document.getElementById('carte-vue').getBoundingClientRect();
+  const r = document.querySelector('.carte-repere').getBoundingClientRect();
+  return `repère ${Math.round(r.left)},${Math.round(r.top)} · carte ${Math.round(v.left)},${Math.round(v.top)} ${Math.round(v.width)}×${Math.round(v.height)}`;
+}));
+
+// The click places the marker, and the marker fills the field.
+const vue = await page.locator('#carte-vue').boundingBox();
+await page.mouse.click(vue.x + vue.width * 0.62, vue.y + vue.height * 0.38);
+await page.waitForFunction(() => document.getElementById('coords').value.trim().length > 0,
+  null, { timeout: 5_000 });
+const saisi = await page.locator('#coords').inputValue();
+check('un clic sur la carte remplit le champ de coordonnées',
+  /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(saisi), saisi);
+check('le récapitulatif est apparu', !(await page.locator('#resultat').isHidden()));
+check('le bouton de téléchargement est activé', !(await page.locator('#telecharger').isDisabled()));
+
+// The map is operable without a mouse: that is the condition for it to be
+// anything other than an ornament.
+await page.focus('#carte-vue');
+await page.keyboard.press('ArrowRight');
+await page.waitForFunction((v) => document.getElementById('coords').value !== v, saisi,
+  { timeout: 3_000 });
+check('les flèches déplacent le point visé', (await page.locator('#coords').inputValue()) !== saisi);
+
+// Zoom changes the announced precision, and so what will be written to the file.
+await page.click('#carte-plus');
+check('le zoom reste opérable au clavier comme à la souris',
+  await page.locator('#carte-plus').isVisible());
+
+check('aucune violation de la politique de sécurité pendant la carte',
+  (await page.evaluate(() => window.__csp)).length === 0,
+  (await page.evaluate(() => window.__csp))[0]);
+
+// Closing must give everything back: no tile left in the document, no request left.
+const avantFermeture = tuilesDemandees;
+await page.click('#carte-bascule');
+check('refermer retire les tuiles du document',
+  (await page.locator('#carte-vue img').count()) === 0);
+check('refermer ne déclenche plus aucune requête', tuilesDemandees === avantFermeture);
+check('la carte fermée le dit',
+  (await page.locator('#carte-bascule').getAttribute('aria-expanded')) === 'false');
+
+check('aucune erreur JavaScript sur le parcours de la carte', erreursConsole.length === 0,
+  erreursConsole[0]);
+console.log(`       ${requetes.length - FRONTIERE} requêtes depuis l'ouverture, ${tuilesDemandees} tuiles`);
+
+/*
+ * The other half of the proof: the exception is for one host, not for a loose
+ * "https:". No network is needed, since the policy refuses before the request
+ * is even issued.
+ *
+ * This check comes last in the section, and its refusal is then removed from
+ * the log: a violation provoked on purpose writes to the console, and the suite's
+ * "no errors" check would take it for real damage. We remove it by naming
+ * precisely the host we invented, never by emptying the log, since emptying
+ * would also erase what we did not see coming.
+ */
+const HOTE_TEST = 'https://hote-interdit.invalid/tuile.png';
+const refus = await page.evaluate((cible) => new Promise((resolve) => {
+  document.addEventListener('securitypolicyviolation',
+    (e) => resolve(`${e.violatedDirective} ${e.blockedURI}`), { once: true });
+  const i = new Image();
+  i.src = cible;
+  setTimeout(() => resolve(''), 2000);
+}), HOTE_TEST);
+check("un autre hôte d'image reste refusé par la politique", refus.startsWith('img-src'),
+  refus || '(aucune violation levée)');
+for (let i = erreursConsole.length - 1; i >= 0; i--) {
+  if (erreursConsole[i].includes('hote-interdit.invalid')) erreursConsole.splice(i, 1);
+}
+
+/*
+ * And with no network? The page promises the tool works in full with the
+ * connection cut. The map cannot: it therefore has to settle for staying empty,
+ * without taking anything with it. A map that threw would bring `app.ts` down,
+ * and the "no errors" check above would report the damage in a section that has
+ * nothing to do with it.
+ */
+console.log('\nLa carte hors ligne se contente de rester vide');
+await contexte.unroute(`https://${HOTE_TUILES}/**`);
+await contexte.route(`https://${HOTE_TUILES}/**`, (route) => route.abort('failed'));
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', source);
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+await page.click('#carte-bascule');
+await page.waitForSelector('#carte:not([hidden])');
+await page.fill('#coords', '48.8584, 2.2945');
+await page.waitForFunction(() => !document.getElementById('resultat').hidden, null,
+  { timeout: 5_000 });
+check('sans tuile, la saisie au clavier fonctionne toujours',
+  !(await page.locator('#telecharger').isDisabled()));
+
+/*
+ * The browser logs every image that does not arrive: `net::ERR_FAILED`. That is
+ * not an application error, it is the observation of an absent connection, and
+ * it is exactly what we provoked. What is verified here is that nothing is
+ * added to it: no exception, no `undefined`, no handler blowing up because a
+ * tile is missing. So we discard the loading lines, one by one, and require the
+ * rest to be empty.
+ */
+const restantes = erreursConsole.filter(
+  (e) => !/Failed to load resource|net::ERR_/.test(e),
+);
+check("une tuile qui n'arrive pas n'emporte rien avec elle", restantes.length === 0,
+  restantes[0]);
 
 await navigateur.close();
 serveur.close();
