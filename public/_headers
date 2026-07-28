@@ -1,9 +1,15 @@
 # Geotager — en-têtes servis avec les assets statiques.
 # Supporté nativement par Workers (workers/static-assets/headers/).
 # Limites : 100 règles, 2 000 caractères par ligne.
+#
+# `img-src` nomme un hôte tiers, et un seul : les tuiles de la carte de choix du
+# lieu. Rien ne les demande tant que l'utilisateur n'a pas ouvert la carte. Aucun
+# autre axe n'est ouvert — `connect-src` reste fermé (les tuiles sont des <img>,
+# pas des `fetch`), `script-src` et `style-src` ne changent pas, et `frame-src`
+# n'existe toujours pas. Voir CREDITS.md.
 
 /*
-  Content-Security-Policy: default-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; worker-src 'self' blob:; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; worker-src 'self' blob:; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org; connect-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests
   Referrer-Policy: no-referrer
   X-Frame-Options: DENY
   Cross-Origin-Opener-Policy: same-origin

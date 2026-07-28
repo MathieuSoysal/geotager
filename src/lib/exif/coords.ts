@@ -72,6 +72,69 @@ export function formatDms(p: LatLon): string {
   return `${part(p.lat, 'N', 'S')}  ${part(p.lon, 'E', 'O')}`;
 }
 
+// Web Mercator projection
+
+/**
+ * The location picker map works in tile pixels: 256 px at zoom 0, doubling at
+ * each level. These three functions live here with the rest of the coordinate
+ * code rather than in the interface, because they are pure, which is what makes
+ * them testable without a browser.
+ */
+
+export const TAILLE_TUILE = 256;
+export const ZOOM_MIN = 2;
+export const ZOOM_MAX = 19;
+
+/**
+ * Highest representable latitude: beyond it the projection runs to infinity.
+ * This is the value that makes the map square, not a rounded convenience.
+ */
+export const LAT_MAX = 85.05112878;
+
+const borner = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+/** Wraps a longitude into [-180, 180] rather than clamping it. */
+export function normaliserLon(lon: number): number {
+  const t = ((lon + 180) % 360 + 360) % 360;
+  return t - 180;
+}
+
+/** Coordinates to absolute pixels, at the given zoom. */
+export function versPixels(p: LatLon, zoom: number): { x: number; y: number } {
+  const echelle = TAILLE_TUILE * 2 ** zoom;
+  const lat = borner(p.lat, -LAT_MAX, LAT_MAX) * (Math.PI / 180);
+  const sin = Math.sin(lat);
+  return {
+    x: echelle * ((normaliserLon(p.lon) + 180) / 360),
+    y: echelle * (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)),
+  };
+}
+
+/** Absolute pixels to coordinates. The exact inverse of `versPixels`. */
+export function depuisPixels(x: number, y: number, zoom: number): LatLon {
+  const echelle = TAILLE_TUILE * 2 ** zoom;
+  const lat = 90 - (360 * Math.atan(Math.exp(((y / echelle) - 0.5) * 2 * Math.PI))) / Math.PI;
+  return {
+    lat: borner(lat, -LAT_MAX, LAT_MAX),
+    lon: normaliserLon((x / echelle) * 360 - 180),
+  };
+}
+
+/**
+ * Metres covered by one pixel, at this latitude and zoom.
+ *
+ * This is the only honest measure of what a click is worth: aiming at the
+ * right city block at zoom 13 is not the same precision as aiming at a door at
+ * zoom 19, and the file has to say which of the two was written to it.
+ */
+export function metresParPixel(lat: number, zoom: number): number {
+  const circonference = 40_075_016.686;
+  return (
+    (circonference * Math.cos(borner(lat, -LAT_MAX, LAT_MAX) * (Math.PI / 180))) /
+    (TAILLE_TUILE * 2 ** zoom)
+  );
+}
+
 /** Approximate distance between two points, in metres. */
 export function distanceMetres(a: LatLon, b: LatLon): number {
   const R = 6_371_000;

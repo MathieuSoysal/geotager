@@ -24,7 +24,37 @@ const LIENS_AUTORISES = new Set([
   'schema.org',
   'exiftool.org',
   'developer.mozilla.org',
+  // The attribution OpenStreetMap requires. It is a link, not a resource.
+  'www.openstreetmap.org',
 ]);
+
+/**
+ * Hosts allowed as a resource: the project's only exception, and it fits on one
+ * finger. Every entry here must be justified in CREDITS.md.
+ */
+const RESSOURCES_AUTORISEES = new Set([
+  // Tiles for the location picker map, loaded only if the user opens the map.
+  // See CREDITS.md.
+  'tile.openstreetmap.org',
+]);
+
+/**
+ * Hosts that appear as URLs without ever being fetched: XML namespace
+ * identifiers, which look like addresses because the specification says so.
+ * `exifr` carries two for XMP. No browser fetches them, and mistaking them for
+ * a resource would make the check cry wolf, which is the surest way to get it
+ * disabled.
+ */
+const HOTES_DECLARATIFS = new Set(['ns.adobe.com']);
+
+/** The host of a URL, or null if it cannot be parsed. */
+function hote(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
 
 const echecs = [];
 const infos = [];
@@ -71,9 +101,17 @@ for (const f of fichiers) {
 // 2. No third-party resource
 
 /*
- * This is the one project criterion that admits no exception. We distinguish a
- * hyperlink, where the user clicks and nothing loads, from a resource, which the
- * browser fetches on its own. Only the second is forbidden.
+ * We distinguish a hyperlink, where the user clicks and nothing loads, from a
+ * resource, which the browser fetches on its own. Only the second is forbidden.
+ *
+ * That criterion admitted no exception. It now admits one, named in
+ * `RESSOURCES_AUTORISEES`: the map tiles, which nothing requests until the user
+ * opens the map.
+ *
+ * And the list below was not enough. It looks for HTML and CSS forms:
+ * `<img src=…>`, `url(…)`, `fetch('…')`. A URL built in JavaScript by
+ * concatenation triggers none of them, and a third-party basemap would have
+ * gone through without a word. The next check closes that gap.
  */
 const RESSOURCES = [
   /<script[^>]+src\s*=\s*["'](https?:\/\/[^"']+)/gi,
@@ -82,7 +120,10 @@ const RESSOURCES = [
   /<link(?![^>]*rel\s*=\s*["'](?:canonical|alternate)["'])[^>]+href\s*=\s*["'](https?:\/\/[^"']+)/gi,
   /<img[^>]+src\s*=\s*["'](https?:\/\/[^"']+)/gi,
   /<(?:video|audio|source|iframe|embed)[^>]+src\s*=\s*["'](https?:\/\/[^"']+)/gi,
-  /url\(\s*["']?(https?:\/\/[^)"']+)/gi,
+  // `(?<![\w-])`: without it, the `i` flag matches `URL(` as readily as
+  // `url(`, and a perfectly legitimate `new URL('https://…')` fails the build
+  // with a message blaming a stylesheet.
+  /(?<![\w-])url\(\s*["']?(https?:\/\/[^)"']+)/gi,
   /@import\s+["'](https?:\/\/[^"']+)/gi,
   /\bfetch\(\s*["'`](https?:\/\/[^"'`]+)/gi,
 ];
@@ -95,6 +136,7 @@ for (const f of textes) {
   for (const re of RESSOURCES) {
     re.lastIndex = 0;
     for (const m of contenu.matchAll(re)) {
+      if (RESSOURCES_AUTORISEES.has(hote(m[1]))) continue;
       echecs.push(`${rel(f)} charge une ressource tierce : ${m[1].slice(0, 80)}`);
     }
   }
@@ -103,6 +145,28 @@ for (const f of textes) {
     if (!LIENS_AUTORISES.has(m[1])) {
       echecs.push(`${rel(f)} pointe vers un hôte non listé : ${m[1]}`);
     }
+  }
+}
+
+// 2b. No unexpected absolute URL in the JavaScript
+
+/*
+ * The patterns above catch tags and calls written out in full. They do not
+ * catch `const T = 'https://example/{z}/{x}/{y}.png'`, which is nonetheless
+ * enough to load a third party from an `<img>` built on the fly. So every
+ * literal absolute URL in the served JavaScript is checked against the union of
+ * the two allowlists.
+ *
+ * No file in the repository put one in the bundle before the map: this check is
+ * born green, and it only means anything on that condition.
+ */
+const AUTORISES = new Set([...LIENS_AUTORISES, ...RESSOURCES_AUTORISEES, ...HOTES_DECLARATIFS]);
+for (const f of fichiers.filter((x) => ['.js', '.mjs'].includes(extname(x)))) {
+  const contenu = readFileSync(f, 'utf8');
+  for (const m of contenu.matchAll(/["'`](https?:\/\/[^"'`\s]+)["'`]/g)) {
+    const h = hote(m[1]);
+    if (h && AUTORISES.has(h)) continue;
+    echecs.push(`${rel(f)} contient une URL absolue non listée : ${m[1].slice(0, 80)}`);
   }
 }
 

@@ -388,6 +388,86 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 .alerte.attention { background: rgba(255, 176, 32, .12); border-color: rgba(255, 176, 32, .35); color: #ffd28a; }
 .alerte.grave { background: rgba(255, 51, 133, .12); border-color: rgba(255, 51, 133, .4); color: #ffb0cf; }
 
+/* Location picker map */
+
+/*
+ * The map grows inside `.panel`, which already scrolls (`overflow-y: auto`)
+ * within `.stage`'s `1fr` row. Nothing below it moves, and the stage's locked
+ * height holds without being touched.
+ *
+ * No position is written here: everything that moves is set through the CSSOM
+ * from `carte.ts`. The security policy refuses served `style` attributes, not
+ * writes from JavaScript.
+ */
+.carte-bloc { display: flex; flex-direction: column; gap: .55rem; align-items: flex-start; }
+.carte-bloc > div { width: 100%; }
+.aide.avis { margin: 0 0 .5rem; }
+
+.carte-cadre {
+  position: relative; width: 100%; aspect-ratio: 4 / 3; max-height: 42svh;
+  border-radius: 1.2rem; overflow: hidden;
+  border: 1.5px solid var(--bordure); background: var(--panel-haut);
+}
+
+.carte-vue {
+  position: absolute; inset: 0; overflow: hidden;
+  cursor: grab; touch-action: none; user-select: none;
+}
+.carte-vue.glisse { cursor: grabbing; }
+.carte-vue:focus-visible { outline: 2px solid var(--pink); outline-offset: -2px; }
+
+.carte-tuiles { position: absolute; top: 0; left: 0; will-change: transform; }
+.carte-tuile {
+  position: absolute; top: 0; left: 0; width: 256px; height: 256px;
+  /* Tiles arrive one after another: without this, each one flickers. */
+  pointer-events: none; -webkit-user-drag: none;
+}
+
+/*
+ * The marker is a crosshair centred on the point rather than a teardrop pin.
+ *
+ * Two reasons. The first is substantive: here the point aimed at is the centre
+ * of the view, and a crosshair says "this pixel" without anyone having to guess
+ * where a tip falls. The second is a lesson: the teardrop needed
+ * `rotate: -45deg`, and individual transform properties apply before
+ * `transform`. The translation set by the script ended up rotated by 45°, and
+ * the marker landed 275 px above the map. Never set `rotate`, `scale` or
+ * `translate` on an element the script moves by `transform`.
+ */
+.carte-repere, .carte-origine { position: absolute; top: 0; left: 0; pointer-events: none; }
+.carte-repere {
+  width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  border-radius: 50%; border: 2.5px solid var(--pink);
+  background: rgba(255, 51, 133, .16);
+  box-shadow: 0 0 0 1.5px var(--encre), 0 0 0 7px rgba(255, 51, 133, .13);
+}
+.carte-repere::after {
+  content: ''; position: absolute; inset: 0; margin: auto;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--pink);
+  box-shadow: 0 0 0 1.5px var(--encre);
+}
+.carte-origine {
+  width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%;
+  background: var(--muted); border: 2px solid var(--encre); opacity: .85;
+}
+
+.carte-zoom { position: absolute; top: .55rem; right: .55rem; display: flex; flex-direction: column; gap: .3rem; }
+.carte-zoom button {
+  width: 2rem; height: 2rem; border-radius: .6rem; cursor: pointer;
+  background: var(--panel); color: var(--text); border: 1px solid var(--bordure);
+  font: inherit; font-size: 1.1rem; line-height: 1; display: grid; place-items: center;
+}
+.carte-zoom button:hover { background: var(--panel-haut); color: var(--pink); }
+
+.carte-pied {
+  display: flex; justify-content: space-between; gap: .8rem; flex-wrap: wrap;
+  margin: .45rem 0 0;
+}
+.carte-pied a { color: var(--muted); }
+.carte-pied a:hover { color: var(--pink); }
+
+@media (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
+
 .scrollcue { display: flex; justify-content: center; padding: .2rem 0 1.1rem; }
 .scrollcue a { color: var(--muted); font-size: .82rem; text-decoration: none; }
 .scrollcue a:hover { color: var(--pink); }

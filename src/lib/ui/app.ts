@@ -7,6 +7,7 @@
  */
 import { downloadZip } from 'client-zip';
 import { parseCoordinates, formatDecimal, formatDms, distanceMetres, formatDistance } from '../exif/coords.ts';
+import type { Carte } from './carte.ts';
 import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '../exif/types.ts';
 import { dicoDuDocument, type CodeErreur } from '../i18n/index.ts';
 
@@ -30,6 +31,11 @@ const el = {
   pillPosition: $('pill-position'),
   changer: $<HTMLButtonElement>('changer'),
   coords: $<HTMLInputElement>('coords'),
+  carteBascule: $<HTMLButtonElement>('carte-bascule'),
+  carte: $('carte'),
+  carteVue: $('carte-vue'),
+  cartePlus: $<HTMLButtonElement>('carte-plus'),
+  carteMoins: $<HTMLButtonElement>('carte-moins'),
   resultat: $('resultat'),
   resultatCoords: $('resultat-coords'),
   resultatDetail: $('resultat-detail'),
@@ -56,6 +62,12 @@ const items: Item[] = [];
 let principal: Item | null = null;
 let cible: LatLon | null = null;
 let compteur = 0;
+/** The map exists only once asked for: before that, nothing has been loaded. */
+let carte: Carte | null = null;
+/** Precision of the gesture that named `cible`, in metres. Null if typed. */
+let precision: number | null = null;
+/** Stops the field -> map -> field round trip biting its own tail. */
+let enSync = false;
 
 // Worker
 
@@ -111,6 +123,8 @@ function versEtatVide(): void {
   items.length = 0;
   principal = null;
   cible = null;
+  precision = null;
+  fermerCarte();
   el.vide.hidden = false;
   el.actif.hidden = true;
   el.coords.value = '';
@@ -161,6 +175,11 @@ function afficherPrincipal(): void {
   el.alerteFormat.classList.toggle('grave', !r.can.read);
   el.alerteFormat.classList.toggle('attention', r.can.read && !(modifiable && r.can.erase));
   el.coords.disabled = !modifiable;
+  // A map you can pan but whose result will never be written is a trap: it is
+  // closed rather than left answering into the void.
+  el.carteBascule.disabled = !modifiable;
+  if (!modifiable) fermerCarte();
+  else carte?.marquerOrigine(r.position ?? null);
   el.effacer.disabled = !r.can.erase;
   el.effacerTout.disabled = !r.can.eraseAll;
 
@@ -230,6 +249,61 @@ function majListeLot(statuts: Map<string, string> = new Map()): void {
   );
 }
 
+// Map
+
+/*
+ * Two rules are enough to prevent the field -> map -> field loop, and neither is
+ * a flag anyone can forget to set:
+ *
+ * 1. Writing `el.coords.value` from script does not emit an `input` event. The
+ *    map -> field direction is therefore one-way by specification.
+ * 2. `carte.centrer()` never calls `onChoix` back. The field -> map direction is
+ *    one-way by contract.
+ *
+ * If anyone ever adds a `dispatchEvent(new Event('input'))` or a `change`
+ * listener, both guarantees fall at once.
+ */
+
+function fermerCarte(): void {
+  carte?.detruire();
+  carte = null;
+  el.carte.hidden = true;
+  el.carteBascule.setAttribute('aria-expanded', 'false');
+  el.carteBascule.textContent = T.app.ouvrirCarte;
+}
+
+async function ouvrirCarte(): Promise<void> {
+  if (carte) {
+    fermerCarte();
+    return;
+  }
+  el.carte.hidden = false;
+  el.carteBascule.setAttribute('aria-expanded', 'true');
+  el.carteBascule.textContent = T.app.fermerCarte;
+
+  // Loaded on demand: while nobody opens the map, not a byte of the code that
+  // talks to tiles is requested, and so no tile is either.
+  const { creerCarte } = await import('./carte.ts');
+  carte = creerCarte(el.carteVue, {
+    textes: { origine: T.app.repereOrigine },
+    onChoix: (p, m) => {
+      cible = p;
+      precision = m;
+      el.coords.value = formatDecimal(p);
+      majResultat();
+      annoncer(T.app.positionChoisie(formatDecimal(p)));
+    },
+  });
+
+  const origine = principal?.read?.position ?? null;
+  const depart = cible ?? origine;
+  // We do not open at maximum zoom on the photo's position: the first request
+  // would then name the doorstep. The neighbourhood is enough to get oriented,
+  // and the user zooms in themselves if they want to.
+  carte.centrer(depart ?? { lat: 46.6, lon: 2.4 }, depart ? 13 : 4);
+  carte.marquerOrigine(origine);
+}
+
 function majResultat(): void {
   if (!cible) {
     el.resultat.hidden = true;
@@ -258,6 +332,7 @@ async function charger(fichiers: File[]): Promise<void> {
   items.length = 0;
   principal = null;
   cible = null;
+  precision = null;
   el.coords.value = '';
 
   for (const file of utiles) {
@@ -394,12 +469,31 @@ el.changer.addEventListener('click', versEtatVide);
 
 el.coords.addEventListener('input', () => {
   cible = parseCoordinates(el.coords.value);
+  // Typed coordinates have no zoom, and so no precision to declare. Inheriting
+  // one from an earlier click would write a number nobody measured into
+  // somebody's file.
+  precision = null;
+  if (cible) carte?.centrer(cible);
   majResultat();
 });
 
+el.carteBascule.addEventListener('click', () => void ouvrirCarte());
+el.cartePlus.addEventListener('click', () => carte?.zoomer(1));
+el.carteMoins.addEventListener('click', () => carte?.zoomer(-1));
+
 el.telecharger.addEventListener('click', () => {
   if (!cible) return;
-  void appliquer({ kind: 'set', position: cible }, T.app.suffixeLieu);
+  // `Operation` has carried `accuracyMetres` from the start and the engine
+  // writes it into the file; until now it had no honest source to connect it
+  // to. The map's zoom is one. Nothing is announced on screen: on the route
+  // that moves nothing, the engine cannot add the field and does not pretend to
+  // (see `conteneurs.ts`).
+  void appliquer(
+    precision === null
+      ? { kind: 'set', position: cible }
+      : { kind: 'set', position: cible, accuracyMetres: precision },
+    T.app.suffixeLieu,
+  );
 });
 
 el.effacer.addEventListener('click', () => {

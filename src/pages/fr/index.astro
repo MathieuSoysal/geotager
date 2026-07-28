@@ -21,22 +21,40 @@ import { fr } from '../../lib/i18n/index.ts';
   </p>
   <p>
     À aucun moment ce parcours ne comporte d'appel réseau. Il n'y a pas de serveur à qui
-    envoyer quoi que ce soit&nbsp;: le site est un ensemble de fichiers statiques. Vous pouvez
-    le constater de trois façons&nbsp;:
+    envoyer quoi que ce soit&nbsp;: le site est un ensemble de fichiers statiques.
+  </p>
+  <p>
+    Une seule chose, sur cette page, va chercher quelque chose au dehors, et seulement si vous le
+    demandez. Derrière «&nbsp;Placer sur une carte&nbsp;» il y a une carte, et ses images viennent
+    d'openstreetmap.org, qui apprend donc approximativement quelle zone vous regardez. Ils
+    n'apprennent rien de votre photo&nbsp;: ni son nom, ni sa taille, ni le lieu qui y est inscrit.
+    La carte reste repliée tant que vous ne cliquez pas&nbsp;: si vous ne l'ouvrez jamais, rien
+    n'est jamais demandé. Vous pouvez tout constater de trois façons&nbsp;:
   </p>
   <ol>
     <li>
       Ouvrez l'onglet <strong>Réseau</strong> des outils de développement, puis déposez une
-      photo et téléchargez-la. Aucune requête n'apparaît.
+      photo et téléchargez-la. Aucune requête n'apparaît. Ouvrez la carte et des requêtes
+      apparaissent — vers <code>tile.openstreetmap.org</code>, et vers rien d'autre.
     </li>
     <li>
       <strong>Coupez votre connexion</strong> après le chargement de la page, puis utilisez
-      l'outil. Il fonctionne intégralement.
+      l'outil. Il fonctionne intégralement&nbsp;; seules les images de la carte manquent, et vous
+      pouvez toujours saisir des coordonnées.
     </li>
     <li>
       Lisez le code. Le dépôt est public sous licence MIT, et le script de construction aussi.
     </li>
   </ol>
+  <p>
+    Deux détails sur la carte, que nous préférons écrire plutôt que vous laisser les découvrir. Ses
+    requêtes portent le nom de ce site — <code>geotager.app</code> — et rien d'autre&nbsp;: pas
+    l'adresse de la page, pas le nom du fichier, pas les coordonnées. OpenStreetMap demande qu'un
+    site qui utilise ses images dise qui il est, et c'est la plus petite façon honnête de le
+    faire&nbsp;; toutes les autres requêtes de ce site ne portent aucun nom. Et la page n'a pas le
+    droit de demander à votre navigateur où <em>vous</em> êtes&nbsp;: les en-têtes du site le
+    coupent, et c'est pourquoi il n'y a ici aucun bouton «&nbsp;me localiser&nbsp;».
+  </p>
 
   <h2 id="mode-emploi">{fr.titres.modeEmploi}</h2>
   <ol>

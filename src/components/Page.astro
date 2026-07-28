@@ -188,6 +188,44 @@ const jsonLd = {
                 </p>
               </div>
 
+              <!-- La carte est REPLIÉE, et c'est tout l'accord : tant que
+                   personne ne l'ouvre, aucune requête ne part, et la promesse
+                   vérifiable du site tient mot pour mot. Elle n'est jamais le
+                   seul chemin non plus — le champ ci-dessus fait la même chose,
+                   au clavier, hors ligne. -->
+              <div class="carte-bloc">
+                <button
+                  class="btn ghost xs"
+                  type="button"
+                  id="carte-bascule"
+                  aria-expanded="false"
+                  aria-controls="carte">{T.app.ouvrirCarte}</button>
+                <div id="carte" hidden>
+                  <p class="aide avis">{T.app.avisCarte}</p>
+                  <div class="carte-cadre">
+                    <div
+                      class="carte-vue"
+                      id="carte-vue"
+                      role="application"
+                      aria-label={T.app.carteLabel}
+                      tabindex="0">
+                    </div>
+                    <div class="carte-zoom">
+                      <button type="button" id="carte-plus" aria-label={T.app.zoomAvant}>+</button>
+                      <button type="button" id="carte-moins" aria-label={T.app.zoomArriere}>−</button>
+                    </div>
+                  </div>
+                  <p class="aide carte-pied">
+                    <span>{T.app.carteAide}</span>
+                    <span
+                      >© <a href="https://www.openstreetmap.org/copyright" rel="noopener"
+                        >OpenStreetMap</a
+                      > {T.app.contributeurs}</span
+                    >
+                  </p>
+                </div>
+              </div>
+
               <div class="result" id="resultat" hidden>
                 <span class="n" id="resultat-coords"></span>
                 <span class="l" id="resultat-detail"></span>
