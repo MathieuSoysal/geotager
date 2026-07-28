@@ -258,7 +258,11 @@ forme organique est de toute façon **invisible**.
 - **C.** Maquette littérale. Attaque simultanément INP, LCP et l'autonomie, sans qu'aucune
   optimisation JS ne puisse le rattraper.
 
-**Retenu provisoirement :** **A**, avec **B** si le mouvement est jugé indispensable.
+**Retenu : A**, appliqué — les trois `radial-gradient` statiques de `body` sont la réponse au décor de
+la maquette, et ils le restent. **Le mouvement a ensuite été jugé indispensable**, et c'est la branche
+**B qui a été ouverte, dans une variante qu'aucune des options ci-dessus ne décrit** : la forme n'est
+pas figée puis translatée, elle est **recalculée** à chaque image. Cette variante ouvre donc son
+entrée propre : voir **Q-040**.
 
 **Bloque :** non.
 
@@ -1136,5 +1140,75 @@ Deux défauts voisins, trouvés en même temps et corrigés dans le même lot :
 Enfin, le tableau du `README.md` est écrit à la main et pouvait dériver de `MATRICE` — c'est pourtant
 le premier que lit quelqu'un qui découvre le projet. Un contrôle de build compare ses cellules à la
 constante, et il a été vérifié **en échec** avant d'être vérifié au vert.
+
+**Bloque :** non.
+
+---
+
+## [V1.2] Q-040 — Le décor reprend du mouvement, et il est calculé en JavaScript
+
+**Contexte :** Q-009 avait retenu **A** — décor statique — avec **B** — formes figées animées en
+`transform` — comme repli si le mouvement devenait indispensable. Il l'est devenu. Mais la forme
+demandée n'est pas une forme figée qu'on déplace : c'est une silhouette dont le contour **se
+déforme**, à la manière de Squoosh. Aucune propriété CSS ne sait faire cela sans revenir au
+`border-radius` que `att_budget.md` §1 a classé BLOQUANT. La seule voie est de recalculer la
+géométrie hors CSS.
+
+**Options :**
+- **A.** S'en tenir à Q-009 : pas de mouvement. Coût nul, et le décor ne raconte rien.
+- **B.** Formes SVG figées, animées en `transform`/`opacity` seuls. Compositeur seul, zéro thread
+  principal — mais le contour ne se déforme pas, et c'est précisément ce qu'on voulait.
+- **C.** Une boucle `requestAnimationFrame` qui réécrit l'attribut `d` de trois `<path>` à chaque
+  image, à partir d'une somme de sinus. Vraie déformation. **Travail sur le thread principal**, soit
+  exactement la catégorie de coût que `att_budget.md` §1 a attaquée — d'où cette entrée.
+
+**Retenu : C**, sous cinq conditions qui font toute la différence avec la maquette d'origine :
+
+1. **Aucune propriété non compositable n'est animée.** Aucun `@keyframes`, aucun `border-radius`. Ce
+   qui change est une géométrie SVG, pas une propriété CSS.
+2. **Aucun `filter`, aucun `mix-blend-mode`, aucun `backdrop-filter`.** La douceur vient d'un
+   `<radialGradient gradientUnits="userSpaceOnUse">` statique — le repère est la boîte de vue et non
+   la boîte englobante du tracé, qui changerait à chaque image. `screen` a été écarté par le calcul :
+   sur un fond à L ≈ 0,008 et une opacité ≤ 0,12, l'écart avec `source-over` vaut `a·B·(1−C) ≤ 0,011`,
+   **moins de trois niveaux sur 255** — invisible, et il coûtait une lecture du fond par image.
+3. **La surface est bornée**, `min(90vw, 40rem)`, et le calque est composé à part (`will-change`,
+   `contain: strict`) : réécrire `d` ne repeint jamais la page derrière.
+4. **La boucle s'arrête** dès qu'elle ne sert plus : héros hors écran (`IntersectionObserver` sur
+   `.stage` — le calque étant `fixed`, l'observer sur lui-même ne dirait jamais rien), photo chargée
+   (`MutationObserver` sur `#etat-actif[hidden]`, ce qui évite de toucher à `app.ts`), onglet caché.
+   Elle ne démarre qu'après un `requestIdleCallback`, pour ne pas disputer le LCP au `<h1>`.
+5. **`prefers-reduced-motion: reduce` est lu en JavaScript.** La règle générale de `global.css`
+   (`* { animation: none !important; transition: none !important }`) **ne coupe pas une boucle rAF** :
+   c'est le piège de cette option, et il est traité explicitement. Dans ce cas la boucle ne démarre
+   jamais, et la forme affichée est celle **gravée dans le HTML au build** — le même module de
+   géométrie est appelé par `Page.astro` et par le client, si bien qu'il n'y a rien à charger et rien
+   qui saute.
+
+**Ce que ça coûte, chiffres à l'appui :**
+
+| | |
+|---|---|
+| JS ajouté | **MESURÉ : +1 070 o gzip.** Budget 48 374 → **49 444 o, 32,2 % des 150 Ko** |
+| HTML ajouté | **MESURÉ : 3 × ~247 caractères** de tracé gravé, plus l'échafaudage `<svg>`/`<defs>` |
+| Trigonométrie par image | **18 appels**, pas 216 : `sin(u + mθ)` est développé et `cos(mθ)`/`sin(mθ)` tabulés une fois |
+| Coût par image | **MESURÉ : p95 de l'intervalle inter-image 16,8 ms** sous ralentissement CPU ×4 — la cadence d'écran, aucune image manquée |
+| Mémoire de couche | ESTIMÉ 6,5 Mo @ 640 px DPR 2 ; 3,8 Mo @ 412 px DPR 2,625 — contre 10,4 Mo **par surface** au §1 de `att_budget.md` |
+| CLS | **MESURÉ nul** : la boîte du `<h1>` est identique à 0 s et à 6 s. `position: fixed`, hors flux, boîte connue avant tout script |
+| LCP | inchangé : un SVG en ligne n'est pas candidat LCP, et le `<h1>` ne bouge pas |
+
+**Contraste — la contrainte qui a réellement dimensionné le décor.** `--muted #a49cac` sur
+`--bg #17161b` vaut ≈ 6,8:1. Pour rester à 4,5:1, la luminance relative composite sous `.sub` et
+`.formats` ne peut pas dépasser **0,0380** ; cible retenue **0,0292** (5:1). L'empilement de parité
+avec la maquette (rose .22 / indigo .18 / teal .12) composite à **L = 0,0604 → 3,59:1, non conforme**.
+L'empilement retenu — **rose .12 / indigo .09 / teal .06** — est **MESURÉ** au pire de vingt secondes
+d'animation, texte rendu transparent pour ne lire que le fond : **L = 0,0273 (en) et 0,0277 (fr) à
+1440×900, 0,0264 à 360 px**, soit **5,10:1 au pire**. Les décalages statiques par couche interdisent
+aux trois maxima de se superposer, ce qui est ce qui tient la marge.
+
+**Vérifié aussi :** décor hors de l'arbre d'accessibilité (`aria-hidden`, `pointer-events: none`,
+aucun élément focalisable), centré à moins de 1,5 px du centre de la fenêtre, effectivement derrière
+la bulle (`elementFromPoint` au centre de `.bubble` ne renvoie jamais le décor), immobile et
+strictement égal à l'image gravée sous `reducedMotion: 'reduce'`, à l'arrêt une fois le héros sorti
+de l'écran et reparti au retour.
 
 **Bloque :** non.

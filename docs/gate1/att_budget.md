@@ -47,6 +47,19 @@ Trois aggravations :
 2. **Si le mouvement est jugé indispensable : n'animer que `transform`.** Forme figée en SVG, rotation/translation lentes. Compositeur seul, 0 travail thread principal.
 3. **Remplacer `backdrop-filter: blur(26px)` par une couleur solide.** D3 §5.5 a *déjà* calculé les composites (`#1E1C23`, `#32202E`, `#242133`, `#1E2D33`). Dès que le fond est statique, le composite est déterministe : **un panneau solide est visuellement identique au panneau flouté**, et ce seul changement résout à la fois le problème de coût et le « contraste non déterministe » que D3 documente comme son point d'attention structurel. Deux problèmes pour un correctif.
 
+**Post-scriptum — ce qui a été construit ensuite (V1.2).** Les trois correctifs ci-dessus sont en place et le restent : `body` porte trois `radial-gradient` statiques, les panneaux sont des couleurs opaques, et `src/styles/global.css` ne contient aucun `backdrop-filter`. Un **quatrième calque, décoratif et distinct**, a été ajouté par-dessus : `.decor`, un SVG de taille bornée centré dans la fenêtre, derrière `.bubble`, dont trois `<path>` reçoivent un nouvel attribut `d` à chaque image, calculé par une somme de sinus (`src/lib/ui/blob-path.ts`, `src/lib/ui/blob.ts`).
+
+Cela ne lève pas la présente objection, dont le point dur est nommé plus haut — « `border-radius` dans les keyframes », propriété non compositable — et le flou **plein viewport** qui ne peut jamais être mis en cache. Le nouveau calque évite l'un et l'autre :
+
+- **il n'anime aucune propriété CSS.** Il réécrit une géométrie SVG. Ni keyframe, ni `border-radius`, ni transition sur une propriété non compositable ;
+- **il n'emploie ni `filter`, ni `mix-blend-mode`, ni `backdrop-filter`.** La douceur des bords vient d'un `<radialGradient gradientUnits="userSpaceOnUse">` statique que le contour dévoile : une passe de shader, zéro surface de rendu, zéro lecture du backdrop. Le calcul est fait : sur un fond à L ≈ 0,008 et une opacité ≤ 0,12, `screen` diffère de `source-over` de `a·B·(1−C) ≤ 0,011`, soit **moins de trois niveaux sur 255** — invisible, et il coûtait une lecture du fond à chaque image ;
+- **sa surface est bornée** à `min(90vw, 40rem)`, non au viewport. Coût de couche : **6,5 Mo** en 640 px @ DPR 2, **3,8 Mo** sur un 412 px @ DPR 2,625 — contre les 10,4 Mo **par surface**, plusieurs surfaces, chiffrés plus haut ;
+- **il s'arrête** quand le héros sort de l'écran, quand une photo est chargée, et quand l'onglet passe au second plan ; il ne démarre jamais sous `prefers-reduced-motion: reduce`, la première image étant gravée dans le HTML au build.
+
+Coût par image **MESURÉ** (Playwright, `Emulation.setCPUThrottlingRate: 4`, 300 images) : p95 de l'intervalle inter-image **16,8 ms**, soit la cadence de rafraîchissement — la boucle ne fait pas manquer d'image sous ralentissement ×4.
+
+Le point d'attention de D3 §5.5 sur le contraste sous les blobs reste applicable, et son plafond a été chiffré puis mesuré : **la luminance relative composite sous `.sub`/`.formats` ne doit pas dépasser 0,0380** (4,5:1 pour `--muted #a49cac`), cible 0,0292 (5:1). L'empilement « parité maquette » (rose .22 / indigo .18 / teal .12) donne L = 0,0604, soit **3,59:1 — non conforme**. L'empilement retenu (.12 / .09 / .06) est **MESURÉ à L = 0,0277 au pire, soit 5,10:1**. Détail en Q-040.
+
 ---
 
 ## 2. BLOQUANT — Le budget JS oublie le moteur P1, qui est pourtant désigné par D1 comme « la colonne vertébrale du produit ». La marge réelle est de 14 à 34 ko, pas de 40 à 53 ko

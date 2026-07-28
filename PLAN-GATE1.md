@@ -114,6 +114,11 @@ au-dessus de ~35 px — la forme organique est **invisible**. Trois `radial-grad
 `backdrop-filter: blur(26px)` deviennent des couleurs solides pré-calculées, ce qui résout du même
 coup le contraste non déterministe. Si le mouvement est jugé indispensable : n'animer que `transform`.
 
+En V1.2 le mouvement a été jugé indispensable, et la voie retenue est plus étroite que « n'animer que
+`transform` » : **rien n'est animé en CSS du tout**. Une boucle `requestAnimationFrame` recalcule la
+géométrie d'un SVG borné et composé à part, sans flou, sans `mix-blend-mode` et sans `backdrop-filter`.
+Conditions, coûts mesurés et plafond de contraste : **Q-040**.
+
 ### C5 — Ce n'est pas un site de 4 pages, et il n'y a aucune donnée de marché
 
 **Charge estimée : 24 à 41 semaines-homme** (6 à 10 mois à plein temps), dérivée des volumes de code
@@ -872,7 +877,7 @@ Aucune n'a été tranchée à sa place ; le comportement le plus conservateur es
 | Q3 | **La carte est démotée** (situe, ne vise pas ; `maxZoom` 11 ; « cliquez » supprimé). Accepté ? | oui |
 | Q4 | **IPTC retiré du périmètre d'écriture** (l'IIM n'a pas de coordonnées). Accepté ? | oui |
 | Q5 | **Vidéo : lecture seule en v1**, pas de suppression. Accepté ? | oui |
-| Q6 | **Décor : gradients statiques au lieu de blobs animés + flou.** Accepté ? | oui |
+| Q6 | **Décor : gradients statiques au lieu de blobs animés + flou.** Accepté ? | oui — révisé en V1.2 (Q-040) : un calque SVG borné reprend le mouvement, sans flou, sans blend, sans propriété CSS animée |
 | Q7 | **Leaflet supprimé au profit d'une carte SVG maison** (−42 Ko gzip). Accepté ? | oui |
 | Q8 | **URL renommée `/supprimer-localisation-photo`.** Accepté ? | oui |
 | Q9 | **Allowlist de licences amendée** pour admettre OFL-1.1 (polices) — sinon on renonce aux Fontsource | amender |
