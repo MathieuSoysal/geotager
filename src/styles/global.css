@@ -252,6 +252,9 @@ article.contenu th { color: var(--muted); font-weight: 500; }
 
 footer { padding: 3rem 0; font-size: .82rem; color: var(--muted); border-top: 1px solid var(--bordure); margin-top: 3rem; }
 footer a { color: var(--muted); }
+/* The negative indent offsets the pills' horizontal padding, so the first link
+   lines up with the text below rather than floating. */
+footer nav.main { margin: 0 0 1.2rem -.8rem; }
 
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;

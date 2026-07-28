@@ -78,18 +78,6 @@ const jsonLd = {
             </svg>
             Geotager
           </a>
-          <nav class="main" aria-label={T.nav.sections}>
-            <a href="#vie-privee">{T.nav.viePrivee}</a>
-            <a href="#mode-emploi">{T.nav.modeEmploi}</a>
-            <a href="#verifier">{T.nav.verifier}</a>
-            {
-              LANGUES.filter((l) => l !== T.langue).map((l) => (
-                <a href={DICOS[l].base} lang={DICOS[l].htmlLang} rel="alternate">
-                  {DICOS[l].meta.nomLangue}
-                </a>
-              ))
-            }
-          </nav>
         </div>
 
         <div class="stage">
@@ -207,8 +195,27 @@ const jsonLd = {
       <article class="contenu"><slot /></article>
 
       <footer>
+        <!-- La navigation vit ici plutôt qu'en tête : ces liens mènent à des
+             sections de lecture, pas à l'outil. Les remonter au-dessus du
+             titre disputerait l'attention au seul geste qui compte — déposer
+             une photo. Le choix de langue les accompagne. -->
+        <nav class="main" aria-label={T.nav.sections}>
+          <a href="#vie-privee">{T.nav.viePrivee}</a>
+          <a href="#mode-emploi">{T.nav.modeEmploi}</a>
+          <a href="#verifier">{T.nav.verifier}</a>
+          {
+            LANGUES.filter((l) => l !== T.langue).map((l) => (
+              <a href={DICOS[l].base} lang={DICOS[l].htmlLang} rel="alternate">
+                {DICOS[l].meta.nomLangue}
+              </a>
+            ))
+          }
+        </nav>
+        <!-- L'espace est explicite : entre une expression et la balise qui la
+             suit, celui de la mise en forme est supprimé au rendu, et la ligne
+             se lisait « licence MIT :github.com/… ». -->
         <p>
-          {T.pied}
+          {T.pied}{' '}
           <a href="https://github.com/MathieuSoysal/geotager">github.com/MathieuSoysal/geotager</a>.
         </p>
       </footer>
