@@ -16,10 +16,17 @@
  *
  * Le décor animé de `.decor` (V1.2) n'est pas un retour en arrière sur le
  * point 1 : il n'anime aucune propriété CSS. C'est une boucle `rAF` qui
- * réécrit l'attribut `d` de trois <path>, sur une surface bornée et composée à
- * part, sans flou, sans `mix-blend-mode` et sans `backdrop-filter`. Les
- * opacités des dégradés sont plafonnées par le contraste et non par le goût :
- * voir Q-040 pour le calcul (luminance composite <= 0,0380 sous `.sub`).
+ * réécrit l'attribut `d` de quatre <path>, sur une surface bornée et composée à
+ * part, sans flou et sans `backdrop-filter`. Voir Q-040.
+ *
+ * Il emploie en revanche `mix-blend-mode: screen`, ce que Q-040 avait écarté —
+ * sous `isolation: isolate`, qui limite le groupe de fusion au calque lui-même.
+ * Les formes se mélangent entre elles, jamais avec la page : le grief du point
+ * 1 visait une surface plein écran relisant le fond à chaque image. Voir Q-042.
+ *
+ * Les opacités des dégradés sont plafonnées par le contraste et non par le
+ * goût, et le plafond a été relevé en éclaircissant le texte du héros — de
+ * 0,0380 à 0,0940. C'est ce qui paie la couleur. Voir Q-042.
  */
 
 :root {
@@ -33,6 +40,11 @@
   --amber: #ffb020;
   --indigo: #8b87ff;
   --encre: #1a0a12;
+  /* Le texte qui passe au-dessus du décor. Voir le bloc du héros plus bas :
+     ces trois valeurs sont ce qui autorise la couleur des formes. */
+  --clair: #ded9e2;
+  --clair-mono: #cfc9d4;
+  --rose-clair: #ff7fae;
   --bordure: rgba(244, 241, 245, 0.12);
   --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -92,7 +104,7 @@ body {
   left: 50%; top: 50%;
   /* Propriété indépendante : `transform` reste libre pour le glisser-déposer. */
   translate: -50% -50%;
-  width: min(90vw, 90svh, 40rem);
+  width: min(96vw, 94svh, 52rem);
   aspect-ratio: 1;
   z-index: 0;
   pointer-events: none;
@@ -100,8 +112,25 @@ body {
   /* Couche propre : réécrire `d` ne repeint alors que ce calque. */
   will-change: transform;
   transition: opacity .3s ease, transform .3s ease;
+  /*
+   * `isolate` est ce qui rend le `screen` ci-dessous acceptable. Sans lui, le
+   * groupe de fusion serait la page entière : chaque image relirait le fond,
+   * et c'est précisément le mécanisme que `att_budget.md` §1 a classé BLOQUANT.
+   * Isolé, le groupe se limite à ce calque-ci, déjà borné et déjà composé à
+   * part — les quatre formes se mélangent entre elles, jamais avec la page.
+   */
+  isolation: isolate;
 }
 .decor svg { display: block; width: 100%; height: 100%; }
+/*
+ * Superposées en `source-over`, quatre couleurs translucides sur un fond sombre
+ * ne s'additionnent pas : elles se neutralisent, et les recouvrements virent au
+ * gris. `screen` les garde lumineuses, ce qui est toute la différence entre une
+ * brume et de la couleur. L'argument de coût qui l'avait écarté valait à 0,12
+ * d'opacité, où l'écart avec `source-over` restait sous trois niveaux sur 255 ;
+ * il ne vaut plus à 0,27.
+ */
+.decor path { mix-blend-mode: screen; }
 
 /* Les jetons restent la source unique. `stop-color` et `stop-opacity` sont de
    vraies propriétés CSS, où `var()` se résout — ce qui n'est pas le cas dans
@@ -109,10 +138,17 @@ body {
 .bd-rose stop { stop-color: var(--pink); }
 .bd-indigo stop { stop-color: var(--indigo); }
 .bd-teal stop { stop-color: var(--teal); }
-/* Plafonnées par le contraste : composite <= 0,0380 sous `.sub`. Voir Q-040. */
-.bd-rose .dedans { stop-opacity: .12; } .bd-rose .milieu { stop-opacity: .086; }
-.bd-indigo .dedans { stop-opacity: .09; } .bd-indigo .milieu { stop-opacity: .065; }
-.bd-teal .dedans { stop-opacity: .06; } .bd-teal .milieu { stop-opacity: .043; }
+.bd-ambre stop { stop-color: var(--amber); }
+/*
+ * Plafonnées par le contraste, et le plafond a été relevé exprès. Tant que le
+ * sous-titre était `--muted`, le fond ne pouvait pas dépasser L = 0,038 et la
+ * couleur restait un murmure. Le texte du héros éclairci (voir plus bas) porte
+ * la limite à 0,094 : c'est ce qui paie ces opacités-là. Voir Q-042.
+ */
+.bd-rose .dedans { stop-opacity: .27; } .bd-rose .milieu { stop-opacity: .19; }
+.bd-indigo .dedans { stop-opacity: .22; } .bd-indigo .milieu { stop-opacity: .155; }
+.bd-teal .dedans { stop-opacity: .155; } .bd-teal .milieu { stop-opacity: .11; }
+.bd-ambre .dedans { stop-opacity: .13; } .bd-ambre .milieu { stop-opacity: .09; }
 .decor .dehors { stop-opacity: 0; }
 
 /*
@@ -220,9 +256,12 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
   gap: .7rem; padding: 1.5rem; background: var(--pink); color: var(--encre);
   font-family: var(--sans); border-radius: 58% 42% 46% 54% / 52% 58% 42% 48%;
   box-shadow: 0 0 6rem -1rem rgba(255, 51, 133, .8);
-  transition: transform .2s ease;
+  /* La courbe dépasse 1 avant de revenir : la bulle rebondit au lieu de
+     glisser. C'est le seul endroit de la page où ce ressort a sa place — le
+     geste principal peut se permettre d'être un peu joueur. */
+  transition: transform .34s cubic-bezier(.34, 1.56, .64, 1);
 }
-.bubble:hover, .bubble:focus-within { transform: scale(1.04); }
+.bubble:hover, .bubble:focus-within { transform: scale(1.05); }
 .bubble svg { width: 2.9rem; height: 2.9rem; }
 .bubble b { font-size: 1.2rem; font-weight: 600; line-height: 1.15; display: block; }
 .bubble small { font-size: .9rem; opacity: .75; display: block; margin-top: .15rem; }
@@ -232,9 +271,21 @@ h1 {
   font-weight: 800; font-size: clamp(1.5rem, 3.6vw, 2.25rem); line-height: 1.08;
   letter-spacing: -.035em; margin: .3rem 0 0; max-width: 20rem;
 }
-h1 em { font-style: normal; color: var(--pink); }
-.sub { margin: 0; color: var(--muted); max-width: 30rem; font-size: .95rem; }
-.formats { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin: .2rem 0 0; }
+/*
+ * Le texte du héros est plus clair que le reste de la page, et ce n'est pas une
+ * coquetterie : c'est lui qui paie la couleur du décor. Un fond ne peut pas
+ * dépasser une luminance que le texte posé dessus rend illisible, et le
+ * sous-titre en `--muted` plafonnait le décor à L = 0,038 — d'où un décor qu'il
+ * fallait deviner. Éclairci, il porte la limite à 0,094, et les formes peuvent
+ * enfin avoir la couleur qu'on leur voulait. Les trois valeurs sont choisies
+ * par le calcul, pas à l'œil : voir Q-042.
+ *
+ * `--muted` n'est pas touché : ailleurs sur la page, aucun texte ne passe
+ * au-dessus du décor, et l'y éclaircir n'achèterait rien.
+ */
+h1 em { font-style: normal; color: var(--rose-clair); }
+.sub { margin: 0; color: var(--clair); max-width: 30rem; font-size: .95rem; }
+.formats { font-family: var(--mono); font-size: .72rem; color: var(--clair-mono); margin: .2rem 0 0; }
 
 body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(255, 51, 133, .95); }
 

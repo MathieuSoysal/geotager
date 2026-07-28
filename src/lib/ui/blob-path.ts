@@ -114,32 +114,50 @@ export function cheminBlob(c: Couche, t: number): string {
 const H = (a: number, T: number, m: number, phi: number): Harmonique => ({ a, T, m, phi });
 
 /*
- * Trois couches. Les périodes ne partagent aucun petit facteur commun : le
+ * Quatre couches. Les périodes ne partagent aucun petit facteur commun : le
  * contour ne se répète qu'au bout de leur plus petit commun multiple, soit des
- * heures. Les décalages sont statiques et distincts, ce qui interdit aux trois
+ * heures. Les décalages sont statiques et distincts, ce qui interdit aux quatre
  * maxima de se superposer — c'est ce qui tient le contraste sous le texte.
  *
- * Somme des amplitudes : 0,175. Le rayon reste donc dans [0,825 r0 ; 1,175 r0],
- * soit 84,6 unités au plus fort pour la couche rose : la boîte de 100 n'est
- * jamais atteinte, et le dégradé garde de quoi s'éteindre.
+ * L'ambre est la quatrième : une couleur chaude manquait pour que l'ensemble
+ * respire, et le jeton existait déjà sans servir au décor.
+ *
+ * Les décalages sont larges, et c'est délibéré. Serrées sur un même centre, en
+ * `screen`, quatre couleurs se cumulent vers le blanc et tout vire à la brume
+ * grise ; écartées, chacune garde sa teinte sur son quartier et ne se mêle aux
+ * autres que sur les bords. C'est ce qui fait la différence entre un halo et
+ * des formes qu'on distingue.
+ *
+ * Somme des amplitudes : environ 0,21 par couche, contre 0,175 auparavant. Le
+ * contour se déforme donc plus franchement, et les périodes ont été raccourcies
+ * dans le même esprit — le mouvement doit s'apercevoir, pas se deviner. Au plus
+ * fort, la couche rose atteint 70 × 1,205 = 84,4 unités, et ses points de
+ * contrôle dépassent d'environ quatre : la boîte de 100 n'est jamais atteinte,
+ * et le dégradé garde de quoi s'éteindre.
  */
 export const COUCHES: readonly Couche[] = [
   {
     id: 'rose',
-    r0: 72,
-    transform: 'translate(-6 -4)',
-    harmoniques: [H(0.085, 28_700, 2, 0), H(0.055, 18_300, 3, 2.1), H(0.035, 46_900, 5, 4.2)],
+    r0: 62,
+    transform: 'translate(-24 -20)',
+    harmoniques: [H(0.1, 22_300, 2, 0), H(0.065, 15_700, 3, 2.1), H(0.04, 37_900, 5, 4.2)],
   },
   {
     id: 'indigo',
-    r0: 66,
-    transform: 'translate(14 10) rotate(37)',
-    harmoniques: [H(0.075, 33_100, 3, 1.4), H(0.06, 21_700, 2, 3.9), H(0.03, 52_300, 5, 0.7)],
+    r0: 60,
+    transform: 'translate(28 -15) rotate(37)',
+    harmoniques: [H(0.095, 26_900, 3, 1.4), H(0.07, 18_700, 2, 3.9), H(0.038, 43_300, 5, 0.7)],
   },
   {
     id: 'teal',
-    r0: 58,
-    transform: 'translate(-16 18) rotate(-24)',
-    harmoniques: [H(0.09, 25_300, 2, 2.8), H(0.045, 39_700, 5, 5.1), H(0.03, 61_100, 3, 1.9)],
+    r0: 56,
+    transform: 'translate(-27 25) rotate(-24)',
+    harmoniques: [H(0.105, 20_300, 2, 2.8), H(0.06, 31_700, 5, 5.1), H(0.04, 49_900, 3, 1.9)],
+  },
+  {
+    id: 'ambre',
+    r0: 52,
+    transform: 'translate(26 27) rotate(58)',
+    harmoniques: [H(0.11, 24_700, 3, 3.3), H(0.07, 17_300, 2, 0.9), H(0.035, 41_900, 5, 2.6)],
   },
 ];

@@ -442,7 +442,7 @@ check('le décor est hors de l\'arbre d\'accessibilité',
 // La forme est calculée au build par le même module que la boucle : elle est
 // donc déjà dans le HTML servi, et rien n'apparaît au démarrage.
 const tracesServies = await page.locator('#decor path[d]').count();
-check('la forme est déjà dessinée dans le HTML servi', tracesServies === 3, String(tracesServies));
+check('la forme est déjà dessinée dans le HTML servi', tracesServies === 4, String(tracesServies));
 
 // La règle générale de la feuille de style ne coupe que les animations CSS.
 // Une boucle rAF lui échappe : c'est au script de lire la préférence, et c'est

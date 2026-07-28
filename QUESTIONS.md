@@ -1282,3 +1282,64 @@ Vérifié : `src/` ne contient plus aucun attribut `style`, aucun `setAttribute(
 style, et le CSSOM n'est de toute façon pas régi par la CSP.
 
 **Bloque :** non.
+
+---
+
+## [V1.2] Q-042 — Le décor prend des couleurs, et c'est le texte qui les paie
+
+**Contexte :** le décor de Q-040 était juste, mesuré, et terne. Les opacités retenues
+(rose .12 / indigo .09 / teal .06) ne venaient pas d'un choix esthétique : elles étaient tout ce que
+le contraste autorisait. Le calcul est le même dans les deux sens — un fond ne peut pas dépasser la
+luminance que le texte posé dessus rend illisible — et le texte du héros était `--muted #a49cac`,
+d'où un plafond de **L ≤ 0,0380**. À ce plafond, quatre couleurs sur un fond sombre sont un murmure.
+
+Demande : s'inspirer de Squoosh, et que ce soit un peu amusant. Squoosh peut se permettre des formes
+franches parce que **son texte est clair**. C'est le vrai levier, et il n'est pas dans le décor.
+
+**Retenu :** éclaircir le texte du héros — et seulement lui — pour acheter la couleur.
+
+| | avant | après | plafond du fond |
+|---|---|---|---|
+| `.sub` | `--muted #a49cac` | `--clair #ded9e2` | 0,0381 → **0,1181** |
+| `.formats` | `--muted #a49cac` | `--clair-mono #cfc9d4` | 0,0381 → **0,0940** |
+| `h1 em` | `--pink #ff3385` | `--rose-clair #ff7fae` | 0,0511 → 0,0983 |
+
+Le plafond contraignant passe de **0,0380 à 0,0940**, soit deux fois et demie de couleur en plus.
+`--muted` n'est pas touché : ailleurs sur la page, aucun texte ne passe au-dessus du décor.
+
+Le reste suit ce budget : une **quatrième couche ambre** (le jeton existait, il ne servait pas au
+décor), des amplitudes portées de 0,175 à ~0,21 et des périodes raccourcies — le mouvement doit
+s'apercevoir, pas se deviner — et un calque agrandi à `min(96vw, 94svh, 52rem)`.
+
+**Deux corrections que seule l'image a montrées, et qu'aucune mesure n'aurait données :**
+
+1. **Les recouvrements viraient au gris.** Quatre couleurs translucides en `source-over` sur un fond
+   sombre ne s'additionnent pas, elles se neutralisent. `mix-blend-mode: screen` les garde lumineuses.
+   **Cela revient sur l'argument de Q-040**, et il faut le dire : j'y avais écarté `screen` en
+   calculant que l'écart avec `source-over` restait sous trois niveaux sur 255. Ce calcul était juste
+   **à 0,12 d'opacité**. Il ne l'est plus à 0,27. Ce qui rend le blend acceptable ici n'est donc pas
+   ce calcul mais **`isolation: isolate`** : le groupe de fusion se limite au calque, déjà borné et
+   déjà composé à part. Les quatre formes se mélangent entre elles, **jamais avec la page** — le
+   grief du §1 de `att_budget.md` visait une surface plein écran qui relit le fond à chaque image.
+2. **Les formes se cumulaient vers le blanc.** Serrées sur un même centre, en `screen`, quatre
+   couleurs donnent du blanc. Les décalages statiques sont passés d'environ ±15 à ±27 unités, et la
+   boîte de vue de 200 à 220 : chaque teinte tient désormais son quartier. Le rayon du dégradé
+   (76) est en outre passé **sous** le rayon maximal du tracé (~75 selon la couche), si bien que le
+   remplissage s'éteint avant le bord : plus de contour net, et toujours aucun `filter: blur()`.
+
+Un ressort, enfin, sur la bulle — `cubic-bezier(.34, 1.56, .64, 1)` dépasse 1 avant de revenir. Une
+seule propriété, compositable, sur le seul geste qui compte.
+
+**Contraste, MESURÉ** sur dix fenêtres, chaque texte contre **son** seuil (le `<h1>` est du grand
+texte : `clamp(1.5rem, 3.6vw, 2.25rem)` en graisse 800, donc ≥ 24 px gras partout, seuil 3:1) :
+
+| | pire mesuré | seuil | marge |
+|---|---|---|---|
+| `h1` | 6,84:1 | 3:1 | large |
+| `h1 em` | **3,70:1** | 3:1 | +23 % |
+| `.sub` | 7,33:1 | 4,5:1 | +63 % |
+| `.formats` | 6,37:1 | 4,5:1 | +42 % |
+
+Les paliers de fenêtre basse de Q-040 restent en place et gardent leur rôle.
+
+**Bloque :** non.
