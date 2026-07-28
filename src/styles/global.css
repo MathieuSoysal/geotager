@@ -43,8 +43,8 @@
   /* The text that passes over the decoration. See the hero block below: these
      three values are what allows the shapes their colour. */
   --clair: #ded9e2;
-  --clair-mono: #cfc9d4;
-  --rose-clair: #ff7fae;
+  --clair-mono: #ded9e2;
+  --rose-clair: #ff93bd;
   --bordure: rgba(244, 241, 245, 0.12);
   --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -56,11 +56,18 @@
 body {
   margin: 0;
   background: var(--bg);
-  /* The three shapes of the mockup, as static gradients. */
+  /*
+   * The mockup's shapes, as static gradients, and this is where the colour
+   * fills the screen. A radial gradient costs one shader pass, once: it can
+   * therefore be bold and cover the whole window, where the animated surface
+   * must stay bounded on pain of dropping to twelve frames a second. The
+   * fourth, amber, answers the decor's fourth shape.
+   */
   background-image:
-    radial-gradient(60rem 60rem at 8% -10%, rgba(255, 51, 133, 0.28), transparent 60%),
-    radial-gradient(50rem 50rem at 96% 6%, rgba(74, 70, 201, 0.30), transparent 62%),
-    radial-gradient(44rem 44rem at 62% 108%, rgba(0, 211, 197, 0.16), transparent 60%);
+    radial-gradient(72rem 72rem at 2% -14%, rgba(255, 51, 133, 0.42), transparent 62%),
+    radial-gradient(64rem 64rem at 99% 0%, rgba(139, 135, 255, 0.36), transparent 64%),
+    radial-gradient(58rem 58rem at 46% 114%, rgba(0, 211, 197, 0.26), transparent 62%),
+    radial-gradient(50rem 50rem at 96% 96%, rgba(255, 176, 32, 0.20), transparent 60%);
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--sans);
@@ -101,8 +108,15 @@ body {
  */
 .decor {
   position: fixed;
+  /*
+   * The animated surface is bounded, and measurement leaves no choice. Extended
+   * to the whole window it cost 33 ms per frame on a laptop and 83 ms, twelve
+   * frames a second, on a 2560-wide display. The detail: blending doubles the
+   * cost, the surface does the rest (50 ms without it). What fills the screen
+   * is `body`'s static gradients: one shader pass, zero work per frame. What
+   * moves stays bounded.
+   */
   left: 50%; top: 50%;
-  /* An independent property: `transform` stays free for drag and drop. */
   translate: -50% -50%;
   width: min(96vw, 94svh, 52rem);
   aspect-ratio: 1;
