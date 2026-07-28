@@ -440,7 +440,7 @@ check('le décor est hors de l\'arbre d\'accessibilité',
 // The shape is computed at build time by the same module as the loop: it is
 // therefore already in the served HTML, and nothing appears on startup.
 const tracesServies = await page.locator('#decor path[d]').count();
-check('la forme est déjà dessinée dans le HTML servi', tracesServies === 3, String(tracesServies));
+check('la forme est déjà dessinée dans le HTML servi', tracesServies === 4, String(tracesServies));
 
 // The stylesheet's blanket rule only cuts CSS animations. A rAF loop escapes
 // it: it is up to the script to read the preference, and that is precisely what
