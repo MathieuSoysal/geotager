@@ -1,7 +1,7 @@
 /**
  * Ce que l'outil sait faire, format par format — source unique.
  *
- * Le tableau de la page d'accueil est RENDU à partir de cette constante, et le
+ * Le tableau de chaque page est RENDU à partir de cette constante, et le
  * moteur la lit aussi. Le tableau ne peut donc plus dériver du code : la règle
  * « une case ne passe à oui qu'une fois son test vert » cesse d'être une
  * discipline pour devenir une propriété mécanique.
@@ -37,9 +37,6 @@ const RIEN: Capacites = {
 export interface LigneMatrice {
   /** Formats couverts par la ligne, dans l'ordre d'affichage. */
   formats: Format[];
-  libelle: string;
-  /** Mention courte affichée à côté du libellé, s'il y a lieu. */
-  mention?: string;
   capacites: Capacites;
 }
 
@@ -50,13 +47,10 @@ export interface LigneMatrice {
 export const MATRICE: LigneMatrice[] = [
   {
     formats: ['jpeg'],
-    libelle: 'JPEG',
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
   {
     formats: ['heic', 'avif'],
-    libelle: 'HEIC, AVIF',
-    mention: 'iPhone',
     // « Ajouter » n'agrandit rien sur place : le nouveau bloc va dans une boîte
     // ajoutée en fin de fichier, et la seule entrée de la table des emplacements
     // qui le concerne est repointée. Le fichier grandit, aucun octet existant ne
@@ -66,26 +60,21 @@ export const MATRICE: LigneMatrice[] = [
   },
   {
     formats: ['png'],
-    libelle: 'PNG',
     // Aucun décalage absolu interne : agrandir un morceau n'invalide rien,
     // donc l'ajout est sûr. C'est le seul format de ce lot dans ce cas.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
   {
     formats: ['webp'],
-    libelle: 'WebP',
     // La forme simple n'a aucun emplacement prévu pour un lieu : il n'y a rien
     // à y lire ni à y corriger, et lui en créer un est hors de portée.
     // L'interface le dit fichier par fichier, avant l'action.
-    mention: 'forme étendue',
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: true },
   },
   {
     formats: ['tiff'],
-    libelle: 'TIFF',
     // Dit en mot de tous les jours : un fichier brut d'appareil photo est un
     // TIFF, et la ligne annoncerait sinon un ajout qu'elle refuse sur ceux-là.
-    mention: 'hors fichiers bruts',
     // Un négatif numérique est un TIFF, et lui ajouter des octets abîmerait un
     // original irremplaçable. « Ajouter » ne s'ouvre donc que sur les fichiers
     // qui PROUVENT être une image ordinaire — liste blanche éprouvée dans les
@@ -98,7 +87,7 @@ export const MATRICE: LigneMatrice[] = [
   // lecteur, et le second lecteur n'ouvre ni MOV ni MP4. La case était fausse.
   // Elle le reste tant qu'aucune vidéo réelle ne peut l'éprouver — aucun corpus
   // public sous licence libre n'en fournit. Voir Q-006 et Q-039.
-  { formats: ['video'], libelle: 'Vidéos (MOV, MP4)', capacites: RIEN },
+  { formats: ['video'], capacites: RIEN },
 ];
 
 /** Ce que l'outil sait faire d'un format, indépendamment du fichier reçu. */
@@ -109,12 +98,14 @@ export function capacitesDe(format: Format): Capacites {
   return RIEN;
 }
 
-/** Les colonnes du tableau, dans l'ordre. */
-export const COLONNES = ['Lire', 'Corriger', 'Ajouter', 'Effacer'] as const;
-
-export function cellules(c: Capacites): string[] {
-  const dire = (v: boolean) => (v ? 'oui' : 'pas encore');
-  return [dire(c.lire), dire(c.corriger), dire(c.ajouter), dire(c.effacer)];
+/**
+ * Les quatre cases d'une ligne, dans l'ordre des colonnes.
+ *
+ * Rend des booléens, pas des mots : le tableau dit la même vérité dans toutes
+ * les langues, et c'est le dictionnaire qui choisit comment la dire.
+ */
+export function cellules(c: Capacites): boolean[] {
+  return [c.lire, c.corriger, c.ajouter, c.effacer];
 }
 
 /* ------------------------------------------------------------------ */
@@ -141,30 +132,8 @@ export type Motif =
   | 'video'
   | 'inconnu';
 
-// Aucun mot de la liste interdite du plan : ni « EXIF », ni « métadonnées »,
-// ni « IFD », ni « conteneur », ni le nom d'une boîte ou d'un morceau interne.
-const PHRASES: Record<Motif, string> = {
-  ok: 'La position sera écrite dans le fichier, sans retoucher l’image.',
-  'sans-lieu':
-    'Cette photo ne porte aucun lieu. Nous savons en retirer un, mais pas encore en ajouter un à ce type de photo.',
-  'sans-emplacement': 'Ce fichier ne contient aucune information de lieu à modifier.',
-  'forme-inhabituelle':
-    'Le lieu est enregistré ici d’une façon inhabituelle. Nous savons le lire, mais le modifier risquerait d’abîmer la photo : nous préférons ne pas y toucher.',
-  'rangement-inconnu':
-    'Cette photo range ses informations d’une façon que nous ne savons pas encore manipuler sans risque.',
-  'copie-ailleurs':
-    'Cette photo range aussi le lieu à un autre endroit, sous une forme que nous ne savons pas encore retirer. Nous préférons ne rien retirer plutôt que d’en oublier une copie.',
-  'copie-compressee':
-    'Cette image range aussi le lieu sous une forme compressée que nous ne savons pas encore rouvrir. Nous préférons ne rien retirer plutôt que d’en oublier une copie.',
-  'lecture-seule':
-    'Nous savons lire la position de ce fichier, mais pas encore la modifier sans risquer de l’abîmer.',
-  'sans-lieu-possible':
-    'Cette image n’a pas d’emplacement prévu pour un lieu, et nous ne savons pas encore lui en créer un.',
-  video:
-    'Nous ne savons pas encore travailler sur les vidéos : une vidéo range le lieu à plusieurs endroits, parfois en toutes lettres, et nous préférons ne rien promettre que nous ne tenions.',
-  inconnu: 'Nous ne reconnaissons pas ce type de fichier.',
-};
-
-export function phraseDe(motif: Motif): string {
-  return PHRASES[motif];
-}
+// Les phrases elles-mêmes vivent dans src/lib/i18n/ : le moteur rend un motif,
+// l'interface choisit les mots. C'est ce qui permet une seconde langue sans
+// toucher une ligne de chirurgie binaire — et ce qui garantit qu'une phrase
+// manquante est une erreur de compilation, pas un mot français dans une page
+// anglaise.
