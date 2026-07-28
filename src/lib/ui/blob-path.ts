@@ -114,32 +114,50 @@ export function cheminBlob(c: Couche, t: number): string {
 const H = (a: number, T: number, m: number, phi: number): Harmonique => ({ a, T, m, phi });
 
 /*
- * Three layers. The periods share no small common factor, so the outline only
+ * Four layers. The periods share no small common factor, so the outline only
  * repeats after their least common multiple, which is hours. The offsets are
- * static and distinct, which stops the three maxima from lining up, and that is
+ * static and distinct, which stops the four maxima from lining up, and that is
  * what holds the contrast under the text.
  *
- * Sum of amplitudes: 0.175. The radius therefore stays within
- * [0.825 r0, 1.175 r0], 84.6 units at strongest for the pink layer: the box of
- * 100 is never reached, and the gradient keeps room to fade out.
+ * Amber is the fourth: a warm colour was missing for the whole to breathe, and
+ * the token already existed without being used by the decor.
+ *
+ * The offsets are wide, deliberately. Bunched on one centre, in `screen` mode,
+ * four colours accumulate towards white and everything turns to grey haze;
+ * spread out, each keeps its hue in its own quarter and mixes with the others
+ * only at the edges. That is the difference between a halo and shapes you can
+ * make out.
+ *
+ * Sum of amplitudes: about 0.21 per layer, against 0.175 before. The outline
+ * therefore deforms more plainly, and the periods were shortened in the same
+ * spirit: the movement should be noticed, not guessed at. At its strongest the
+ * pink layer reaches 70 × 1.205 = 84.4 units, and its control points overshoot
+ * by about four: the box of 100 is never reached, and the gradient keeps room
+ * to fade out.
  */
 export const COUCHES: readonly Couche[] = [
   {
     id: 'rose',
-    r0: 72,
-    transform: 'translate(-6 -4)',
-    harmoniques: [H(0.085, 28_700, 2, 0), H(0.055, 18_300, 3, 2.1), H(0.035, 46_900, 5, 4.2)],
+    r0: 62,
+    transform: 'translate(-24 -20)',
+    harmoniques: [H(0.1, 22_300, 2, 0), H(0.065, 15_700, 3, 2.1), H(0.04, 37_900, 5, 4.2)],
   },
   {
     id: 'indigo',
-    r0: 66,
-    transform: 'translate(14 10) rotate(37)',
-    harmoniques: [H(0.075, 33_100, 3, 1.4), H(0.06, 21_700, 2, 3.9), H(0.03, 52_300, 5, 0.7)],
+    r0: 60,
+    transform: 'translate(28 -15) rotate(37)',
+    harmoniques: [H(0.095, 26_900, 3, 1.4), H(0.07, 18_700, 2, 3.9), H(0.038, 43_300, 5, 0.7)],
   },
   {
     id: 'teal',
-    r0: 58,
-    transform: 'translate(-16 18) rotate(-24)',
-    harmoniques: [H(0.09, 25_300, 2, 2.8), H(0.045, 39_700, 5, 5.1), H(0.03, 61_100, 3, 1.9)],
+    r0: 56,
+    transform: 'translate(-27 25) rotate(-24)',
+    harmoniques: [H(0.105, 20_300, 2, 2.8), H(0.06, 31_700, 5, 5.1), H(0.04, 49_900, 3, 1.9)],
+  },
+  {
+    id: 'ambre',
+    r0: 52,
+    transform: 'translate(26 27) rotate(58)',
+    harmoniques: [H(0.11, 24_700, 3, 3.3), H(0.07, 17_300, 2, 0.9), H(0.035, 41_900, 5, 2.6)],
   },
 ];

@@ -15,10 +15,18 @@
  *    whatever passes behind.
  *
  * The animated decor in `.decor` is not a reversal of point 1: it animates no
- * CSS property. It is an `rAF` loop rewriting the `d` attribute of three <path>
- * elements, on a bounded surface composited separately, with no blur, no
- * `mix-blend-mode` and no `backdrop-filter`. The gradient opacities are capped
- * by contrast rather than taste (composite luminance <= 0.0380 under `.sub`).
+ * CSS property. It is an `rAF` loop rewriting the `d` attribute of four <path>
+ * elements, on a bounded surface composited separately, with no blur and no
+ * `backdrop-filter`.
+ *
+ * It does use `mix-blend-mode: screen`, under `isolation: isolate`, which
+ * limits the blending group to the layer itself. The shapes blend with each
+ * other, never with the page: the objection in point 1 was aimed at a
+ * full-screen surface re-reading the background every frame.
+ *
+ * The gradient opacities are capped by contrast rather than taste, and the cap
+ * was raised by lightening the hero text, from 0.0380 to 0.0940. That is what
+ * pays for the colour.
  */
 
 :root {
@@ -32,6 +40,11 @@
   --amber: #ffb020;
   --indigo: #8b87ff;
   --encre: #1a0a12;
+  /* The text that passes over the decoration. See the hero block below: these
+     three values are what allows the shapes their colour. */
+  --clair: #ded9e2;
+  --clair-mono: #cfc9d4;
+  --rose-clair: #ff7fae;
   --bordure: rgba(244, 241, 245, 0.12);
   --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -91,7 +104,7 @@ body {
   left: 50%; top: 50%;
   /* An independent property: `transform` stays free for drag and drop. */
   translate: -50% -50%;
-  width: min(90vw, 90svh, 40rem);
+  width: min(96vw, 94svh, 52rem);
   aspect-ratio: 1;
   z-index: 0;
   pointer-events: none;
@@ -99,8 +112,25 @@ body {
   /* Its own layer: rewriting `d` then repaints only this layer. */
   will-change: transform;
   transition: opacity .3s ease, transform .3s ease;
+  /*
+   * `isolate` is what makes the `screen` below acceptable. Without it the
+   * blending group would be the whole page: every frame would re-read the
+   * background, which is precisely the mechanism an earlier measurement
+   * classified as blocking. Isolated, the group is limited to this layer, which
+   * is already bounded and already composited separately, so the four shapes
+   * blend with each other and never with the page.
+   */
+  isolation: isolate;
 }
 .decor svg { display: block; width: 100%; height: 100%; }
+/*
+ * Stacked in `source-over`, four translucent colours on a dark background do not
+ * add up: they cancel, and the overlaps turn grey. `screen` keeps them
+ * luminous, which is the whole difference between haze and colour. The cost
+ * argument that had ruled it out held at 0.12 opacity, where the gap with
+ * `source-over` stayed under three levels out of 255; it no longer holds at 0.27.
+ */
+.decor path { mix-blend-mode: screen; }
 
 /* The tokens remain the single source. `stop-color` and `stop-opacity` are real
    CSS properties, where `var()` resolves, which is not the case in a
@@ -108,10 +138,17 @@ body {
 .bd-rose stop { stop-color: var(--pink); }
 .bd-indigo stop { stop-color: var(--indigo); }
 .bd-teal stop { stop-color: var(--teal); }
-/* Capped by contrast: composite <= 0.0380 under `.sub`. */
-.bd-rose .dedans { stop-opacity: .12; } .bd-rose .milieu { stop-opacity: .086; }
-.bd-indigo .dedans { stop-opacity: .09; } .bd-indigo .milieu { stop-opacity: .065; }
-.bd-teal .dedans { stop-opacity: .06; } .bd-teal .milieu { stop-opacity: .043; }
+.bd-ambre stop { stop-color: var(--amber); }
+/*
+ * Capped by contrast, and the cap was deliberately raised. While the subtitle
+ * was `--muted`, the background could not exceed L = 0.038 and the colour
+ * stayed a murmur. The lightened hero text, below, raises the limit to 0.094:
+ * that is what pays for these opacities.
+ */
+.bd-rose .dedans { stop-opacity: .27; } .bd-rose .milieu { stop-opacity: .19; }
+.bd-indigo .dedans { stop-opacity: .22; } .bd-indigo .milieu { stop-opacity: .155; }
+.bd-teal .dedans { stop-opacity: .155; } .bd-teal .milieu { stop-opacity: .11; }
+.bd-ambre .dedans { stop-opacity: .13; } .bd-ambre .milieu { stop-opacity: .09; }
 .decor .dehors { stop-opacity: 0; }
 
 /*
@@ -220,9 +257,12 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
   gap: .7rem; padding: 1.5rem; background: var(--pink); color: var(--encre);
   font-family: var(--sans); border-radius: 58% 42% 46% 54% / 52% 58% 42% 48%;
   box-shadow: 0 0 6rem -1rem rgba(255, 51, 133, .8);
-  transition: transform .2s ease;
+  /* The curve overshoots 1 before coming back: the bubble bounces instead of
+     gliding. It is the one place on the page where that spring belongs, since
+     the main gesture can afford to be a little playful. */
+  transition: transform .34s cubic-bezier(.34, 1.56, .64, 1);
 }
-.bubble:hover, .bubble:focus-within { transform: scale(1.04); }
+.bubble:hover, .bubble:focus-within { transform: scale(1.05); }
 .bubble svg { width: 2.9rem; height: 2.9rem; }
 .bubble b { font-size: 1.2rem; font-weight: 600; line-height: 1.15; display: block; }
 .bubble small { font-size: .9rem; opacity: .75; display: block; margin-top: .15rem; }
@@ -232,9 +272,20 @@ h1 {
   font-weight: 800; font-size: clamp(1.5rem, 3.6vw, 2.25rem); line-height: 1.08;
   letter-spacing: -.035em; margin: .3rem 0 0; max-width: 20rem;
 }
-h1 em { font-style: normal; color: var(--pink); }
-.sub { margin: 0; color: var(--muted); max-width: 30rem; font-size: .95rem; }
-.formats { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin: .2rem 0 0; }
+/*
+ * The hero text is lighter than the rest of the page, and that is not an
+ * affectation: it is what pays for the decor's colour. A background cannot
+ * exceed a luminance that makes the text over it illegible, and the subtitle in
+ * `--muted` capped the decor at L = 0.038, hence a decor you had to guess at.
+ * Lightened, it raises the limit to 0.094, and the shapes can finally have the
+ * colour intended. The three values are chosen by calculation, not by eye.
+ *
+ * `--muted` is untouched: elsewhere on the page no text passes over the decor,
+ * and lightening it there would buy nothing.
+ */
+h1 em { font-style: normal; color: var(--rose-clair); }
+.sub { margin: 0; color: var(--clair); max-width: 30rem; font-size: .95rem; }
+.formats { font-family: var(--mono); font-size: .72rem; color: var(--clair-mono); margin: .2rem 0 0; }
 
 body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(255, 51, 133, .95); }
 
