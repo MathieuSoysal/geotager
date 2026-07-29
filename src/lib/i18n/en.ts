@@ -17,6 +17,7 @@ export const en: Dictionnaire = {
     titre: 'Change a photo’s location — Geotager',
     description:
       'Add, change or remove the GPS coordinates of a photo right in your browser. Nothing is uploaded, no account needed.',
+    imageAlt: 'Geotager — change the location of a photo, entirely in your browser.',
     nomLangue: 'English',
     sousCategorie: 'Image metadata editing',
     systeme: 'Any modern web browser',

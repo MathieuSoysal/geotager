@@ -43,6 +43,8 @@ export interface Dictionnaire {
   meta: {
     titre: string;
     description: string;
+    /** Texte de remplacement de l'image de partage. */
+    imageAlt: string;
     nomLangue: string;
     sousCategorie: string;
     systeme: string;

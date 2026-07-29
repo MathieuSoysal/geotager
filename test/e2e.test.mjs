@@ -30,6 +30,11 @@ const CSP = readFileSync('public/_headers', 'utf8')
   .trim();
 
 const MIME = {
+  // Sans ces deux-là, le serveur de test renvoie `application/octet-stream` :
+  // Chromium refuse alors le manifeste, et les contrôles « aucune erreur
+  // JavaScript » virent au rouge pour une raison étrangère à l'application.
+  '.webmanifest': 'application/manifest+json',
+  '.png': 'image/png',
   '.xml': 'application/xml; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -519,6 +524,54 @@ await page.locator('#coords').blur();
 check("elle cesse de l'être dès que la saisie redevient lisible",
   (await page.locator('#coords').getAttribute('aria-invalid')) === null
   && !(await page.locator('#coords-erreur').isVisible()));
+
+console.log("\nLe manifeste et ses icônes");
+for (const [base, langue, depart] of [['/', 'en', '/'], ['/fr/', 'fr', '/fr/']]) {
+  await page.goto(`http://127.0.0.1:${PORT}${base}`, { waitUntil: 'networkidle' });
+  const href = await page.locator('link[rel="manifest"]').getAttribute('href');
+  check(`${base} déclare son manifeste`, href === `${base}manifest.webmanifest`, String(href));
+
+  // Récupéré par la page elle-même : c'est le seul moyen de constater le type
+  // MIME et le corps que le navigateur reçoit réellement.
+  const m = await page.evaluate(async (u) => {
+    const r = await fetch(u);
+    return { ok: r.ok, type: r.headers.get('content-type'), corps: await r.text() };
+  }, href);
+  check(`${base} sert un manifeste lisible`, m.ok && /manifest\+json/.test(m.type ?? ''), m.type);
+
+  let json = null;
+  try { json = JSON.parse(m.corps); } catch { /* json reste nul */ }
+  check(`${base} sert du JSON valide`, json !== null);
+  if (!json) continue;
+
+  check(`${base} annonce la bonne langue et le bon départ`,
+    json.lang === langue && json.start_url === depart,
+    `${json.lang} / ${json.start_url}`);
+  // Deux URLs, un seul `id` : c'est ce qui fait UNE application installée et
+  // non deux, et c'est ce qui ne devra jamais changer.
+  check(`${base} partage l'identité d'installation`, json.id === '/', String(json.id));
+  check(`${base} reste dans sa portée`, json.scope === '/');
+  check(`${base} porte une icône masquable`,
+    (json.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable')));
+
+  // Une icône déclarée mais introuvable est la panne la plus discrète du lot :
+  // rien ne se voit avant l'écran d'accueil.
+  const manquantes = await page.evaluate(
+    (srcs) => Promise.all(srcs.map((s) => fetch(s).then((r) => (r.ok ? null : s)))),
+    (json.icons ?? []).map((i) => i.src),
+  );
+  check(`${base} : toutes les icônes déclarées répondent`,
+    manquantes.filter(Boolean).length === 0, String(manquantes.filter(Boolean)));
+}
+
+// `summary_large_image` était déclaré sans la moindre image.
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+const og = await page.locator('meta[property="og:image"]').getAttribute('content');
+check("une image de partage est déclarée", !!og && og.endsWith('/og.png'), String(og));
+check("elle a un texte de remplacement",
+  ((await page.locator('meta[property="og:image:alt"]').getAttribute('content')) ?? '').length > 10);
+check("elle existe vraiment",
+  await page.evaluate(() => fetch('/og.png').then((r) => r.ok)));
 
 console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
 check('le décor est hors de l\'arbre d\'accessibilité',
