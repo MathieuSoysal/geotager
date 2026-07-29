@@ -40,8 +40,18 @@
   --amber: #ffb020;
   --indigo: #8b87ff;
   --encre: #1a0a12;
-  /* Le texte qui passe au-dessus du décor. Voir le bloc du héros plus bas :
-     ces trois valeurs sont ce qui autorise la couleur des formes. */
+  /*
+   * Le texte qui passe au-dessus du décor. Voir le bloc du héros plus bas :
+   * ces trois valeurs sont ce qui autorise la couleur des formes.
+   *
+   * Et pas seulement le héros. Les dégradés de `body` sont en
+   * `background-attachment: fixed` : ils sont donc calés sur la FENÊTRE et non
+   * sur le document, si bien qu'au fil du défilement n'importe quel texte de la
+   * page finit par passer sous n'importe quelle partie du dégradé, coin
+   * supérieur gauche compris — le plus dense, à 0,42 de rose. `--muted` y
+   * tombe entre 3,3:1 et 4,0:1 selon l'endroit. La règle est donc : sur un
+   * panneau opaque, `--muted` ; sur le dégradé de la page, `--clair`.
+   */
   --clair: #ded9e2;
   --clair-mono: #ded9e2;
   --rose-clair: #ff93bd;
@@ -71,9 +81,29 @@ body {
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--sans);
-  font-size: 16px;
+  /*
+   * `1rem` et non `16px`. `:root` ne fixe aucune taille : tout le reste de la
+   * feuille est déjà en `rem` et suit donc la préférence de l'utilisateur. La
+   * valeur en pixels ne clouait qu'une chose — ce qui hérite de `body` sans
+   * taille propre, c'est-à-dire la prose de l'article, les listes et le tableau
+   * des capacités. Soit exactement le texte long, lu par exactement les gens qui
+   * ont pris la peine d'agrandir la police par défaut de leur navigateur.
+   */
+  font-size: 1rem;
   line-height: 1.55;
   overflow-x: hidden;
+  /*
+   * Rien n'est persisté, par choix : ni localStorage, ni IndexedDB, ni serveur.
+   * Un rechargement perd donc le fichier chargé, la lecture déjà faite, les
+   * coordonnées saisies et le point de la carte, sans reprise possible. Or
+   * l'outil tient dans le premier écran — `.app` fait `100svh` — donc le
+   * document est en permanence à zéro, et un glissement vers le bas déclenche
+   * le rechargement par traction de Chrome Android. Ce n'est pas un souci
+   * d'application installée : c'est une perte de données dans un onglet
+   * ordinaire, sur le téléphone qui est précisément l'appareil visé.
+   * `contain` coupe le chaînage vers la fenêtre sans supprimer le rebond local.
+   */
+  overscroll-behavior-y: contain;
 }
 
 .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.25rem; }
@@ -233,10 +263,12 @@ body.glisse .decor:not(.parti) { transform: scale(1.07); opacity: 1; }
 .brand svg { width: 2rem; height: 2rem; flex: none; }
 nav.main { display: flex; gap: .25rem; flex-wrap: wrap; }
 nav.main a {
-  font-size: .86rem; color: var(--muted); text-decoration: none;
+  font-size: .86rem; color: var(--clair); text-decoration: none;
   padding: .36rem .8rem; border-radius: 999px;
 }
-nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
+/* Le rose sur son propre voile mesurait 4,39:1. `--rose-clair` — le ton déjà
+   employé par le héros — vaut 7,35:1 au même endroit. */
+nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--rose-clair); }
 
 /* --- scène : hauteur verrouillée, les deux états s'y superposent --- */
 .app { min-height: 100svh; display: flex; flex-direction: column; }
@@ -248,7 +280,7 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
 .step {
   display: flex; align-items: center; gap: .45rem;
   padding: .34rem .85rem .34rem .42rem; border-radius: 999px;
-  font-size: .83rem; color: var(--muted); background: rgba(244, 241, 245, .05);
+  font-size: .83rem; color: var(--clair); background: rgba(244, 241, 245, .05);
 }
 .step .no {
   width: 1.25rem; height: 1.25rem; border-radius: 50%; display: grid; place-items: center;
@@ -276,12 +308,26 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
   transition: transform .34s cubic-bezier(.34, 1.56, .64, 1);
 }
 .bubble:hover, .bubble:focus-within { transform: scale(1.05); }
+/*
+ * Le champ de fichier est réduit à un pixel transparent : l'anneau générique se
+ * dessinait donc autour de rien, et le seul signe de focus était l'agrandisse-
+ * ment de 5 % ci-dessus — que `prefers-reduced-motion` supprime par-dessus le
+ * marché. L'anneau est porté par la bulle, en `--text` et non en `--pink` :
+ * la bulle EST rose, un anneau rose dessus ne se verrait pas.
+ */
+.bubble:has(input:focus-visible) { outline: 3px solid var(--text); outline-offset: 3px; }
 .bubble svg { width: 2.9rem; height: 2.9rem; }
 .bubble b { font-size: 1.2rem; font-weight: 600; line-height: 1.15; display: block; }
-.bubble small { font-size: .9rem; opacity: .75; display: block; margin-top: .15rem; }
+/* `.75` donnait 4,02:1 — l'encre sur le rose vaut 5,53:1 à plein, et chaque
+   point d'opacité rendu au rose rapproche les deux. `.85` mesure 4,65:1 et
+   garde la nuance voulue entre le geste et son rappel. */
+.bubble small { font-size: .9rem; opacity: .85; display: block; margin-top: .15rem; }
 .bubble input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-h1 {
+/* Le grand texte du héros. C'était le `h1` ; le `h1` est remonté dans `.stage`
+   pour survivre au passage à l'état actif, et ce qui reste ici est sa copie
+   visible, retirée de l'arbre d'accessibilité côté gabarit. */
+.hero-titre {
   font-weight: 800; font-size: clamp(1.5rem, 3.6vw, 2.25rem); line-height: 1.08;
   letter-spacing: -.035em; margin: .3rem 0 0; max-width: 20rem;
 }
@@ -297,7 +343,7 @@ h1 {
  * `--muted` n'est pas touché : ailleurs sur la page, aucun texte ne passe
  * au-dessus du décor, et l'y éclaircir n'achèterait rien.
  */
-h1 em { font-style: normal; color: var(--rose-clair); }
+.hero-titre em { font-style: normal; color: var(--rose-clair); }
 .sub { margin: 0; color: var(--clair); max-width: 30rem; font-size: .95rem; }
 .formats { font-family: var(--mono); font-size: .72rem; color: var(--clair-mono); margin: .2rem 0 0; }
 
@@ -335,6 +381,22 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
   flex: 1; min-width: 0; border: none; background: none; color: var(--text);
   font-family: var(--mono); font-size: .98rem; outline: none;
 }
+/*
+ * `.box input` neutralise le contour pour qu'aucun anneau ne soit tracé DANS la
+ * pilule. Restait qu'il n'était tracé nulle part : ce sélecteur pèse (0,1,1),
+ * la règle `:focus-visible` générique pèse (0,1,0), et le champ de coordonnées
+ * — le contrôle principal de l'outil, et la voie que la page annonce comme
+ * fonctionnant hors ligne — ne disait donc rien du tout au clavier. La bordure
+ * rose de `.box` n'est pas un signal : elle est là en permanence.
+ *
+ * L'indicateur passe à l'enveloppe, qui a la place. `:focus-within` et non
+ * `:focus-visible` : le seul descendant focalisable est le champ texte, et un
+ * champ texte satisfait `:focus-visible` au clavier comme à la souris — les
+ * deux sélecteurs sont ici équivalents, et le premier a le meilleur support.
+ * Le rembourrage horizontal de `.panel` (1,3rem) absorbe le décalage de 3px :
+ * rien n'est rogné, aucune barre de défilement n'apparaît.
+ */
+.box:focus-within { outline: 3px solid var(--pink); outline-offset: 3px; }
 .aide { font-size: .78rem; color: var(--muted); margin: .35rem 0 0; }
 .aide b { color: var(--teal); font-weight: 500; }
 
@@ -343,7 +405,8 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
   color: var(--encre); background: var(--pink);
 }
 .result .n { font-weight: 800; font-size: 1.3rem; line-height: 1.1; letter-spacing: -.03em; display: block; font-family: var(--mono); }
-.result .l { font-size: .83rem; opacity: .8; }
+/* Même calcul que `.bubble small` : `.8` valait 4,35:1, `.85` vaut 4,65:1. */
+.result .l { font-size: .83rem; opacity: .85; }
 
 .btn {
   font-family: var(--sans); font-size: .9rem; font-weight: 500; padding: .7rem 1.2rem;
@@ -414,7 +477,20 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   cursor: grab; touch-action: none; user-select: none;
 }
 .carte-vue.glisse { cursor: grabbing; }
-.carte-vue:focus-visible { outline: 2px solid var(--pink); outline-offset: -2px; }
+/*
+ * L'anneau était tracé EN DEDANS de la vue, c'est-à-dire directement sur les
+ * tuiles : un trait rose de 2px sur une image dont la couleur est quelconque,
+ * qui pouvait tomber sur une zone urbaine rose-beige et disparaître. Il est
+ * remonté sur le cadre, hors de la zone d'image, en double anneau — l'encre
+ * sombre garantit le contraste contre la page, le rose contre l'encre — de
+ * sorte qu'aucun des deux ne dépend de ce que montre la carte.
+ */
+.carte-vue:focus-visible { outline: none; }
+.carte-cadre:has(.carte-vue:focus-visible) {
+  outline: 3px solid var(--pink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px var(--encre);
+}
 
 .carte-tuiles { position: absolute; top: 0; left: 0; will-change: transform; }
 .carte-tuile {
@@ -457,7 +533,7 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   background: var(--panel); color: var(--text); border: 1px solid var(--bordure);
   font: inherit; font-size: 1.1rem; line-height: 1; display: grid; place-items: center;
 }
-.carte-zoom button:hover { background: var(--panel-haut); color: var(--pink); }
+.carte-zoom button:hover { background: var(--panel-haut); color: var(--rose-clair); }
 
 .carte-pied {
   display: flex; justify-content: space-between; gap: .8rem; flex-wrap: wrap;
@@ -469,7 +545,7 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 @media (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
 
 .scrollcue { display: flex; justify-content: center; padding: .2rem 0 1.1rem; }
-.scrollcue a { color: var(--muted); font-size: .82rem; text-decoration: none; }
+.scrollcue a { color: var(--clair); font-size: .82rem; text-decoration: none; }
 .scrollcue a:hover { color: var(--pink); }
 
 /* --- contenu sous la ligne de flottaison --- */
@@ -494,10 +570,10 @@ article.contenu pre code { background: none; padding: 0; }
 article.contenu a { color: var(--teal); }
 article.contenu table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 1rem 0; }
 article.contenu th, article.contenu td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
-article.contenu th { color: var(--muted); font-weight: 500; }
+article.contenu th { color: var(--clair); font-weight: 500; }
 
-footer { padding: 3rem 0; font-size: .82rem; color: var(--muted); border-top: 1px solid var(--bordure); margin-top: 3rem; }
-footer a { color: var(--muted); }
+footer { padding: 3rem 0; font-size: .82rem; color: var(--clair); border-top: 1px solid var(--bordure); margin-top: 3rem; }
+footer a { color: var(--clair); }
 /* Le retrait négatif compense le rembourrage horizontal des pastilles, pour
    que le premier lien s'aligne sur le texte du dessous plutôt que de flotter. */
 footer nav.main { margin: 0 0 1.2rem -.8rem; }

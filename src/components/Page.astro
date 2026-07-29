@@ -66,7 +66,12 @@ const jsonLd = {
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </head>
   <body>
-    <a class="saut" href="#contenu">{T.nav.aller}</a>
+    <!-- Le lien d'évitement pointe sur l'OUTIL, pas sur l'article. Il visait
+         `#contenu`, c'est-à-dire la prose sous la ligne de flottaison : celui
+         qui le suivait était donc transporté au-delà du sélecteur de fichier,
+         du champ de coordonnées et du bouton de téléchargement — soit tout ce
+         pour quoi il est venu. L'étiquette n'a pas changé ; elle devient vraie. -->
+    <a class="saut" href="#outil">{T.nav.aller}</a>
 
     <!-- Décor. Purement ornemental : hors flux, hors focus, hors arbre
          d'accessibilité. La première image est gravée ici, au build, par le
@@ -108,7 +113,9 @@ const jsonLd = {
 
     <div class="app">
       <div class="wrap">
-        <div class="bar">
+        <!-- `header` et non `div` : la marque devient le repère « bannière ».
+             Ses seuls ancêtres sont des `div`, donc le rôle tient. -->
+        <header class="bar">
           <a class="brand" href={T.base}>
             <svg viewBox="0 0 40 40" aria-hidden="true">
               <path
@@ -118,9 +125,30 @@ const jsonLd = {
             </svg>
             Geotager
           </a>
-        </div>
+        </header>
 
-        <div class="stage">
+        <!-- `main` : l'outil est le contenu principal, et il n'avait jusqu'ici
+             AUCUN repère. Une personne qui navigue au lecteur d'écran par la
+             liste des repères ne trouvait qu'une navigation et un pied de page,
+             et jamais l'outil lui-même. `tabindex="-1"` pour que le lien
+             d'évitement y dépose vraiment le focus.
+
+             Le repère s'arrête à `.stage`, et pas plus haut : englober aussi
+             `#contenu` avalerait le `footer`, qui est aujourd'hui un
+             « contentinfo » correct parce que ses seuls ancêtres sont des `div`.
+             Un pied de page dans `main` cesse d'être un repère. -->
+        <main class="stage" id="outil" tabindex="-1">
+          <!-- Le titre de la page vit ICI, et non dans l'état vide. Il y était,
+               et il disparaissait donc de l'arbre d'accessibilité à la seconde
+               où une photo arrivait : l'outil en marche n'avait plus de titre du
+               tout, et la hiérarchie des titres commençait à `h2`.
+
+               Il est masqué visuellement, et le grand texte du héros plus bas en
+               est la copie décorative, retirée de l'arbre par `aria-hidden` pour
+               qu'un lecteur d'écran n'entende pas la phrase deux fois. Le
+               contrôle de build en exige exactement un : c'est celui-ci. -->
+          <h1 class="visually-hidden">{T.hero.titre} {T.hero.titreEm}</h1>
+
           <!-- Les étapes sont rendues dès l'état vide : leur hauteur est ainsi
                réservée, et l'arrivée d'une photo ne décale rien. -->
           <ol class="steps" id="etapes" aria-label={T.etapes.titre}>
@@ -146,13 +174,18 @@ const jsonLd = {
                    mot. La phrase existe pour ça. -->
               <input id="picker" type="file" accept="image/*,video/*,.heic,.heif,.avif,.tif,.tiff" multiple />
             </label>
-            <h1>{T.hero.titre} <em>{T.hero.titreEm}</em></h1>
+            <p class="hero-titre" aria-hidden="true">{T.hero.titre} <em>{T.hero.titreEm}</em></p>
             <p class="sub">{T.hero.sous}</p>
             <p class="formats">{T.hero.formats}</p>
           </div>
 
           <!-- ÉTAT ACTIF — occupe exactement la même zone. -->
           <div class="island" id="etat-actif" hidden>
+            <!-- L'état actif n'avait aucun titre, et rien ne recevait le focus
+                 quand il remplaçait l'état vide : le focus retombait sur
+                 `body`, et il fallait retraverser la page à la tabulation pour
+                 revenir à l'endroit où l'on était. Ce titre est la cible. -->
+            <h2 class="visually-hidden" id="titre-actif" tabindex="-1">{T.app.titreActif}</h2>
             <div class="island-hd">
               <div class="filename">
                 <span class="nm" id="nom-fichier"></span>
@@ -247,8 +280,10 @@ const jsonLd = {
               </details>
             </div>
           </div>
-        </div>
+        </main>
 
+        <!-- Celui-ci vise bien l'article : c'est une invitation à lire la
+             suite, pas un évitement. -->
         <div class="scrollcue">
           <a href="#contenu">{T.hero.defiler}</a>
         </div>

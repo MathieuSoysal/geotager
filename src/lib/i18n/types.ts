@@ -64,6 +64,8 @@ export interface Dictionnaire {
   };
 
   app: {
+    /** Titre masqué de l'état actif : cible du focus après le chargement. */
+    titreActif: string;
     changer: string;
     ouPrise: string;
     aideCoords: string;

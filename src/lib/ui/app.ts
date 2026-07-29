@@ -47,6 +47,7 @@ const el = {
   lot: $('lot'),
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
+  titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
 
@@ -118,7 +119,13 @@ function marquerEtape(n: 1 | 2 | 3): void {
   }
 }
 
-function versEtatVide(): void {
+/*
+ * `deplacerFocus` : au chargement du module cette fonction pose seulement l'état
+ * initial, et déplacer le focus volerait le curseur à quelqu'un qui n'a rien
+ * demandé. Seul le bouton « Changer de photo » le réclame — c'est lui qui vient
+ * de faire disparaître sous le focus l'élément qui le portait.
+ */
+function versEtatVide(deplacerFocus = false): void {
   items.length = 0;
   principal = null;
   cible = null;
@@ -132,6 +139,7 @@ function versEtatVide(): void {
   el.picker.value = '';
   marquerEtape(1);
   annoncer(T.app.aucuneChargee);
+  if (deplacerFocus) el.picker.focus();
 }
 
 function octets(n: number): string {
@@ -208,9 +216,19 @@ function afficherPrincipal(): void {
   el.lot.hidden = !lot;
   if (lot) majListeLot();
 
-  annoncer(
-    r.position ? T.app.photoLue(formatDecimal(r.position)) : T.app.photoLueSansPosition,
-  );
+  /*
+   * La phrase de capacité est ANNONCÉE, et pas seulement affichée. C'est le
+   * texte le plus important de l'outil — « on ne sait pas encore travailler les
+   * vidéos », « on sait lire ce lieu mais pas encore le changer » — et il ne
+   * passait que par l'écran. Un lecteur d'écran à qui l'on donnait une vidéo
+   * entendait « Photo lue. Aucun lieu enregistré dans ce fichier », ce qui est
+   * faux dans l'esprit sinon dans la lettre, pendant que la vraie raison restait
+   * muette juste à côté. `phrase` est déjà en portée, plus haut.
+   */
+  const etat = r.position
+    ? T.app.photoLue(formatDecimal(r.position))
+    : T.app.photoLueSansPosition;
+  annoncer(phrase ? `${etat} ${phrase}` : etat);
 }
 
 function majListeLot(statuts: Map<string, string> = new Map()): void {
@@ -341,6 +359,10 @@ async function charger(fichiers: File[]): Promise<void> {
   el.vide.hidden = true;
   el.actif.hidden = false;
   el.nom.textContent = utiles[0].name;
+  // Le focus était sur le sélecteur de fichier, à l'intérieur de l'état qu'on
+  // vient de cacher : sans cette ligne il retombe sur `body`, et la tabulation
+  // repart du haut du document au milieu du geste.
+  el.titreActif.focus();
   annoncer(T.app.lecturePlurielle(utiles.length));
 
   for (const it of items) {
@@ -399,8 +421,17 @@ async function appliquer(
   const produits: Array<{ name: string; input: Uint8Array }> = [];
   let echecs = 0;
 
+  /*
+   * La région d'annonce est « polie » : elle met en file. Annoncer chaque
+   * fichier d'un lot de trois cents, c'est trois cents phrases à écouter avant
+   * d'entendre le résultat. On jalonne : le premier, le dernier, et dix points
+   * entre les deux.
+   */
+  const pas = Math.max(1, Math.ceil(concernes.length / 10));
   for (const [i, it] of concernes.entries()) {
-    annoncer(T.app.traitement(i + 1, concernes.length));
+    if (i === 0 || i === concernes.length - 1 || (i + 1) % pas === 0) {
+      annoncer(T.app.traitement(i + 1, concernes.length));
+    }
     if (concernes.length > 1) majListeLot(statuts);
     const buffer = await it.file.arrayBuffer();
     const rep = await demander(
@@ -464,7 +495,7 @@ el.picker.addEventListener('change', () => {
   if (el.picker.files?.length) void charger(Array.from(el.picker.files));
 });
 
-el.changer.addEventListener('click', versEtatVide);
+el.changer.addEventListener('click', () => versEtatVide(true));
 
 el.coords.addEventListener('input', () => {
   cible = parseCoordinates(el.coords.value);
