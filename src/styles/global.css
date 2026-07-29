@@ -224,6 +224,9 @@ body {
    positioned one: without this rule `#contenu`, which is a sibling of `.app`
    rather than a descendant, would pass under the decor. */
 .app, #contenu { position: relative; z-index: 1; }
+/* `#contenu` was already `position: relative`, and so already the containing
+   block for its absolute descendants: containment moves none of them. */
+#contenu { container: prose / inline-size; }
 
 /* The gesture is acknowledged by the compositor alone, like the bubble below.
    `.parti` is excluded: outside the hero, the decoration must not light back up
@@ -243,12 +246,16 @@ body.glisse .decor:not(.parti) { transform: scale(1.07); opacity: 1; }
   border-radius: 0.6rem;
 }
 
+/* `inset-inline-start` rather than `left`: in right-to-left writing, a skip
+   link hidden to the left would reappear on the wrong side, in the middle of
+   the content. It is the only place in this sheet where direction genuinely
+   changes behaviour. */
 .saut {
-  position: absolute; left: -9999px; top: 0;
+  position: absolute; inset-inline-start: -9999px; top: 0;
   background: var(--pink); color: var(--encre); padding: .6rem 1rem; z-index: 20;
   border-radius: 0 0 .8rem 0; font-weight: 600;
 }
-.saut:focus { left: 0; }
+.saut:focus { inset-inline-start: 0; }
 
 /* Bar */
 .bar {
@@ -376,6 +383,10 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
 .panel {
   padding: 1.1rem 1.3rem 1.3rem; display: flex; flex-direction: column; gap: .9rem;
   overflow-y: auto; width: 100%; max-width: 40rem; margin: 0 auto;
+  /* A named container: the map sizes itself against this panel, not the window.
+     `inline-size` implies `contain: layout`, and so a containing block for
+     positioned descendants; `.panel` has none that escape it. */
+  container: panneau / inline-size;
 }
 .panel label.champ { display: block; font-size: .88rem; font-weight: 500; margin-bottom: .4rem; }
 .box {
@@ -515,6 +526,18 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   box-shadow: 0 0 0 6px var(--encre);
 }
 
+/*
+ * What follows must not move to logical properties.
+ *
+ * These `left`/`top` values do not describe a layout: they set the origin of a
+ * Mercator pixel plane, which the script then moves by `transform`.
+ * `inset-inline-start` would flip them in right-to-left writing, and the whole
+ * map, tiles, marker and origin, would land beside the place it claims to show.
+ * Text direction has no opinion about longitude.
+ *
+ * Same family of trap as the warning about `rotate` below: what is geometric
+ * does not follow what is typographic.
+ */
 .carte-tuiles { position: absolute; top: 0; left: 0; will-change: transform; }
 .carte-tuile {
   position: absolute; top: 0; left: 0; width: 256px; height: 256px;
@@ -550,7 +573,7 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   background: var(--muted); border: 2px solid var(--encre); opacity: .85;
 }
 
-.carte-zoom { position: absolute; top: .55rem; right: .55rem; display: flex; flex-direction: column; gap: .3rem; }
+.carte-zoom { position: absolute; top: .55rem; inset-inline-end: .55rem; display: flex; flex-direction: column; gap: .3rem; }
 /* 2rem was 32 px across, below the 44 px floor for touch targets: with a finger
    you missed the button one time in three. */
 .carte-zoom button {
@@ -573,7 +596,15 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   display: none;
 }
 
-@media (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
+/*
+ * A container query rather than a viewport one. `.panel` is capped at 40rem: on
+ * a large screen it stops following the window, and a viewport query then
+ * describes something this component does not experience. The gain is in
+ * correctness more than appearance, since the two widths coincide in ordinary
+ * cases, but the rule now says what it means: "when the panel is narrow", not
+ * "when the screen is".
+ */
+@container panneau (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
 
 .scrollcue { display: flex; justify-content: center; padding: .2rem 0 1.1rem; }
 .scrollcue a { color: var(--clair); font-size: .82rem; text-decoration: none; }
@@ -581,7 +612,7 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 
 /* Content below the fold */
 .pitch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; padding: 2.6rem 0 0; }
-@media (max-width: 52rem) { .pitch { grid-template-columns: 1fr; } }
+@container prose (max-width: 52rem) { .pitch { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--bordure); border-radius: 2rem 1.4rem 1.8rem 1.2rem; padding: 1.4rem; }
 .card h2 { font-weight: 800; font-size: 1.28rem; letter-spacing: -.025em; margin: 0 0 .35rem; }
 .card p { margin: 0; color: var(--muted); font-size: .91rem; }
@@ -609,7 +640,7 @@ article.contenu a { color: var(--teal); }
 .tableau-defilant { overflow-x: auto; margin: 1rem 0; }
 .tableau-defilant:focus-visible { outline: 3px solid var(--pink); outline-offset: 3px; }
 article.contenu table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 0; }
-article.contenu th, article.contenu td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
+article.contenu th, article.contenu td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
 article.contenu th { color: var(--clair); font-weight: 500; }
 
 footer { padding: 3rem 0; font-size: .82rem; color: var(--clair); border-top: 1px solid var(--bordure); margin-top: 3rem; }
