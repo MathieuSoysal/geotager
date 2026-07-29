@@ -73,13 +73,41 @@ same capability matrix; only the words differ, and they live in `src/lib/i18n/`.
 returns a sentence — it returns a key — so a missing translation is a compile error, not a French
 sentence on an English page.
 
+## Installing it, and using it offline
+
+Geotager is installable, and it works with no network at all — which is the point: the tool already
+ran entirely on your device, and the only reason it used to stop working offline is that nothing
+kept a copy of it.
+
+A hand-written service worker (`scripts/sw-modele.js`, ~120 lines, no Workbox) precaches both pages,
+the stylesheet, the interface and the reading worker. Three rules govern it:
+
+- **Nothing that is not same-origin.** The first line of the `fetch` handler hands back control for
+  anything else. A cached map tile would write a durable on-disk record of the places you looked at,
+  which is exactly what this site promises not to do.
+- **No unconditional `skipWaiting()`.** Nothing is persisted here, so a forced reload would destroy
+  photos you have loaded and not yet downloaded. A new version waits behind a banner until you say so.
+- **No offline fallback page.** Both real pages are precached, so there is no navigation left for a
+  fallback to catch.
+
+The precache list is derived from what the build actually produced — never written by hand — and
+`scripts/gen-sw.mjs` refuses to emit a worker whose list is missing the reading worker or the
+stylesheet.
+
 ## Development
 
 ```bash
 npm install
 npm run dev        # local server
-npm run build      # builds dist/ then runs the blocking checks
+npm run build      # builds dist/, generates sw.js, then runs the blocking checks
+npm run icons      # regenerates public/icons/ and og.png (committed; needs Playwright)
 ```
+
+`npm run verifier:en-ligne` fetches the live site and fails if the host has injected anything into
+it — a Cloudflare analytics beacon, `/cdn-cgi/` endpoints, Rocket Loader, Zaraz, a cookie — or if any
+served header differs from `public/_headers`. Every other check in this repository looks at `dist/`
+and therefore cannot see what is added on the way out. It is deliberately outside `npm run build`
+(Cloudflare's build has nothing to fetch) and outside `npm run test:all` (CI must reach no network).
 
 ### Tests
 
