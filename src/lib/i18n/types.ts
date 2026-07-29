@@ -43,6 +43,8 @@ export interface Dictionnaire {
   meta: {
     titre: string;
     description: string;
+    /** Texte de remplacement de l'image de partage. */
+    imageAlt: string;
     nomLangue: string;
     sousCategorie: string;
     systeme: string;
@@ -60,18 +62,26 @@ export interface Dictionnaire {
     titreEm: string;
     sous: string;
     formats: string;
+    /** Ce que voit quelqu'un dont le navigateur n'exécute pas de script. */
+    sansJs: string;
     defiler: string;
   };
 
   app: {
+    /** Titre masqué de l'état actif : cible du focus après le chargement. */
+    titreActif: string;
     changer: string;
     ouPrise: string;
     aideCoords: string;
     aideCoordsFort: string;
+    /** Saisie que l'analyseur refuse : texte d'erreur, annoncé et affiché. */
+    coordsInvalides: string;
     /** La carte de choix du lieu — repliée tant qu'on ne la demande pas. */
     ouvrirCarte: string;
     fermerCarte: string;
     avisCarte: string;
+    /** L'import du code de la carte a échoué — hors ligne, typiquement. */
+    carteIndisponible: string;
     carteLabel: string;
     carteAide: string;
     zoomAvant: string;
@@ -111,6 +121,13 @@ export interface Dictionnaire {
     nouvellePosition: string;
     pretsVerifies: (n: number) => string;
     pretsAvecEchecs: (n: number, e: number) => string;
+    /** Bandeau de mise à jour — jamais automatique, voir `sw-modele.js`. */
+    /** Le partage est arrivé mais les octets n'ont pas survécu au trajet. */
+    partagePerdu: string;
+    majDispo: string;
+    majTravaux: string;
+    majRecharger: string;
+    majPlusTard: string;
     zip: string;
     /** Suffixes ajoutés au nom du fichier rendu. */
     suffixeLieu: string;
@@ -128,6 +145,8 @@ export interface Dictionnaire {
   erreurs: Record<CodeErreur, string>;
 
   matrice: {
+    /** Légende du tableau, lue avant lui par les technologies d'assistance. */
+    legende: string;
     format: string;
     colonnes: [string, string, string, string];
     oui: string;

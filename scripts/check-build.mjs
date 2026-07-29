@@ -131,8 +131,12 @@ const RESSOURCES = [
   /\bfetch\(\s*["'`](https?:\/\/[^"'`]+)/gi,
 ];
 
+// `.webmanifest` en fait partie : c'est le seul fichier du site où une icône
+// hébergée ailleurs — ou une cible de partage, ou une capture — passerait sans
+// que rien ne la voie. Le laisser hors du balayage aurait ouvert un trou dans
+// le garde-fou principal du projet au moment même où on ajoutait le fichier.
 const textes = fichiers.filter((f) =>
-  ['.html', '.css', '.js', '.mjs', '.json', '.xml'].includes(extname(f)),
+  ['.html', '.css', '.js', '.mjs', '.json', '.xml', '.webmanifest'].includes(extname(f)),
 );
 for (const f of textes) {
   const contenu = readFileSync(f, 'utf8');
@@ -370,8 +374,11 @@ for (const [fichierReadme, page] of [
     );
   } else {
     lu.forEach((ligne, i) => {
+      // Le libellé de ligne est un `<th scope="row">` et non un `<td>` : la
+      // liste des `<td>` ne contient donc plus QUE les capacités, et la couper
+      // d'un cran perdrait la première colonne au lieu du nom du format.
       const dites = ligne.slice(1).join('|');
-      const vraies = servi[i].slice(1).join('|');
+      const vraies = servi[i].join('|');
       if (dites !== vraies) {
         echecs.push(
           `${fichierReadme} : « ${ligne[0]} » annonce ${dites.replace(/\|/g, '/')}, ` +
@@ -379,6 +386,120 @@ for (const [fichierReadme, page] of [
         );
       }
     });
+  }
+}
+
+/* --- 8. le manifeste et ses icônes ---------------------------------- */
+
+/*
+ * Une icône introuvable est la panne la plus silencieuse de tout le lot : le
+ * site continue de s'afficher, l'installation continue d'être proposée, et
+ * c'est seulement sur l'écran d'accueil qu'on découvre un carré vide. Sous
+ * Chrome Android, un manifeste en 404 suspend en outre la vérification des
+ * mises à jour pendant trente jours.
+ *
+ * On contrôle donc la chaîne entière, depuis la page : le lien existe, la cible
+ * existe, elle est du JSON, et chacune de ses adresses désigne un fichier
+ * réellement présent dans `dist/`.
+ */
+{
+  const pages = fichiers.filter((x) => extname(x) === '.html');
+  for (const f of pages) {
+    const html = readFileSync(f, 'utf8');
+    const lien = html.match(/<link[^>]+rel=["']manifest["'][^>]*href=["']([^"']+)["']/i)?.[1];
+    if (!lien) {
+      echecs.push(`${rel(f)} : aucun <link rel="manifest">`);
+      continue;
+    }
+    if (/^https?:/i.test(lien)) {
+      echecs.push(`${rel(f)} : le manifeste est hébergé ailleurs — ${lien}`);
+      continue;
+    }
+    const cible = join(DIR, lien.replace(/^\//, ''));
+    if (!existsSync(cible)) {
+      echecs.push(`${rel(f)} : le manifeste ${lien} n'existe pas dans ${DIR}/`);
+      continue;
+    }
+
+    let m;
+    try {
+      m = JSON.parse(readFileSync(cible, 'utf8'));
+    } catch (e) {
+      echecs.push(`${rel(cible)} n'est pas du JSON valide : ${e.message}`);
+      continue;
+    }
+
+    // `id` est l'identité d'une installation. Deux manifestes qui ne le
+    // partagent pas sont deux applications, et le changer un jour orphelinerait
+    // toutes les installations existantes.
+    if (m.id !== '/') echecs.push(`${rel(cible)} : « id » vaut « ${m.id} », il doit valoir « / »`);
+    if (m.scope !== '/') echecs.push(`${rel(cible)} : « scope » doit valoir « / »`);
+
+    /*
+     * `share_target.action` et `file_handlers[].action` sont des adresses vers
+     * lesquelles le SYSTÈME enverra des fichiers de l'utilisateur. Une seule
+     * d'entre elles pointant ailleurs qu'ici, et le système de partage
+     * livrerait des photos à un tiers — sur la foi d'un manifeste que
+     * personne ne relit. C'est l'endroit du site où une adresse étrangère
+     * coûterait le plus cher, donc c'est l'endroit où on la cherche.
+     */
+    const adresses = [
+      ['start_url', m.start_url],
+      ['scope', m.scope],
+      ...(m.share_target ? [['share_target.action', m.share_target.action]] : []),
+      ...(m.file_handlers ?? []).map((h, n) => [`file_handlers[${n}].action`, h.action]),
+      ...(m.icons ?? []).map((i, n) => [`icons[${n}].src`, i.src]),
+      ...(m.screenshots ?? []).map((i, n) => [`screenshots[${n}].src`, i.src]),
+    ];
+    for (const [nom, adresse] of adresses) {
+      if (typeof adresse !== 'string') {
+        echecs.push(`${rel(cible)} : « ${nom} » est absent`);
+      } else if (/^https?:/i.test(adresse)) {
+        echecs.push(`${rel(cible)} : « ${nom} » sort de l'origine — ${adresse}`);
+      }
+    }
+    for (const [nom, src] of adresses.filter(([n]) => n.startsWith('icons') || n.startsWith('screenshots'))) {
+      if (typeof src !== 'string' || /^https?:/i.test(src)) continue;
+      if (!existsSync(join(DIR, src.replace(/^\//, '')))) {
+        echecs.push(`${rel(cible)} : « ${nom} » désigne ${src}, absent de ${DIR}/`);
+      }
+    }
+
+    // Une icône masquable est rognée jusqu'à 20 % de chaque côté. Sans elle, le
+    // système en fabrique une en collant l'icône ordinaire au centre d'un
+    // carré blanc — ce qui est toujours laid et souvent illisible.
+    if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
+      echecs.push(`${rel(cible)} : aucune icône « maskable »`);
+    }
+
+    /*
+     * La cible de partage n'existe QUE dans le service worker : aucun fichier
+     * ne lui correspond dans `dist/`. Si le worker cessait de la reconnaître,
+     * le partage tomberait en 404 sans que rien ne prévienne — le manifeste,
+     * lui, continuerait de la promettre au système.
+     */
+    if (m.share_target) {
+      const sw = join(DIR, 'sw.js');
+      const chemin = String(m.share_target.action ?? '');
+      if (!existsSync(sw)) {
+        echecs.push(`${rel(cible)} annonce un partage, mais ${rel(sw)} n'existe pas`);
+      } else if (!new RegExp(String.raw`\$\{?\w*\}?|partager`).test(readFileSync(sw, 'utf8'))) {
+        echecs.push(`${rel(sw)} ne reconnaît pas la cible de partage « ${chemin} »`);
+      }
+      if (m.share_target.method !== 'POST' || m.share_target.enctype !== 'multipart/form-data') {
+        echecs.push(`${rel(cible)} : un partage de FICHIERS exige POST + multipart/form-data`);
+      }
+    }
+  }
+
+  // Le lien `apple-touch-icon` ne passe par aucun manifeste : iOS ne lit que lui.
+  for (const f of pages) {
+    const html = readFileSync(f, 'utf8');
+    const apple = html.match(/<link[^>]+rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i)?.[1];
+    if (!apple) echecs.push(`${rel(f)} : aucun <link rel="apple-touch-icon">`);
+    else if (!existsSync(join(DIR, apple.replace(/^\//, '')))) {
+      echecs.push(`${rel(f)} : apple-touch-icon ${apple} est absent de ${DIR}/`);
+    }
   }
 }
 

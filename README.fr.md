@@ -71,13 +71,62 @@ Le plan complet, les décisions et les points non tranchés sont dans
   en subsiste la moindre trace, ou si le paquet est compressé et donc illisible pour ce moteur,
   l'effacement échoue plutôt que de rendre un fichier qu'on croirait propre.
 
+## L'installer, et s'en servir hors ligne
+
+Geotager s'installe, et fonctionne sans le moindre réseau — ce qui est bien le sujet&nbsp;: l'outil
+tournait déjà entièrement sur votre appareil, et la seule raison pour laquelle il cessait de marcher
+hors ligne, c'est que personne n'en gardait de copie.
+
+Un service worker écrit à la main (`scripts/sw-modele.js`, ~120 lignes, sans Workbox) précharge les
+deux pages, la feuille de style, l'interface et le worker de lecture. Trois règles le gouvernent&nbsp;:
+
+- **Rien qui ne soit de l'origine.** La première ligne du gestionnaire `fetch` rend la main pour tout
+  le reste. Une tuile de carte mise en cache écrirait sur le disque la trace durable des lieux
+  consultés — exactement ce que ce site promet de ne pas faire.
+- **Aucun `skipWaiting()` inconditionnel.** Rien n'est persisté ici&nbsp;: un rechargement imposé
+  détruirait les photos chargées et non téléchargées. Une nouvelle version attend derrière un bandeau.
+- **Pas de page «&nbsp;hors ligne&nbsp;».** Les deux vraies pages sont préchargées&nbsp;; il ne reste
+  aucune navigation qu'un secours pourrait rattraper.
+
+La liste de préchargement est dérivée de ce que la build a réellement produit — jamais écrite à la
+main — et `scripts/gen-sw.mjs` refuse de produire un worker dont la liste omettrait le worker de
+lecture ou la feuille de style.
+
+### Lui envoyer une photo depuis le système
+
+Une fois installé, Geotager apparaît dans le menu de partage du système et comme application
+d'«&nbsp;Ouvrir avec&nbsp;» pour les images.
+
+«&nbsp;Ouvrir avec&nbsp;» est le cas simple&nbsp;: le système remet une poignée de fichier, il n'y a
+donc rien à transporter et rien à garder.
+
+Le partage, non. L'API de cible de partage livre les fichiers en `POST`, et aucun serveur n'est là
+pour le recevoir — c'est le service worker qui l'intercepte. Toutes les autres applications qui font
+ceci déposent le fichier dans le stockage de cache, redirigent, puis le relisent et l'effacent. Cela
+marche à tous les coups, et cela écrit aussi la photo de quelqu'un sur son disque, ce que ce site
+affirme partout ne pas faire. Les octets restent donc dans une variable du worker, et la page vient
+les réclamer par un canal de message. Le prix est honnête&nbsp;: si le navigateur arrête le worker
+avant — mémoire basse, arbitrage du système — la photo n'arrive pas et la page le dit. On perd un
+geste, jamais un fichier&nbsp;; l'original n'a pas bougé de la galerie.
+
+Le partage vaut pour Android et Chrome/Edge sur ordinateur&nbsp;; iOS ne l'implémente pas.
+L'ouverture de fichiers vaut pour Chrome/Edge sur ordinateur.
+
 ## Développement
 
 ```bash
 npm install
 npm run dev        # serveur local
-npm run build      # construit dist/ puis exécute les contrôles bloquants
+npm run build      # construit dist/, génère sw.js, puis exécute les contrôles bloquants
+npm run icons      # régénère public/icons/ et og.png (committés ; nécessite Playwright)
 ```
+
+`npm run verifier:en-ligne` va chercher le site en ligne et échoue si l'hébergeur y a injecté quoi
+que ce soit — un beacon de mesure d'audience, un point de terminaison `/cdn-cgi/`, Rocket Loader,
+Zaraz, un cookie — ou si un en-tête servi diffère de `public/_headers`. Tous les autres contrôles du
+dépôt regardent `dist/` et ne peuvent donc pas voir ce qui est ajouté en chemin. Il est
+délibérément hors de `npm run build` (la build de Cloudflare n'a rien à interroger) et hors de
+`npm run test:all` (l'intégration continue ne doit atteindre aucun réseau).
 
 ### Tests
 

@@ -23,9 +23,19 @@ import { en } from '../lib/i18n/index.ts';
     site is a set of static files.
   </p>
   <p>
+    Those files still have to be served by someone, and the honest version of “no server” says so.
+    They are hosted on Cloudflare, which terminates the HTTPS connection and therefore sees your IP
+    address, the page you asked for, and the time you asked for it — the same thing every website
+    you visit sees, and the least a host can know while still being able to answer you. Those
+    request logs are kept briefly for operational purposes. What Cloudflare does not see, and
+    cannot see, is your photo: it never becomes a request. No analytics product is enabled on this
+    site, no cookie is set, and nothing is added to these pages between the build and your browser
+    — there is a check in the repository that fetches the live site and fails if anything has been.
+  </p>
+  <p>
     One thing on this page does reach outside, and only if you ask it to. Behind “Place it on a
-    map” there is a map, and its pictures come from openstreetmap.org, who therefore learn roughly
-    which area you are looking at. They learn nothing about your photo — not its name, not its
+    map” there is a map, and its pictures come from openstreetmap.org, who therefore learn your IP
+    address and roughly which area you are looking at. They learn nothing about your photo — not its name, not its
     size, not the position stored in it. The map stays folded away until you click it, so if you
     never open it, nothing is ever requested. You can confirm all of this three ways:
   </p>

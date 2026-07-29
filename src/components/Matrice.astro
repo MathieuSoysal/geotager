@@ -24,15 +24,25 @@ const lignes = MATRICE.map((l) => ({
 }));
 ---
 
+<div class="tableau-defilant" role="region" aria-label={T.matrice.legende} tabindex="0">
 <table>
+  <!-- Une légende, et des cellules d'en-tête sur les DEUX axes. Sans elles un
+       lecteur d'écran annonce « oui, pas encore, oui, oui » sans jamais dire de
+       quel format ni de quelle opération il parle : le tableau est précisément
+       le genre de contenu qui ne veut plus rien dire dès qu'on ne le voit pas
+       d'un coup d'œil. -->
+  <caption>{T.matrice.legende}</caption>
   <thead>
-    <tr><th>{T.matrice.format}</th>{T.matrice.colonnes.map((c) => <th>{c}</th>)}</tr>
+    <tr>
+      <th scope="col">{T.matrice.format}</th>
+      {T.matrice.colonnes.map((c) => <th scope="col">{c}</th>)}
+    </tr>
   </thead>
   <tbody>
     {
       lignes.map((ligne) => (
         <tr>
-          <td>
+          <th scope="row">
             {ligne.libelle}
             {ligne.mention && (
               <>
@@ -40,10 +50,11 @@ const lignes = MATRICE.map((l) => ({
                 <span class="pill">{ligne.mention}</span>
               </>
             )}
-          </td>
+          </th>
           {ligne.cases.map((v) => <td>{v ? T.matrice.oui : T.matrice.pasEncore}</td>)}
         </tr>
       ))
     }
   </tbody>
 </table>
+</div>

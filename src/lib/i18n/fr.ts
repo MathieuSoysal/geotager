@@ -11,6 +11,7 @@ export const fr: Dictionnaire = {
     titre: "Modifier la géolocalisation d'une photo — Geotager",
     description:
       "Ajoutez, modifiez ou supprimez les coordonnées GPS d'une photo directement dans votre navigateur. Aucun envoi de fichier, aucune inscription.",
+    imageAlt: 'Geotager — changez le lieu d\'une photo, entièrement dans votre navigateur.',
     nomLangue: 'Français',
     sousCategorie: "Édition de métadonnées d'image",
     systeme: 'Tout navigateur web moderne',
@@ -44,19 +45,23 @@ export const fr: Dictionnaire = {
     titreEm: "d'une photo",
     sous: "Rien n'est envoyé nulle part : tout se passe dans votre navigateur.",
     formats: 'JPEG · HEIC · PNG · WebP · TIFF',
+    sansJs: 'Geotager a besoin de JavaScript pour lire et modifier une photo. Tout continue de se passer sur votre appareil : rien n\'est envoyé nulle part.',
     defiler: "Comment ça marche, et pourquoi c'est privé ↓",
   },
 
   app: {
+    titreActif: 'Photo chargée',
     changer: 'Changer de photo',
     ouPrise: 'Où cette photo a-t-elle été prise ?',
     aideCoords:
       'Collez des coordonnées depuis une carte : dans Google Maps, clic droit sur le lieu puis clic sur les chiffres pour les copier. Le format décimal et le format degrés-minutes-secondes sont acceptés. ',
     aideCoordsFort: 'Votre photo reste ici.',
+    coordsInvalides: 'Coordonnées non valides — indiquez une latitude et une longitude, par exemple 43,9493, 4,8055.',
     ouvrirCarte: 'Placer sur une carte',
     fermerCarte: 'Fermer la carte',
     avisCarte:
       "La carte est dessinée par openstreetmap.org : l'ouvrir leur indique approximativement la zone que vous regardez. Votre photo, elle, ne quitte toujours pas ce navigateur.",
+    carteIndisponible: 'La carte n\'a pas pu être chargée — vous êtes peut-être hors ligne. Vous pouvez toujours saisir ou coller des coordonnées ci-dessus.',
     carteLabel: 'Carte. Cliquez un lieu pour y placer le repère.',
     carteAide:
       'Cliquez sur le lieu, ou faites glisser la carte sous le repère. Les flèches marchent aussi.',
@@ -98,6 +103,11 @@ export const fr: Dictionnaire = {
       `${n} fichier${n > 1 ? 's' : ''} prêt${n > 1 ? 's' : ''}, vérifié${n > 1 ? 's' : ''} après écriture.`,
     pretsAvecEchecs: (n, e) =>
       `${n} fichier(s) prêt(s), ${e} en échec. Les originaux concernés sont intacts.`,
+    partagePerdu: 'La photo partagée n\'est pas arrivée jusqu\'ici — rien n\'ayant été gardé, rien n\'est perdu. Repartagez-la, ou déposez-la ci-dessous.',
+    majDispo: 'Une nouvelle version de Geotager est disponible.',
+    majTravaux: 'Une nouvelle version est disponible. Récupérez vos photos avant de recharger : celles qui sont ouvertes seraient abandonnées.',
+    majRecharger: 'Recharger',
+    majPlusTard: 'Plus tard',
     zip: 'photos-geotager.zip',
     suffixeLieu: '-geotager',
     suffixeSansLieu: '-sans-position',
@@ -173,6 +183,7 @@ export const fr: Dictionnaire = {
   },
 
   matrice: {
+    legende: 'Ce que Geotager sait faire selon le format de la photo',
     format: 'Format',
     colonnes: ['Lire', 'Corriger', 'Ajouter', 'Effacer'],
     oui: 'oui',

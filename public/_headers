@@ -2,6 +2,20 @@
 # Supporté nativement par Workers (workers/static-assets/headers/).
 # Limites : 100 règles, 2 000 caractères par ligne.
 #
+# `nosniff` : la politique dit `default-src 'none'`, mais elle ne dit rien du
+# type qu'un fichier PRÉTEND avoir. Il était prévu dès l'origine et n'a jamais
+# été servi.
+#
+# HSTS sans `preload`, et c'est délibéré : l'inscription sur la liste des
+# navigateurs est difficile à défaire, et elle engage tous les sous-domaines
+# pour des années. `max-age` et `includeSubDomains` donnent la protection ; le
+# reste est un engagement qui se prend en connaissance de cause, pas en passant.
+#
+# `Permissions-Policy` refusait six fonctions choisies à la main. Elle en refuse
+# maintenant tout ce dont l'application n'a aucun usage, y compris les mesures
+# publicitaires du bac à sable de confidentialité : une fonction qu'on ne
+# désigne pas est une fonction autorisée.
+#
 # `img-src` nomme un hôte tiers, et un seul : les tuiles de la carte de choix du
 # lieu. Rien ne les demande tant que l'utilisateur n'a pas ouvert la carte. Aucun
 # autre axe n'est ouvert — `connect-src` reste fermé (les tuiles sont des <img>,
@@ -14,7 +28,9 @@
   X-Frame-Options: DENY
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin
-  Permissions-Policy: geolocation=(), camera=(), microphone=(), usb=(), payment=(), browsing-topics=()
+  X-Content-Type-Options: nosniff
+  Strict-Transport-Security: max-age=63072000; includeSubDomains
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), usb=(), payment=(), browsing-topics=(), serial=(), hid=(), midi=(), bluetooth=(), idle-detection=(), display-capture=(), local-fonts=(), accelerometer=(), gyroscope=(), magnetometer=(), interest-cohort=(), attribution-reporting=(), run-ad-auction=(), join-ad-interest-group=(), shared-storage=()
 
 # Le domaine technique ne doit pas exister en double dans l'index. Les motifs
 # sont scopés par hôte : ils ne touchent jamais geotager.app.
@@ -26,3 +42,27 @@ https://:version.:project.workers.dev/*
 
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Le navigateur compare `sw.js` OCTET À OCTET à l'adresse qu'il connaît, et
+# cette adresse ne change jamais. Une copie en cache défait donc la détection de
+# mise à jour : le parc reste sur un ancien worker, donc sur un ancien précache,
+# et rien ne le signale. Le nom reste sans empreinte, exprès.
+/sw.js
+  Cache-Control: no-cache
+
+# Le manifeste est explicitement typé. Servi en `application/octet-stream`, il
+# est refusé sans un mot : l'installation cesse d'être proposée, et rien dans la
+# page ne le dit. On ne dépend pas de la table MIME de l'hébergeur pour ça.
+/manifest.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
+
+/fr/manifest.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
+
+# Les icônes et l'image de partage n'ont pas d'empreinte dans leur nom : elles
+# ne peuvent donc pas être immuables. Une semaine, et une revalidation.
+/icons/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+/og.png
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400

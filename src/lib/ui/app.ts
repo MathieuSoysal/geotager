@@ -33,6 +33,7 @@ const el = {
   carteBascule: $<HTMLButtonElement>('carte-bascule'),
   carte: $('carte'),
   carteVue: $('carte-vue'),
+  carteErreur: $('carte-erreur'),
   cartePlus: $<HTMLButtonElement>('carte-plus'),
   carteMoins: $<HTMLButtonElement>('carte-moins'),
   resultat: $('resultat'),
@@ -44,9 +45,16 @@ const el = {
   autres: $<HTMLDetailsElement>('autres'),
   autresListe: $('autres-liste'),
   alerteFormat: $('alerte-format'),
+  avisVide: $('avis-vide'),
   lot: $('lot'),
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
+  coordsErreur: $('coords-erreur'),
+  maj: $('maj'),
+  majTexte: $('maj-texte'),
+  majRecharger: $<HTMLButtonElement>('maj-recharger'),
+  majPlusTard: $<HTMLButtonElement>('maj-plus-tard'),
+  titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
 
@@ -101,6 +109,27 @@ function annoncer(texte: string): void {
   el.annonce.textContent = texte;
 }
 
+/**
+ * L'état « saisie refusée » du champ de coordonnées.
+ *
+ * Contrôlé à la PERTE DE FOCUS et non à la frappe : « 43. » est invalide à la
+ * troisième touche, et valider à chaque caractère ferait crier l'erreur pendant
+ * qu'on écrit la réponse juste. Un seul point d'entrée, appelé par tout ce qui
+ * écrit dans le champ — y compris la carte — pour que l'attribut et le texte ne
+ * puissent pas diverger.
+ */
+function majEtatCoords(invalide: boolean): void {
+  el.coordsErreur.hidden = !invalide;
+  el.coordsErreur.textContent = invalide ? T.app.coordsInvalides : '';
+  if (invalide) {
+    el.coords.setAttribute('aria-invalid', 'true');
+    el.coords.setAttribute('aria-describedby', 'coords-aide coords-erreur');
+  } else {
+    el.coords.removeAttribute('aria-invalid');
+    el.coords.setAttribute('aria-describedby', 'coords-aide');
+  }
+}
+
 /* --- état --------------------------------------------------------- */
 
 function marquerEtape(n: 1 | 2 | 3): void {
@@ -108,6 +137,9 @@ function marquerEtape(n: 1 | 2 | 3): void {
     const e = Number(li.dataset.etape);
     li.classList.toggle('done', e < n);
     li.classList.toggle('on', e === n);
+    // L'etape courante ne tenait qu'a une couleur et a une graisse.
+    if (e === n) li.setAttribute('aria-current', 'step');
+    else li.removeAttribute('aria-current');
     if (e < n) {
       const no = li.querySelector('.no');
       if (no) no.textContent = '✓';
@@ -118,7 +150,13 @@ function marquerEtape(n: 1 | 2 | 3): void {
   }
 }
 
-function versEtatVide(): void {
+/*
+ * `deplacerFocus` : au chargement du module cette fonction pose seulement l'état
+ * initial, et déplacer le focus volerait le curseur à quelqu'un qui n'a rien
+ * demandé. Seul le bouton « Changer de photo » le réclame — c'est lui qui vient
+ * de faire disparaître sous le focus l'élément qui le portait.
+ */
+function versEtatVide(deplacerFocus = false): void {
   items.length = 0;
   principal = null;
   cible = null;
@@ -127,11 +165,14 @@ function versEtatVide(): void {
   el.vide.hidden = false;
   el.actif.hidden = true;
   el.coords.value = '';
+  majEtatCoords(false);
   el.resultat.hidden = true;
   el.telecharger.disabled = true;
   el.picker.value = '';
+  el.avisVide.hidden = true;
   marquerEtape(1);
   annoncer(T.app.aucuneChargee);
+  if (deplacerFocus) el.picker.focus();
 }
 
 function octets(n: number): string {
@@ -208,9 +249,19 @@ function afficherPrincipal(): void {
   el.lot.hidden = !lot;
   if (lot) majListeLot();
 
-  annoncer(
-    r.position ? T.app.photoLue(formatDecimal(r.position)) : T.app.photoLueSansPosition,
-  );
+  /*
+   * La phrase de capacité est ANNONCÉE, et pas seulement affichée. C'est le
+   * texte le plus important de l'outil — « on ne sait pas encore travailler les
+   * vidéos », « on sait lire ce lieu mais pas encore le changer » — et il ne
+   * passait que par l'écran. Un lecteur d'écran à qui l'on donnait une vidéo
+   * entendait « Photo lue. Aucun lieu enregistré dans ce fichier », ce qui est
+   * faux dans l'esprit sinon dans la lettre, pendant que la vraie raison restait
+   * muette juste à côté. `phrase` est déjà en portée, plus haut.
+   */
+  const etat = r.position
+    ? T.app.photoLue(formatDecimal(r.position))
+    : T.app.photoLueSansPosition;
+  annoncer(phrase ? `${etat} ${phrase}` : etat);
 }
 
 function majListeLot(statuts: Map<string, string> = new Map()): void {
@@ -218,9 +269,9 @@ function majListeLot(statuts: Map<string, string> = new Map()): void {
   el.lotResume.textContent = `${items.length} ${T.app.fichiers} · ${modifiables} ${T.app.modifiables}`;
   el.lotListe.replaceChildren(
     ...items.map((it) => {
-      const row = document.createElement('div');
+      const row = document.createElement('li');
       row.className = 'file-row';
-      const nm = document.createElement('span');
+      const nm = document.createElement('bdi');
       nm.className = 'nm';
       nm.textContent = it.file.name;
       const st = document.createElement('span');
@@ -267,6 +318,8 @@ function fermerCarte(): void {
   carte?.detruire();
   carte = null;
   el.carte.hidden = true;
+  el.carte.classList.remove('sans-carte');
+  el.carteErreur.hidden = true;
   el.carteBascule.setAttribute('aria-expanded', 'false');
   el.carteBascule.textContent = T.app.ouvrirCarte;
 }
@@ -277,18 +330,39 @@ async function ouvrirCarte(): Promise<void> {
     return;
   }
   el.carte.hidden = false;
+  el.carte.classList.remove('sans-carte');
+  el.carteErreur.hidden = true;
   el.carteBascule.setAttribute('aria-expanded', 'true');
   el.carteBascule.textContent = T.app.fermerCarte;
 
-  // Chargé à la demande : tant que personne n'ouvre la carte, pas un octet du
-  // code qui sait parler aux tuiles n'est demandé — et donc aucune tuile.
-  const { creerCarte } = await import('./carte.ts');
+  /*
+   * Chargé à la demande : tant que personne n'ouvre la carte, pas un octet du
+   * code qui sait parler aux tuiles n'est demandé — et donc aucune tuile.
+   *
+   * Ce chargement PEUT échouer, et il échoue pour une raison parfaitement
+   * ordinaire : le service worker ne précharge délibérément pas ce morceau, si
+   * bien qu'il n'est pas là hors ligne. Sans cette prise, le rejet ne va nulle
+   * part — on restait avec un panneau ouvert, un bouton qui annonce « Fermer la
+   * carte », un cadre vide, et une erreur dans la console que personne ne lit.
+   */
+  let creerCarte;
+  try {
+    ({ creerCarte } = await import('./carte.ts'));
+  } catch {
+    el.carte.classList.add('sans-carte');
+    el.carteErreur.hidden = false;
+    el.carteErreur.textContent = T.app.carteIndisponible;
+    annoncer(T.app.carteIndisponible);
+    return;
+  }
+
   carte = creerCarte(el.carteVue, {
     textes: { origine: T.app.repereOrigine },
     onChoix: (p, m) => {
       cible = p;
       precision = m;
       el.coords.value = formatDecimal(p);
+      majEtatCoords(false);
       majResultat();
       annoncer(T.app.positionChoisie(formatDecimal(p)));
     },
@@ -341,6 +415,10 @@ async function charger(fichiers: File[]): Promise<void> {
   el.vide.hidden = true;
   el.actif.hidden = false;
   el.nom.textContent = utiles[0].name;
+  // Le focus était sur le sélecteur de fichier, à l'intérieur de l'état qu'on
+  // vient de cacher : sans cette ligne il retombe sur `body`, et la tabulation
+  // repart du haut du document au milieu du geste.
+  el.titreActif.focus();
   annoncer(T.app.lecturePlurielle(utiles.length));
 
   for (const it of items) {
@@ -399,8 +477,17 @@ async function appliquer(
   const produits: Array<{ name: string; input: Uint8Array }> = [];
   let echecs = 0;
 
+  /*
+   * La région d'annonce est « polie » : elle met en file. Annoncer chaque
+   * fichier d'un lot de trois cents, c'est trois cents phrases à écouter avant
+   * d'entendre le résultat. On jalonne : le premier, le dernier, et dix points
+   * entre les deux.
+   */
+  const pas = Math.max(1, Math.ceil(concernes.length / 10));
   for (const [i, it] of concernes.entries()) {
-    annoncer(T.app.traitement(i + 1, concernes.length));
+    if (i === 0 || i === concernes.length - 1 || (i + 1) % pas === 0) {
+      annoncer(T.app.traitement(i + 1, concernes.length));
+    }
     if (concernes.length > 1) majListeLot(statuts);
     const buffer = await it.file.arrayBuffer();
     const rep = await demander(
@@ -464,16 +551,24 @@ el.picker.addEventListener('change', () => {
   if (el.picker.files?.length) void charger(Array.from(el.picker.files));
 });
 
-el.changer.addEventListener('click', versEtatVide);
+el.changer.addEventListener('click', () => versEtatVide(true));
 
 el.coords.addEventListener('input', () => {
   cible = parseCoordinates(el.coords.value);
+  // On efface pendant la frappe, on n'accuse jamais : le reproche est le fait
+  // de la perte de focus, ci-dessous.
+  if (cible || !el.coords.value.trim()) majEtatCoords(false);
   // Des coordonnées tapées n'ont pas de zoom, donc pas de précision à
   // déclarer. Hériter de celle d'un clic précédent inscrirait dans le fichier
   // de quelqu'un un chiffre que personne n'a mesuré.
   precision = null;
   if (cible) carte?.centrer(cible);
   majResultat();
+});
+
+el.coords.addEventListener('blur', () => {
+  const saisi = el.coords.value.trim();
+  majEtatCoords(saisi !== '' && parseCoordinates(saisi) === null);
 });
 
 el.carteBascule.addEventListener('click', () => void ouvrirCarte());
@@ -502,6 +597,158 @@ el.effacer.addEventListener('click', () => {
 el.effacerTout.addEventListener('click', () => {
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
+
+/* --- arrivées depuis le système ------------------------------------ */
+
+/*
+ * Deux portes, en plus du sélecteur et du glisser-déposer.
+ *
+ * « Ouvrir avec » remet directement des poignées de fichier : rien à
+ * transporter, rien à garder. Le partage, lui, passe par un `POST` que le
+ * service worker intercepte et dont il garde les octets EN MÉMOIRE — voir
+ * `scripts/sw-modele.js`. On vient les réclamer ici, par un canal de message
+ * dédié pour que la réponse ne puisse pas se confondre avec autre chose.
+ */
+function reclamerPartage(): void {
+  const sw = navigator.serviceWorker?.controller;
+  if (!sw) {
+    // Le worker a été arrêté entre le partage et l'ouverture : les octets sont
+    // perdus. On le dit — l'original n'a pas bougé de la galerie, il suffit de
+    // recommencer — plutôt que d'ouvrir une page vide sans explication.
+    signalerPartagePerdu();
+    return;
+  }
+  const canal = new MessageChannel();
+  let repondu = false;
+  canal.port1.onmessage = (e) => {
+    repondu = true;
+    const fichiers = (e.data as File[]) ?? [];
+    if (fichiers.length) void charger(fichiers);
+    else signalerPartagePerdu();
+  };
+  sw.postMessage({ type: 'RECLAMER_PARTAGE' }, [canal.port2]);
+  // Un worker qui ne répond pas ne doit pas laisser la page attendre en vain.
+  setTimeout(() => {
+    if (!repondu) signalerPartagePerdu();
+  }, 3_000);
+}
+
+function signalerPartagePerdu(): void {
+  // Le message va dans l'état VIDE, qui est celui qu'on affiche. L'écrire dans
+  // `#alerte-format` le déposerait à l'intérieur de l'état actif, qu'on masque
+  // dans la même respiration : visible nulle part, et la page resterait muette.
+  el.vide.hidden = false;
+  el.actif.hidden = true;
+  el.avisVide.hidden = false;
+  el.avisVide.textContent = T.app.partagePerdu;
+  annoncer(T.app.partagePerdu);
+}
+
+/*
+ * `?partage=1` est posé par la redirection du service worker. On l'efface de la
+ * barre d'adresse aussitôt : rechargée, cette adresse n'a plus rien à réclamer,
+ * et laisser le paramètre ferait croire à un partage à chaque rechargement.
+ */
+if (new URLSearchParams(location.search).has('partage')) {
+  history.replaceState(null, '', location.pathname);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', reclamerPartage, { once: true });
+  } else {
+    reclamerPartage();
+  }
+}
+
+interface FileHandleLike {
+  getFile(): Promise<File>;
+}
+interface LaunchParams {
+  files?: FileHandleLike[];
+}
+
+const filePeutEtreLancee = window as typeof window & {
+  launchQueue?: { setConsumer(f: (p: LaunchParams) => void): void };
+};
+if (filePeutEtreLancee.launchQueue) {
+  filePeutEtreLancee.launchQueue.setConsumer((params) => {
+    void (async () => {
+      const poignees = params.files ?? [];
+      if (!poignees.length) return;
+      const fichiers = await Promise.all(poignees.map((h) => h.getFile()));
+      void charger(fichiers.filter((f) => f.size > 0));
+    })();
+  });
+}
+
+/* --- service worker ------------------------------------------------ */
+
+/*
+ * L'outil tourne entièrement sur la machine de l'utilisateur : la seule raison
+ * pour laquelle il cessait de fonctionner sans réseau, c'est que personne ne le
+ * gardait. Le service worker précharge la coquille, et la promesse « tout se
+ * passe dans votre navigateur » devient vérifiable en coupant la connexion.
+ *
+ * La mise à jour n'est JAMAIS automatique. Rien n'est persisté ici : quelqu'un
+ * peut avoir quarante photos ouvertes et rien d'exporté, et un rechargement
+ * imposé détruirait tout. Le nouveau worker attend derrière ; c'est le clic qui
+ * le fait passer devant.
+ */
+function proposerMaj(reg: ServiceWorkerRegistration): void {
+  const enTravaux = items.length > 0;
+  el.majTexte.textContent = enTravaux ? T.app.majTravaux : T.app.majDispo;
+  el.maj.hidden = false;
+  el.majRecharger.onclick = () => {
+    el.maj.hidden = true;
+    // Le worker en attente ne prend la main que sur ce message : voir
+    // `scripts/sw-modele.js`, règle 2.
+    reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
+  };
+  el.majPlusTard.onclick = () => {
+    el.maj.hidden = true;
+  };
+}
+
+if ('serviceWorker' in navigator) {
+  /*
+   * Après le chargement : l'enregistrement met le réseau en concurrence avec ce
+   * dont la page a besoin pour s'afficher, et l'outil passe avant son cache.
+   *
+   * Tout est enveloppé. Une décoration ne doit pas pouvoir emporter l'outil —
+   * c'est déjà la règle de `blob.ts` — et un cache encore moins : le test de
+   * bout en bout refuse la moindre erreur de console, et un contexte non
+   * sécurisé ou un stockage refusé fait lever `register`.
+   */
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => {
+        if (reg.waiting) proposerMaj(reg);
+        reg.addEventListener('updatefound', () => {
+          const arrivant = reg.installing;
+          if (!arrivant) return;
+          arrivant.addEventListener('statechange', () => {
+            // `controller` non nul : il y avait déjà un worker, donc c'est bien
+            // une mise à jour et non la première installation — pour laquelle
+            // il n'y a rien à proposer.
+            if (arrivant.state === 'installed' && navigator.serviceWorker.controller) {
+              proposerMaj(reg);
+            }
+          });
+        });
+      })
+      .catch(() => {
+        /* Pas de cache, et c'est tout : l'application marche sans. */
+      });
+
+    // Un seul rechargement. Sans ce drapeau, deux onglets qui se réclament le
+    // contrôle l'un à l'autre bouclent indéfiniment.
+    let recharge = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (recharge) return;
+      recharge = true;
+      location.reload();
+    });
+  });
+}
 
 // Glisser-déposer sur toute la page.
 let profondeur = 0;

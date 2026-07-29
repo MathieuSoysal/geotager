@@ -17,19 +17,37 @@ const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const PORT = 4319;
 
 /**
- * La CSP réellement servie, lue dans `public/_headers`.
+ * TOUS les en-têtes réellement servis pour `/*`, lus dans `public/_headers`.
  *
- * Elle est lue et non recopiée : une politique recopiée ici dériverait de celle
+ * Ils sont lus et non recopiés : une politique recopiée ici dériverait de celle
  * que sert l'hébergeur, et le test finirait par valider une page que personne
  * ne reçoit. Jusqu'ici ce serveur ne posait aucun en-tête, si bien qu'un
  * attribut `style` refusé en production passait inaperçu dans les tests — il y
  * en avait un, sur le gabarit.
+ *
+ * Et jusqu'ici il ne posait que la CSP. Les six autres en-têtes — dont les pages
+ * parlent en toutes lettres — n'étaient donc affirmés par rien : on pouvait en
+ * supprimer un sans qu'aucun contrôle ne bronche.
  */
-const CSP = readFileSync('public/_headers', 'utf8')
-  .match(/^\s*Content-Security-Policy:\s*(.+)$/m)[1]
-  .trim();
+const EN_TETES = (() => {
+  const brut = readFileSync('public/_headers', 'utf8').split('\n');
+  const debut = brut.findIndex((l) => l.trim() === '/*');
+  const entetes = {};
+  for (const ligne of brut.slice(debut + 1)) {
+    if (/^\S/.test(ligne)) break; // le bloc suivant commence
+    const m = ligne.match(/^\s+([A-Za-z-]+):\s*(.+)$/);
+    if (m) entetes[m[1]] = m[2].trim();
+  }
+  return entetes;
+})();
+const CSP = EN_TETES['Content-Security-Policy'];
 
 const MIME = {
+  // Sans ces deux-là, le serveur de test renvoie `application/octet-stream` :
+  // Chromium refuse alors le manifeste, et les contrôles « aucune erreur
+  // JavaScript » virent au rouge pour une raison étrangère à l'application.
+  '.webmanifest': 'application/manifest+json',
+  '.png': 'image/png',
   '.xml': 'application/xml; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -77,7 +95,7 @@ const serveur = createServer((req, res) => {
   }
   res.writeHead(200, {
     'content-type': MIME[extname(f)] ?? 'application/octet-stream',
-    'Content-Security-Policy': CSP,
+    ...EN_TETES,
   });
   res.end(readFileSync(f));
 });
@@ -90,7 +108,21 @@ const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const navigateur = await chromium.launch(
   existsSync(CHROME) ? { executablePath: CHROME } : {},
 );
-const contexte = await navigateur.newContext({ acceptDownloads: true });
+/*
+ * `serviceWorkers: 'block'` — et ce n'est pas un détail de confort.
+ *
+ * Tout ce fichier repose sur le JOURNAL DES REQUÊTES : la preuve du zéro-tiers,
+ * la frontière avant l'ouverture de la carte, le décompte des tuiles. Un service
+ * worker qui sert depuis son cache retire ces requêtes du journal, et les
+ * contrôles se mettraient à passer pour la mauvaise raison — c'est-à-dire à ne
+ * plus rien prouver. Le parcours principal se juge donc sans lui.
+ *
+ * Le service worker a sa propre section, tout en bas, dans un contexte à lui.
+ */
+const contexte = await navigateur.newContext({
+  acceptDownloads: true,
+  serviceWorkers: 'block',
+});
 
 /*
  * Les tuiles de la carte sont interceptées, jamais demandées pour de vrai.
@@ -391,7 +423,7 @@ check('les deux langues ont exactement les mêmes clés',
   JSON.stringify(Object.keys(DICOS.en.erreurs).sort()) ===
     JSON.stringify(Object.keys(DICOS.fr.erreurs).sort()));
 // Le tableau servi doit être celui du code, ligne pour ligne.
-const tableauServi = await page.locator('#limites ~ table tbody tr').count()
+const tableauServi = await page.locator('#limites ~ * table tbody tr').count()
   .catch(() => 0);
 check('le tableau de la page a autant de lignes que le code en déclare',
   tableauServi === 0 || tableauServi === MATRICE.length, `${tableauServi} vs ${MATRICE.length}`);
@@ -401,8 +433,8 @@ await page.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
 check('la page française déclare sa langue',
   (await page.locator('html').getAttribute('lang')) === 'fr');
 check('elle affiche bien du français',
-  (await page.locator('#etat-vide h1').textContent()).includes('Changez le lieu'),
-  (await page.locator('#etat-vide h1').textContent()).trim());
+  (await page.locator('#outil h1').textContent()).includes('Changez le lieu'),
+  (await page.locator('#outil h1').textContent()).trim());
 check('elle pointe vers la version anglaise',
   (await page.locator('nav.main a[rel="alternate"]').getAttribute('href')) === '/');
 const enHref = await page.locator('link[rel="alternate"][hreflang="en"]').getAttribute('href');
@@ -468,6 +500,132 @@ check("la zone de dépôt est un label lié à un input de fichier",
   }));
 check('une région live existe pour les annonces',
   await page.locator('#annonce[aria-live="polite"]').count() === 1);
+
+// Les repères manquaient tous les trois. Une personne qui navigue de repère en
+// repère ne trouvait qu'une navigation et un pied de page, jamais l'outil.
+const reperes = await page.evaluate(() => ({
+  main: document.querySelectorAll('main').length,
+  header: document.querySelectorAll('body > .app header.bar, header.bar').length,
+  footer: document.querySelectorAll('footer').length,
+  // Un `footer` cesse d'être « contentinfo » dès qu'il est dans un `main`.
+  footerDansMain: !!document.querySelector('main footer'),
+  headerDansMain: !!document.querySelector('main header'),
+}));
+check('la page a exactement un repère principal', reperes.main === 1, String(reperes.main));
+check('la bannière et le pied de page existent',
+  reperes.header === 1 && reperes.footer === 1);
+check('ni la bannière ni le pied ne sont enfermés dans le repère principal',
+  !reperes.footerDansMain && !reperes.headerDansMain);
+check("le lien d'évitement mène à l'outil, pas à la prose",
+  (await page.locator('a.saut').getAttribute('href')) === '#outil');
+
+// Le pavé décimal d'iOS ne porte pas le signe moins : aucune latitude sud ni
+// longitude ouest n'était saisissable au doigt.
+check("le champ de coordonnées n'impose plus de pavé décimal",
+  (await page.locator('#coords').getAttribute('inputmode')) === null);
+
+// Le <h1> vivait dans l'état vide et disparaissait avec lui.
+await page.setInputFiles('#picker', source);
+await page.waitForFunction(() => !document.getElementById('etat-actif').hidden);
+check("un titre de niveau 1 subsiste une fois la photo chargée",
+  await page.evaluate(() => {
+    const h = document.querySelector('h1');
+    // `visually-hidden` reste dans l'arbre ; `hidden` n'y est plus.
+    return !!h && h.offsetParent !== null || (!!h && !h.closest('[hidden]'));
+  }));
+check("le focus n'est pas retombé sur le corps du document",
+  await page.evaluate(() => document.activeElement !== document.body));
+
+// Une saisie refusée ne disait rien : le bouton se grisait, et c'était tout.
+await page.fill('#coords', 'nulle part');
+await page.locator('#coords').blur();
+check("une saisie refusée est signalée",
+  (await page.locator('#coords').getAttribute('aria-invalid')) === 'true');
+check("le message d'erreur est visible et non vide",
+  await page.locator('#coords-erreur').isVisible()
+  && (await page.locator('#coords-erreur').textContent()).trim().length > 0);
+check("le message d'erreur est relié au champ",
+  (await page.locator('#coords').getAttribute('aria-describedby') ?? '').includes('coords-erreur'));
+await page.fill('#coords', '43.9493, 4.8055');
+await page.locator('#coords').blur();
+check("elle cesse de l'être dès que la saisie redevient lisible",
+  (await page.locator('#coords').getAttribute('aria-invalid')) === null
+  && !(await page.locator('#coords-erreur').isVisible()));
+
+/*
+ * Les en-têtes que les pages promettent en toutes lettres. Ils étaient servis
+ * par l'hébergeur et affirmés par personne : on pouvait en retirer un sans
+ * qu'aucun contrôle ne bronche, et la prose aurait continué à les annoncer.
+ *
+ * On les lit dans `public/_headers`, donc ce contrôle juge le FICHIER LIVRÉ et
+ * non une copie — mais il exige que chacun soit présent et dise la bonne chose.
+ */
+console.log('\nLes en-têtes promis sont bien là');
+for (const [nom, motif] of [
+  ['Referrer-Policy', /^no-referrer$/],
+  ['X-Frame-Options', /^DENY$/],
+  ['X-Content-Type-Options', /^nosniff$/],
+  ['Strict-Transport-Security', /max-age=\d{7,}/],
+  ['Cross-Origin-Opener-Policy', /^same-origin$/],
+  ['Cross-Origin-Resource-Policy', /^same-origin$/],
+  ['Permissions-Policy', /geolocation=\(\)/],
+]) {
+  check(`« ${nom} » est servi et dit ce qu'il doit`,
+    motif.test(EN_TETES[nom] ?? ''), EN_TETES[nom] ?? '(absent)');
+}
+// La géolocalisation est refusée EXPRÈS : c'est pour cela qu'il n'existe aucun
+// bouton « me localiser », et la prose s'appuie dessus.
+check('aucune fonction sensible n\'est laissée ouverte',
+  ['camera', 'microphone', 'geolocation', 'browsing-topics', 'interest-cohort']
+    .every((f) => (EN_TETES['Permissions-Policy'] ?? '').includes(`${f}=()`)));
+
+console.log("\nLe manifeste et ses icônes");
+for (const [base, langue, depart] of [['/', 'en', '/'], ['/fr/', 'fr', '/fr/']]) {
+  await page.goto(`http://127.0.0.1:${PORT}${base}`, { waitUntil: 'networkidle' });
+  const href = await page.locator('link[rel="manifest"]').getAttribute('href');
+  check(`${base} déclare son manifeste`, href === `${base}manifest.webmanifest`, String(href));
+
+  // Récupéré par la page elle-même : c'est le seul moyen de constater le type
+  // MIME et le corps que le navigateur reçoit réellement.
+  const m = await page.evaluate(async (u) => {
+    const r = await fetch(u);
+    return { ok: r.ok, type: r.headers.get('content-type'), corps: await r.text() };
+  }, href);
+  check(`${base} sert un manifeste lisible`, m.ok && /manifest\+json/.test(m.type ?? ''), m.type);
+
+  let json = null;
+  try { json = JSON.parse(m.corps); } catch { /* json reste nul */ }
+  check(`${base} sert du JSON valide`, json !== null);
+  if (!json) continue;
+
+  check(`${base} annonce la bonne langue et le bon départ`,
+    json.lang === langue && json.start_url === depart,
+    `${json.lang} / ${json.start_url}`);
+  // Deux URLs, un seul `id` : c'est ce qui fait UNE application installée et
+  // non deux, et c'est ce qui ne devra jamais changer.
+  check(`${base} partage l'identité d'installation`, json.id === '/', String(json.id));
+  check(`${base} reste dans sa portée`, json.scope === '/');
+  check(`${base} porte une icône masquable`,
+    (json.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable')));
+
+  // Une icône déclarée mais introuvable est la panne la plus discrète du lot :
+  // rien ne se voit avant l'écran d'accueil.
+  const manquantes = await page.evaluate(
+    (srcs) => Promise.all(srcs.map((s) => fetch(s).then((r) => (r.ok ? null : s)))),
+    (json.icons ?? []).map((i) => i.src),
+  );
+  check(`${base} : toutes les icônes déclarées répondent`,
+    manquantes.filter(Boolean).length === 0, String(manquantes.filter(Boolean)));
+}
+
+// `summary_large_image` était déclaré sans la moindre image.
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+const og = await page.locator('meta[property="og:image"]').getAttribute('content');
+check("une image de partage est déclarée", !!og && og.endsWith('/og.png'), String(og));
+check("elle a un texte de remplacement",
+  ((await page.locator('meta[property="og:image:alt"]').getAttribute('content')) ?? '').length > 10);
+check("elle existe vraiment",
+  await page.evaluate(() => fetch('/og.png').then((r) => r.ok)));
 
 console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
 check('le décor est hors de l\'arbre d\'accessibilité',
@@ -577,6 +735,58 @@ check('les flèches déplacent le point visé', (await page.locator('#coords').i
 
 // Le zoom change la précision annoncée, donc ce qui sera inscrit dans le fichier.
 await page.click('#carte-plus');
+/*
+ * Le pincement. `touch-action: none` coupe le zoom du navigateur sur la carte,
+ * et rien ne le remplaçait : deux doigts ne faisaient rigoureusement rien, et
+ * les seules commandes de zoom étaient deux boutons — le geste que personne
+ * n'emploie sur un téléphone.
+ *
+ * Les événements sont synthétisés : Playwright ne pilote qu'un seul point de
+ * contact, et ce qui est jugé ici est la logique à deux pointeurs.
+ */
+/* Le niveau de zoom se lit dans l'adresse des tuiles : /{z}/{x}/{y}.png. */
+const zoomServi = async () => {
+  const src = await page.locator('.carte-tuile').first().getAttribute('src');
+  return Number(src.match(/\/(\d+)\/\d+\/\d+\.png/)[1]);
+};
+const avantPincement = await zoomServi();
+const coordsAvantPincement = await page.locator('#coords').inputValue();
+
+await page.evaluate(() => {
+  const vue = document.getElementById('carte-vue');
+  const r = vue.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const ev = (type, id, x, y) => vue.dispatchEvent(new PointerEvent(type, {
+    pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch',
+  }));
+  // Deux doigts à 40 px d'écart, écartés jusqu'à 160 px : deux doublements,
+  // donc deux crans de zoom.
+  ev('pointerdown', 101, cx - 20, cy);
+  ev('pointerdown', 102, cx + 20, cy);
+  ev('pointermove', 101, cx - 80, cy);
+  ev('pointermove', 102, cx + 80, cy);
+  ev('pointerup', 101, cx - 80, cy);
+  ev('pointerup', 102, cx + 80, cy);
+});
+await page.waitForTimeout(300);
+const apresPincement = await zoomServi();
+check("deux doigts qui s'écartent rapprochent vraiment la carte",
+  apresPincement > avantPincement, `${avantPincement} → ${apresPincement}`);
+
+/*
+ * Un pincement n'est pas un clic : il ne doit pas emporter le point choisi
+ * là où se sont posés les doigts. Il le déplace tout de même d'un cheveu —
+ * `zoomer` réancre la vue et le nombre est réécrit à cinq décimales — donc on
+ * juge la DISTANCE, pas l'égalité des chaînes. Un clic mal interprété aurait
+ * sauté de plusieurs centièmes de degré, soit des kilomètres.
+ */
+const [latAv, lonAv] = coordsAvantPincement.split(',').map(Number);
+const [latAp, lonAp] = (await page.locator('#coords').inputValue()).split(',').map(Number);
+check("le pincement ne se prend pas pour un clic",
+  Math.abs(latAp - latAv) < 0.01 && Math.abs(lonAp - lonAv) < 0.01,
+  `${coordsAvantPincement} → ${latAp}, ${lonAp}`);
+
 check('le zoom reste opérable au clavier comme à la souris',
   await page.locator('#carte-plus').isVisible());
 
@@ -623,6 +833,45 @@ for (let i = erreursConsole.length - 1; i >= 0; i--) {
 }
 
 /*
+ * LE MORCEAU DE LA CARTE MANQUE.
+ *
+ * Il n'est délibérément pas préchargé par le service worker, donc hors ligne il
+ * n'est pas là et l'import dynamique échoue. Le rejet n'était rattrapé nulle
+ * part : on restait avec un panneau ouvert, un bouton annonçant « Fermer la
+ * carte », un cadre vide et une erreur de console que personne ne lit.
+ *
+ * La panne est provoquée en refusant la requête, et non en coupant le réseau :
+ * c'est le seul moyen d'en faire un contrôle déterministe.
+ */
+console.log("\nLe morceau de la carte manque, et l'outil le dit");
+await contexte.route('**/_astro/carte*.js', (route) => route.abort('failed'));
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', source);
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+const avantEchecCarte = erreursConsole.length;
+await page.click('#carte-bascule');
+await page.waitForTimeout(1_500);
+check("l'indisponibilité de la carte est DITE, et non subie",
+  await page.locator('#carte-erreur').isVisible());
+check('le message renvoie vers la saisie, qui elle fonctionne',
+  ((await page.locator('#carte-erreur').textContent()) ?? '').length > 20);
+check('le cadre vide ne reste pas à l\'écran',
+  !(await page.locator('.carte-cadre').isVisible()));
+check("saisir des coordonnées marche toujours",
+  await page.evaluate(async () => {
+    const c = document.getElementById('coords');
+    c.value = '48.8584, 2.2945';
+    c.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    return !document.getElementById('telecharger').disabled;
+  }));
+const nouvelles = erreursConsole.slice(avantEchecCarte)
+  .filter((e) => !/Failed to load resource|net::ERR_/.test(e));
+check("aucune exception ne s'échappe du chargement raté",
+  nouvelles.length === 0, nouvelles[0]);
+await contexte.unroute('**/_astro/carte*.js');
+
+/*
  * Et sans réseau ? La page promet que l'outil « fonctionne intégralement »
  * connexion coupée. La carte, elle, ne peut pas : elle doit donc se contenter
  * de rester vide, sans rien emporter avec elle. Une carte qui lèverait une
@@ -656,6 +905,139 @@ const restantes = erreursConsole.filter(
 );
 check("une tuile qui n'arrive pas n'emporte rien avec elle", restantes.length === 0,
   restantes[0]);
+
+/*
+ * LE SERVICE WORKER, dans un contexte à part — celui d'au-dessus les bloque.
+ *
+ * Ce qui est jugé ici n'est pas qu'un worker s'enregistre : c'est que l'outil
+ * FONCTIONNE connexion coupée. La page l'a toujours promis ; jusqu'à présent
+ * un rechargement hors ligne ne donnait rien du tout, faute que quiconque garde
+ * la coquille.
+ */
+console.log('\nHors ligne, pour de bon');
+const ctxSw = await navigateur.newContext();
+const pageSw = await ctxSw.newPage();
+const erreursSw = [];
+pageSw.on('pageerror', (e) => erreursSw.push(String(e)));
+pageSw.on('console', (m) => {
+  if (m.type() === 'error') erreursSw.push(m.text());
+});
+
+await pageSw.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+const controle = await pageSw
+  .waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('le service worker prend le contrôle de la page', controle);
+
+// La coupure est réelle : plus rien ne sort, pas même vers l'origine.
+await ctxSw.setOffline(true);
+await pageSw.reload({ waitUntil: 'load' });
+check('hors ligne, la page s\'ouvre encore',
+  await pageSw.locator('#etat-vide').isVisible());
+check('hors ligne, la feuille de style est là aussi',
+  await pageSw.evaluate(() => getComputedStyle(document.body).backgroundColor !== 'rgba(0, 0, 0, 0)'));
+
+/*
+ * Le vrai contrôle. Le worker de lecture est chargé par `new Worker(new URL(…))`
+ * et n'apparaît donc dans aucune balise : s'il tombait de la liste de
+ * préchargement, la page s'ouvrirait hors ligne et refuserait TOUTES les photos,
+ * sans un mot. C'est la panne que ce contrôle existe pour attraper.
+ */
+await pageSw.setInputFiles('#picker', source);
+await pageSw.waitForSelector('#etat-actif:not([hidden])', { timeout: 20_000 });
+const lueHorsLigne = await pageSw
+  .waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && !p.hidden && p.textContent.trim().length > 0;
+  }, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('hors ligne, une photo est encore lue de bout en bout', lueHorsLigne);
+
+// Le morceau de la carte n'est délibérément PAS préchargé : l'ouvrir hors ligne
+// sans l'avoir jamais ouvert en ligne ne peut pas marcher, et ne doit surtout
+// pas emporter l'application avec lui.
+/*
+ * Ouvrir la carte hors ligne ne doit rien emporter. Ce qu'il advient
+ * exactement du morceau dépend de l'environnement — selon les versions,
+ * la coupure de Playwright atteint ou non les requêtes émises par le service
+ * worker lui-même — donc on ne juge ici QUE l'innocuité. Le chemin d'échec
+ * proprement dit est éprouvé plus haut, de façon déterministe.
+ */
+await pageSw.click('#carte-bascule').catch(() => {});
+await pageSw.waitForTimeout(1_500);
+const restantesSw = erreursSw.filter((e) => !/Failed to load resource|net::ERR_|FetchEvent/.test(e));
+check("la carte indisponible hors ligne n'emporte rien avec elle",
+  restantesSw.length === 0, restantesSw[0]);
+
+/*
+ * LE PARTAGE ENTRANT.
+ *
+ * Le système envoie la photo en `POST` multipart, et aucun serveur ne la reçoit :
+ * le service worker l'intercepte, garde les octets EN MÉMOIRE, redirige, et la
+ * page vient les réclamer. C'est le chemin entier qui est éprouvé ici — on ne
+ * peut pas déclencher le menu de partage du système depuis un test, mais tout
+ * ce qui se passe après, si.
+ *
+ * Le `POST` part d'un `fetch` et non d'un formulaire : la politique du site
+ * porte `form-action 'none'`, donc un formulaire de NOTRE page serait refusé.
+ * Le partage réel n'en est pas un — il vient du système — et le worker ne
+ * distingue de toute façon que la méthode et le chemin.
+ */
+await ctxSw.setOffline(false);
+console.log('\nUne photo partagée depuis le système');
+
+const octetsPhoto = readFileSync(source).toString('base64');
+const redirection = await pageSw.evaluate(async (b64) => {
+  const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const fd = new FormData();
+  fd.append('photos', new File([bin], 'partagee.jpg', { type: 'image/jpeg' }));
+  const r = await fetch('/partager', { method: 'POST', body: fd, redirect: 'manual' });
+  return { type: r.type, status: r.status, url: r.url };
+}, octetsPhoto);
+check('la cible de partage répond sans serveur',
+  redirection.status === 303 || redirection.type === 'opaqueredirect',
+  `${redirection.status} / ${redirection.type}`);
+
+// Le worker garde les octets ; la page les réclame en arrivant sur ?partage=1.
+await pageSw.goto(`http://127.0.0.1:${PORT}/?partage=1`, { waitUntil: 'load' });
+const recue = await pageSw
+  .waitForFunction(() => {
+    const n = document.getElementById('nom-fichier');
+    return n && n.textContent.includes('partagee');
+  }, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('la photo partagée arrive dans l\'outil', recue);
+check("le paramètre est retiré de l'adresse",
+  !pageSw.url().includes('partage='), pageSw.url());
+const positionPartagee = await pageSw
+  .waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && !p.hidden && p.textContent.trim().length > 0;
+  }, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('elle est lue comme n\'importe quelle autre', positionPartagee);
+
+/*
+ * Rendus une fois, et une seule. Sans cela, un rechargement ferait réapparaître
+ * une photo que l'utilisateur croyait avoir refermée — et le worker garderait
+ * ses octets en mémoire sans que rien ne vienne les chercher.
+ */
+await pageSw.goto(`http://127.0.0.1:${PORT}/?partage=1`, { waitUntil: 'load' });
+await pageSw.waitForTimeout(1_500);
+check('un second appel ne rend pas la photo une deuxième fois',
+  await pageSw.locator('#etat-vide').isVisible());
+check("et il l'explique au lieu de laisser une page muette",
+  await pageSw.locator('#avis-vide').isVisible());
+
+const restantesPartage = erreursSw.filter((e) => !/Failed to load resource|net::ERR_|FetchEvent/.test(e));
+check('aucune exception sur le chemin du partage',
+  restantesPartage.length === 0, restantesPartage[0]);
+
+await ctxSw.close();
 
 await navigateur.close();
 serveur.close();

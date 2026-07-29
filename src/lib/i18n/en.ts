@@ -17,6 +17,7 @@ export const en: Dictionnaire = {
     titre: 'Change a photo’s location — Geotager',
     description:
       'Add, change or remove the GPS coordinates of a photo right in your browser. Nothing is uploaded, no account needed.',
+    imageAlt: 'Geotager — change the location of a photo, entirely in your browser.',
     nomLangue: 'English',
     sousCategorie: 'Image metadata editing',
     systeme: 'Any modern web browser',
@@ -50,19 +51,23 @@ export const en: Dictionnaire = {
     titreEm: 'of a photo',
     sous: 'Nothing is sent anywhere: everything happens in your browser.',
     formats: 'JPEG · HEIC · PNG · WebP · TIFF',
+    sansJs: 'Geotager needs JavaScript to read and change a photo. Everything still runs on your device — nothing is sent anywhere.',
     defiler: 'How it works, and why it stays private ↓',
   },
 
   app: {
+    titreActif: 'Photo loaded',
     changer: 'Change photo',
     ouPrise: 'Where was this photo taken?',
     aideCoords:
       'Paste coordinates from a map: in Google Maps, right-click the spot then click the numbers to copy them. Decimal and degrees-minutes-seconds are both accepted. ',
     aideCoordsFort: 'Your photo stays here.',
+    coordsInvalides: 'Invalid coordinates — enter a latitude and a longitude, for example 43.9493, 4.8055.',
     ouvrirCarte: 'Place it on a map',
     fermerCarte: 'Close the map',
     avisCarte:
       'The map is drawn by openstreetmap.org, so opening it tells them roughly which area you are looking at. Your photo still never leaves this browser.',
+    carteIndisponible: 'The map could not be loaded — you may be offline. You can still type or paste coordinates above.',
     carteLabel: 'Map. Click a spot to place the marker there.',
     carteAide: 'Click the spot, or drag the map under the marker. Arrow keys work too.',
     zoomAvant: 'Zoom in',
@@ -102,6 +107,11 @@ export const en: Dictionnaire = {
     pretsVerifies: (n) => `${n} file${n > 1 ? 's' : ''} ready, checked after writing.`,
     pretsAvecEchecs: (n, e) =>
       `${n} file(s) ready, ${e} failed. The originals concerned are untouched.`,
+    partagePerdu: 'The shared photo did not make it across — nothing was stored, so nothing was lost. Share it again, or drop it below.',
+    majDispo: 'A new version of Geotager is available.',
+    majTravaux: 'A new version is available. Download your photos first — reloading discards the ones you have open.',
+    majRecharger: 'Reload',
+    majPlusTard: 'Later',
     zip: 'photos-geotager.zip',
     suffixeLieu: '-geotagged',
     suffixeSansLieu: '-no-location',
@@ -177,6 +187,7 @@ export const en: Dictionnaire = {
   },
 
   matrice: {
+    legende: 'What Geotager can do with each photo format',
     format: 'Format',
     colonnes: ['Read', 'Change', 'Add', 'Remove'],
     oui: 'yes',
