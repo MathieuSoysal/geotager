@@ -48,6 +48,7 @@ const el = {
   lot: $('lot'),
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
+  titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
 
@@ -119,7 +120,13 @@ function marquerEtape(n: 1 | 2 | 3): void {
   }
 }
 
-function versEtatVide(): void {
+/*
+ * `deplacerFocus`: on module load this function only sets the initial state, and
+ * moving the focus would steal the caret from somebody who asked for nothing.
+ * Only the "Change photo" button asks for it, since it is what just made the
+ * focused element disappear.
+ */
+function versEtatVide(deplacerFocus = false): void {
   items.length = 0;
   principal = null;
   cible = null;
@@ -133,6 +140,7 @@ function versEtatVide(): void {
   el.picker.value = '';
   marquerEtape(1);
   annoncer(T.app.aucuneChargee);
+  if (deplacerFocus) el.picker.focus();
 }
 
 function octets(n: number): string {
@@ -209,9 +217,18 @@ function afficherPrincipal(): void {
   el.lot.hidden = !lot;
   if (lot) majListeLot();
 
-  annoncer(
-    r.position ? T.app.photoLue(formatDecimal(r.position)) : T.app.photoLueSansPosition,
-  );
+  /*
+   * The capability sentence is announced, not merely displayed. It is the most
+   * important text in the tool ("we cannot work on videos yet", "we can read
+   * this location but not change it yet") and it only went to the screen. A
+   * screen reader given a video heard "Photo read. No location recorded in this
+   * file", which is wrong in spirit if not in letter, while the real reason
+   * stayed silent right beside it.
+   */
+  const etat = r.position
+    ? T.app.photoLue(formatDecimal(r.position))
+    : T.app.photoLueSansPosition;
+  annoncer(phrase ? `${etat} ${phrase}` : etat);
 }
 
 function majListeLot(statuts: Map<string, string> = new Map()): void {
@@ -342,6 +359,10 @@ async function charger(fichiers: File[]): Promise<void> {
   el.vide.hidden = true;
   el.actif.hidden = false;
   el.nom.textContent = utiles[0].name;
+  // The focus was on the file picker, inside the state we have just hidden:
+  // without this line it falls back to `body`, and tabbing restarts from the
+  // top of the document mid-gesture.
+  el.titreActif.focus();
   annoncer(T.app.lecturePlurielle(utiles.length));
 
   for (const it of items) {
@@ -400,8 +421,17 @@ async function appliquer(
   const produits: Array<{ name: string; input: Uint8Array }> = [];
   let echecs = 0;
 
+  /*
+   * The announcement region is polite: it queues. Announcing every file of a
+   * batch of three hundred means three hundred sentences to listen through
+   * before hearing the result. We post milestones: the first, the last, and ten
+   * points in between.
+   */
+  const pas = Math.max(1, Math.ceil(concernes.length / 10));
   for (const [i, it] of concernes.entries()) {
-    annoncer(T.app.traitement(i + 1, concernes.length));
+    if (i === 0 || i === concernes.length - 1 || (i + 1) % pas === 0) {
+      annoncer(T.app.traitement(i + 1, concernes.length));
+    }
     if (concernes.length > 1) majListeLot(statuts);
     const buffer = await it.file.arrayBuffer();
     const rep = await demander(
@@ -465,7 +495,7 @@ el.picker.addEventListener('change', () => {
   if (el.picker.files?.length) void charger(Array.from(el.picker.files));
 });
 
-el.changer.addEventListener('click', versEtatVide);
+el.changer.addEventListener('click', () => versEtatVide(true));
 
 el.coords.addEventListener('input', () => {
   cible = parseCoordinates(el.coords.value);

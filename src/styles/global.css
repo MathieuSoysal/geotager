@@ -40,8 +40,18 @@
   --amber: #ffb020;
   --indigo: #8b87ff;
   --encre: #1a0a12;
-  /* The text that passes over the decoration. See the hero block below: these
-     three values are what allows the shapes their colour. */
+  /*
+   * The text that passes over the decor. See the hero block below: these three
+   * values are what allow the shapes their colour.
+   *
+   * And not only the hero. `body`'s gradients use
+   * `background-attachment: fixed`, so they are pinned to the window rather
+   * than the document, and as you scroll any text on the page eventually passes
+   * under any part of the gradient, top-left corner included, which is the
+   * densest at 0.42 of pink. `--muted` falls between 3.3:1 and 4.0:1 there. The
+   * rule is therefore: on an opaque panel, `--muted`; over the page gradient,
+   * `--clair`.
+   */
   --clair: #ded9e2;
   --clair-mono: #ded9e2;
   --rose-clair: #ff93bd;
@@ -71,9 +81,28 @@ body {
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--sans);
-  font-size: 16px;
+  /*
+   * `1rem` rather than `16px`. `:root` sets no size: the rest of the sheet is
+   * already in `rem` and so follows the user's preference. The pixel value
+   * pinned only one thing, whatever inherits from `body` without a size of its
+   * own, which is the article prose, the lists and the capability table. That
+   * is exactly the long text, read by exactly the people who took the trouble
+   * to enlarge their browser's default font.
+   */
+  font-size: 1rem;
   line-height: 1.55;
   overflow-x: hidden;
+  /*
+   * Nothing is persisted, by choice: no localStorage, no IndexedDB, no server. A
+   * reload therefore loses the loaded file, the read already done, the typed
+   * coordinates and the point on the map, with no way to recover. And the tool
+   * fits in the first screen, since `.app` is `100svh`, so the document is
+   * permanently at zero and a downward swipe triggers Chrome Android's
+   * pull-to-refresh. This is not an installed-app concern: it is data loss in an
+   * ordinary tab, on exactly the device being targeted. `contain` cuts the
+   * chaining to the window without removing the local bounce.
+   */
+  overscroll-behavior-y: contain;
 }
 
 .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.25rem; }
@@ -234,10 +263,12 @@ body.glisse .decor:not(.parti) { transform: scale(1.07); opacity: 1; }
 .brand svg { width: 2rem; height: 2rem; flex: none; }
 nav.main { display: flex; gap: .25rem; flex-wrap: wrap; }
 nav.main a {
-  font-size: .86rem; color: var(--muted); text-decoration: none;
+  font-size: .86rem; color: var(--clair); text-decoration: none;
   padding: .36rem .8rem; border-radius: 999px;
 }
-nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
+/* Pink on its own veil measured 4.39:1. `--rose-clair`, the tone the hero
+   already uses, is 7.35:1 in the same place. */
+nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--rose-clair); }
 
 /* Stage: locked height, both states overlap inside it */
 .app { min-height: 100svh; display: flex; flex-direction: column; }
@@ -249,7 +280,7 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
 .step {
   display: flex; align-items: center; gap: .45rem;
   padding: .34rem .85rem .34rem .42rem; border-radius: 999px;
-  font-size: .83rem; color: var(--muted); background: rgba(244, 241, 245, .05);
+  font-size: .83rem; color: var(--clair); background: rgba(244, 241, 245, .05);
 }
 .step .no {
   width: 1.25rem; height: 1.25rem; border-radius: 50%; display: grid; place-items: center;
@@ -277,12 +308,26 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--pink); }
   transition: transform .34s cubic-bezier(.34, 1.56, .64, 1);
 }
 .bubble:hover, .bubble:focus-within { transform: scale(1.05); }
+/*
+ * The file input is reduced to a transparent pixel, so the generic ring was
+ * drawn around nothing, and the only sign of focus was the 5% scale above,
+ * which `prefers-reduced-motion` removes on top of that. The ring is carried by
+ * the bubble, in `--text` rather than `--pink`: the bubble is pink, and a pink
+ * ring on it would not show.
+ */
+.bubble:has(input:focus-visible) { outline: 3px solid var(--text); outline-offset: 3px; }
 .bubble svg { width: 2.9rem; height: 2.9rem; }
 .bubble b { font-size: 1.2rem; font-weight: 600; line-height: 1.15; display: block; }
-.bubble small { font-size: .9rem; opacity: .75; display: block; margin-top: .15rem; }
+/* `.75` gave 4.02:1: ink on pink is 5.53:1 at full strength, and every point of
+   opacity given back to the pink brings the two closer. `.85` measures 4.65:1
+   and keeps the intended nuance between the gesture and its echo. */
+.bubble small { font-size: .9rem; opacity: .85; display: block; margin-top: .15rem; }
 .bubble input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-h1 {
+/* The hero's large text. This used to be the `h1`; the `h1` moved up into
+   `.stage` so it survives the switch to the active state, and what remains here
+   is its visible copy, removed from the accessibility tree in the template. */
+.hero-titre {
   font-weight: 800; font-size: clamp(1.5rem, 3.6vw, 2.25rem); line-height: 1.08;
   letter-spacing: -.035em; margin: .3rem 0 0; max-width: 20rem;
 }
@@ -297,7 +342,7 @@ h1 {
  * `--muted` is untouched: elsewhere on the page no text passes over the decor,
  * and lightening it there would buy nothing.
  */
-h1 em { font-style: normal; color: var(--rose-clair); }
+.hero-titre em { font-style: normal; color: var(--rose-clair); }
 .sub { margin: 0; color: var(--clair); max-width: 30rem; font-size: .95rem; }
 .formats { font-family: var(--mono); font-size: .72rem; color: var(--clair-mono); margin: .2rem 0 0; }
 
@@ -335,6 +380,22 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
   flex: 1; min-width: 0; border: none; background: none; color: var(--text);
   font-family: var(--mono); font-size: .98rem; outline: none;
 }
+/*
+ * `.box input` clears the outline so no ring is drawn inside the pill. What
+ * remained is that none was drawn anywhere: that selector weighs (0,1,1), the
+ * generic `:focus-visible` rule weighs (0,1,0), and the coordinate field, the
+ * tool's main control and the route the page advertises as working offline,
+ * said nothing at all to the keyboard. `.box`'s pink border is not a signal: it
+ * is there permanently.
+ *
+ * The indicator moves to the wrapper, which has room. `:focus-within` rather
+ * than `:focus-visible`: the only focusable descendant is the text field, and a
+ * text field satisfies `:focus-visible` by keyboard as by mouse, so the two
+ * selectors are equivalent here and the first has better support. `.panel`'s
+ * horizontal padding (1.3rem) absorbs the 3px offset: nothing is clipped and no
+ * scrollbar appears.
+ */
+.box:focus-within { outline: 3px solid var(--pink); outline-offset: 3px; }
 .aide { font-size: .78rem; color: var(--muted); margin: .35rem 0 0; }
 .aide b { color: var(--teal); font-weight: 500; }
 
@@ -343,7 +404,8 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
   color: var(--encre); background: var(--pink);
 }
 .result .n { font-weight: 800; font-size: 1.3rem; line-height: 1.1; letter-spacing: -.03em; display: block; font-family: var(--mono); }
-.result .l { font-size: .83rem; opacity: .8; }
+/* Same arithmetic as `.bubble small`: `.8` was 4.35:1, `.85` is 4.65:1. */
+.result .l { font-size: .83rem; opacity: .85; }
 
 .btn {
   font-family: var(--sans); font-size: .9rem; font-weight: 500; padding: .7rem 1.2rem;
@@ -414,7 +476,20 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   cursor: grab; touch-action: none; user-select: none;
 }
 .carte-vue.glisse { cursor: grabbing; }
-.carte-vue:focus-visible { outline: 2px solid var(--pink); outline-offset: -2px; }
+/*
+ * The ring used to be drawn inside the view, that is, directly on the tiles: a
+ * 2px pink line over an image of arbitrary colour, which could land on a
+ * pinkish-beige urban area and disappear. It has moved up onto the frame,
+ * outside the image area, as a double ring: the dark ink guarantees contrast
+ * against the page, the pink against the ink, so neither depends on what the
+ * map is showing.
+ */
+.carte-vue:focus-visible { outline: none; }
+.carte-cadre:has(.carte-vue:focus-visible) {
+  outline: 3px solid var(--pink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px var(--encre);
+}
 
 .carte-tuiles { position: absolute; top: 0; left: 0; will-change: transform; }
 .carte-tuile {
@@ -457,7 +532,7 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   background: var(--panel); color: var(--text); border: 1px solid var(--bordure);
   font: inherit; font-size: 1.1rem; line-height: 1; display: grid; place-items: center;
 }
-.carte-zoom button:hover { background: var(--panel-haut); color: var(--pink); }
+.carte-zoom button:hover { background: var(--panel-haut); color: var(--rose-clair); }
 
 .carte-pied {
   display: flex; justify-content: space-between; gap: .8rem; flex-wrap: wrap;
@@ -469,7 +544,7 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 @media (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
 
 .scrollcue { display: flex; justify-content: center; padding: .2rem 0 1.1rem; }
-.scrollcue a { color: var(--muted); font-size: .82rem; text-decoration: none; }
+.scrollcue a { color: var(--clair); font-size: .82rem; text-decoration: none; }
 .scrollcue a:hover { color: var(--pink); }
 
 /* Content below the fold */
@@ -494,10 +569,10 @@ article.contenu pre code { background: none; padding: 0; }
 article.contenu a { color: var(--teal); }
 article.contenu table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 1rem 0; }
 article.contenu th, article.contenu td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
-article.contenu th { color: var(--muted); font-weight: 500; }
+article.contenu th { color: var(--clair); font-weight: 500; }
 
-footer { padding: 3rem 0; font-size: .82rem; color: var(--muted); border-top: 1px solid var(--bordure); margin-top: 3rem; }
-footer a { color: var(--muted); }
+footer { padding: 3rem 0; font-size: .82rem; color: var(--clair); border-top: 1px solid var(--bordure); margin-top: 3rem; }
+footer a { color: var(--clair); }
 /* The negative indent offsets the pills' horizontal padding, so the first link
    lines up with the text below rather than floating. */
 footer nav.main { margin: 0 0 1.2rem -.8rem; }

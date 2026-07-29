@@ -64,6 +64,8 @@ export interface Dictionnaire {
   };
 
   app: {
+    /** Hidden title of the active state: focus target after loading. */
+    titreActif: string;
     changer: string;
     ouPrise: string;
     aideCoords: string;

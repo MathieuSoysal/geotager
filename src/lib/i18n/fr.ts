@@ -48,6 +48,7 @@ export const fr: Dictionnaire = {
   },
 
   app: {
+    titreActif: 'Photo chargée',
     changer: 'Changer de photo',
     ouPrise: 'Où cette photo a-t-elle été prise ?',
     aideCoords:
