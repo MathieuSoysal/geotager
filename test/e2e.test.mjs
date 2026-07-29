@@ -832,6 +832,45 @@ for (let i = erreursConsole.length - 1; i >= 0; i--) {
 }
 
 /*
+ * The map chunk is missing.
+ *
+ * It is deliberately not precached by the service worker, so offline it is not
+ * there and the dynamic import fails. The rejection was caught nowhere: you
+ * were left with an open panel, a button saying "Close the map", an empty frame
+ * and a console error nobody reads.
+ *
+ * The failure is provoked by refusing the request rather than by cutting the
+ * network: it is the only way to make it a deterministic check.
+ */
+console.log("\nLe morceau de la carte manque, et l'outil le dit");
+await contexte.route('**/_astro/carte*.js', (route) => route.abort('failed'));
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', source);
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+const avantEchecCarte = erreursConsole.length;
+await page.click('#carte-bascule');
+await page.waitForTimeout(1_500);
+check("l'indisponibilité de la carte est DITE, et non subie",
+  await page.locator('#carte-erreur').isVisible());
+check('le message renvoie vers la saisie, qui elle fonctionne',
+  ((await page.locator('#carte-erreur').textContent()) ?? '').length > 20);
+check('le cadre vide ne reste pas à l\'écran',
+  !(await page.locator('.carte-cadre').isVisible()));
+check("saisir des coordonnées marche toujours",
+  await page.evaluate(async () => {
+    const c = document.getElementById('coords');
+    c.value = '48.8584, 2.2945';
+    c.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    return !document.getElementById('telecharger').disabled;
+  }));
+const nouvelles = erreursConsole.slice(avantEchecCarte)
+  .filter((e) => !/Failed to load resource|net::ERR_/.test(e));
+check("aucune exception ne s'échappe du chargement raté",
+  nouvelles.length === 0, nouvelles[0]);
+await contexte.unroute('**/_astro/carte*.js');
+
+/*
  * And with no network? The page promises the tool works in full with the
  * connection cut. The map cannot: it therefore has to settle for staying empty,
  * without taking anything with it. A map that threw would bring `app.ts` down,
@@ -917,8 +956,15 @@ check('hors ligne, une photo est encore lue de bout en bout', lueHorsLigne);
 // The map chunk is deliberately not precached: opening it offline without ever
 // having opened it online cannot work, and above all must not take the
 // application down with it.
+/*
+ * Opening the map offline must take nothing with it. What exactly becomes of
+ * the chunk depends on the environment, since depending on the version
+ * Playwright's cut does or does not reach requests issued by the service worker
+ * itself, so all that is judged here is harmlessness. The failure path proper
+ * is exercised above, deterministically.
+ */
 await pageSw.click('#carte-bascule').catch(() => {});
-await pageSw.waitForTimeout(1_000);
+await pageSw.waitForTimeout(1_500);
 const restantesSw = erreursSw.filter((e) => !/Failed to load resource|net::ERR_|FetchEvent/.test(e));
 check("la carte indisponible hors ligne n'emporte rien avec elle",
   restantesSw.length === 0, restantesSw[0]);
