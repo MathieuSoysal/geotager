@@ -467,6 +467,57 @@ check("la zone de dépôt est un label lié à un input de fichier",
 check('une région live existe pour les annonces',
   await page.locator('#annonce[aria-live="polite"]').count() === 1);
 
+// All three landmarks were missing. Somebody navigating from landmark to
+// landmark found only a navigation and a footer, never the tool.
+const reperes = await page.evaluate(() => ({
+  main: document.querySelectorAll('main').length,
+  header: document.querySelectorAll('body > .app header.bar, header.bar').length,
+  footer: document.querySelectorAll('footer').length,
+  // A `footer` stops being "contentinfo" as soon as it is inside a `main`.
+  footerDansMain: !!document.querySelector('main footer'),
+  headerDansMain: !!document.querySelector('main header'),
+}));
+check('la page a exactement un repère principal', reperes.main === 1, String(reperes.main));
+check('la bannière et le pied de page existent',
+  reperes.header === 1 && reperes.footer === 1);
+check('ni la bannière ni le pied ne sont enfermés dans le repère principal',
+  !reperes.footerDansMain && !reperes.headerDansMain);
+check("le lien d'évitement mène à l'outil, pas à la prose",
+  (await page.locator('a.saut').getAttribute('href')) === '#outil');
+
+// The iOS decimal pad carries no minus sign: no southern latitude or western
+// longitude could be typed with a finger.
+check("le champ de coordonnées n'impose plus de pavé décimal",
+  (await page.locator('#coords').getAttribute('inputmode')) === null);
+
+// The <h1> lived in the empty state and disappeared with it.
+await page.setInputFiles('#picker', source);
+await page.waitForFunction(() => !document.getElementById('etat-actif').hidden);
+check("un titre de niveau 1 subsiste une fois la photo chargée",
+  await page.evaluate(() => {
+    const h = document.querySelector('h1');
+    // `visually-hidden` stays in the tree; `hidden` does not.
+    return !!h && h.offsetParent !== null || (!!h && !h.closest('[hidden]'));
+  }));
+check("le focus n'est pas retombé sur le corps du document",
+  await page.evaluate(() => document.activeElement !== document.body));
+
+// A refused entry said nothing: the button greyed out, and that was all.
+await page.fill('#coords', 'nulle part');
+await page.locator('#coords').blur();
+check("une saisie refusée est signalée",
+  (await page.locator('#coords').getAttribute('aria-invalid')) === 'true');
+check("le message d'erreur est visible et non vide",
+  await page.locator('#coords-erreur').isVisible()
+  && (await page.locator('#coords-erreur').textContent()).trim().length > 0);
+check("le message d'erreur est relié au champ",
+  (await page.locator('#coords').getAttribute('aria-describedby') ?? '').includes('coords-erreur'));
+await page.fill('#coords', '43.9493, 4.8055');
+await page.locator('#coords').blur();
+check("elle cesse de l'être dès que la saisie redevient lisible",
+  (await page.locator('#coords').getAttribute('aria-invalid')) === null
+  && !(await page.locator('#coords-erreur').isVisible()));
+
 console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
 check('le décor est hors de l\'arbre d\'accessibilité',
   await page.evaluate(() => {
