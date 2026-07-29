@@ -399,8 +399,8 @@ await page.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
 check('la page française déclare sa langue',
   (await page.locator('html').getAttribute('lang')) === 'fr');
 check('elle affiche bien du français',
-  (await page.locator('#etat-vide h1').textContent()).includes('Changez le lieu'),
-  (await page.locator('#etat-vide h1').textContent()).trim());
+  (await page.locator('#outil h1').textContent()).includes('Changez le lieu'),
+  (await page.locator('#outil h1').textContent()).trim());
 check('elle pointe vers la version anglaise',
   (await page.locator('nav.main a[rel="alternate"]').getAttribute('href')) === '/');
 const enHref = await page.locator('link[rel="alternate"][hreflang="en"]').getAttribute('href');
