@@ -51,7 +51,15 @@ export interface Dictionnaire {
     fonctions: string[];
   };
 
-  nav: { viePrivee: string; modeEmploi: string; verifier: string; sections: string; aller: string };
+  nav: {
+    viePrivee: string;
+    modeEmploi: string;
+    verifier: string;
+    sections: string;
+    aller: string;
+    /** Accessible name of the landmark holding the cards and the article. */
+    enSavoirPlus: string;
+  };
 
   etapes: { titre: string; deposer: string; choisir: string; telecharger: string };
 

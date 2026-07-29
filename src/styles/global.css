@@ -272,7 +272,10 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--rose-clair)
 
 /* Stage: locked height, both states overlap inside it */
 .app { min-height: 100svh; display: flex; flex-direction: column; }
-.stage { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: auto 1fr; }
+/* `auto 1fr auto`: the steps, the current state, and the scroll cue, the last
+   having joined the main landmark. Declared rather than implicit, so the `1fr`
+   row stays what absorbs the height. */
+.stage { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: auto 1fr auto; }
 
 /* The steps exist from the empty state onwards, dimmed: their height must never
    appear all at once, or it is layout shift. */
