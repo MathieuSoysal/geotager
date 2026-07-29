@@ -969,7 +969,72 @@ const restantesSw = erreursSw.filter((e) => !/Failed to load resource|net::ERR_|
 check("la carte indisponible hors ligne n'emporte rien avec elle",
   restantesSw.length === 0, restantesSw[0]);
 
+/*
+ * Incoming share.
+ *
+ * The system sends the photo as a multipart POST, and no server receives it:
+ * the service worker intercepts it, keeps the bytes in memory, redirects, and
+ * the page comes to claim them. It is the whole path that is exercised here. We
+ * cannot trigger the system share menu from a test, but everything that happens
+ * afterwards, we can.
+ *
+ * The POST comes from a `fetch` rather than a form: the site policy carries
+ * `form-action 'none'`, so a form on our own page would be refused. A real
+ * share is not one, since it comes from the system, and the worker only
+ * distinguishes the method and the path anyway.
+ */
 await ctxSw.setOffline(false);
+console.log('\nUne photo partagée depuis le système');
+
+const octetsPhoto = readFileSync(source).toString('base64');
+const redirection = await pageSw.evaluate(async (b64) => {
+  const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const fd = new FormData();
+  fd.append('photos', new File([bin], 'partagee.jpg', { type: 'image/jpeg' }));
+  const r = await fetch('/partager', { method: 'POST', body: fd, redirect: 'manual' });
+  return { type: r.type, status: r.status, url: r.url };
+}, octetsPhoto);
+check('la cible de partage répond sans serveur',
+  redirection.status === 303 || redirection.type === 'opaqueredirect',
+  `${redirection.status} / ${redirection.type}`);
+
+// The worker keeps the bytes; the page claims them on arriving at ?partage=1.
+await pageSw.goto(`http://127.0.0.1:${PORT}/?partage=1`, { waitUntil: 'load' });
+const recue = await pageSw
+  .waitForFunction(() => {
+    const n = document.getElementById('nom-fichier');
+    return n && n.textContent.includes('partagee');
+  }, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('la photo partagée arrive dans l\'outil', recue);
+check("le paramètre est retiré de l'adresse",
+  !pageSw.url().includes('partage='), pageSw.url());
+const positionPartagee = await pageSw
+  .waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && !p.hidden && p.textContent.trim().length > 0;
+  }, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('elle est lue comme n\'importe quelle autre', positionPartagee);
+
+/*
+ * Rendered once, and once only. Without that, a reload would bring back a photo
+ * the user thought they had closed, and the worker would hold its bytes in
+ * memory with nothing coming to fetch them.
+ */
+await pageSw.goto(`http://127.0.0.1:${PORT}/?partage=1`, { waitUntil: 'load' });
+await pageSw.waitForTimeout(1_500);
+check('un second appel ne rend pas la photo une deuxième fois',
+  await pageSw.locator('#etat-vide').isVisible());
+check("et il l'explique au lieu de laisser une page muette",
+  await pageSw.locator('#avis-vide').isVisible());
+
+const restantesPartage = erreursSw.filter((e) => !/Failed to load resource|net::ERR_|FetchEvent/.test(e));
+check('aucune exception sur le chemin du partage',
+  restantesPartage.length === 0, restantesPartage[0]);
+
 await ctxSw.close();
 
 await navigateur.close();
