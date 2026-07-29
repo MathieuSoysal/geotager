@@ -60,6 +60,7 @@ export const en: Dictionnaire = {
     aideCoords:
       'Paste coordinates from a map: in Google Maps, right-click the spot then click the numbers to copy them. Decimal and degrees-minutes-seconds are both accepted. ',
     aideCoordsFort: 'Your photo stays here.',
+    coordsInvalides: 'Invalid coordinates — enter a latitude and a longitude, for example 43.9493, 4.8055.',
     ouvrirCarte: 'Place it on a map',
     fermerCarte: 'Close the map',
     avisCarte:

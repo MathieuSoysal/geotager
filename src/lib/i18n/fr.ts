@@ -54,6 +54,7 @@ export const fr: Dictionnaire = {
     aideCoords:
       'Collez des coordonnées depuis une carte : dans Google Maps, clic droit sur le lieu puis clic sur les chiffres pour les copier. Le format décimal et le format degrés-minutes-secondes sont acceptés. ',
     aideCoordsFort: 'Votre photo reste ici.',
+    coordsInvalides: 'Coordonnées non valides — indiquez une latitude et une longitude, par exemple 43,9493, 4,8055.',
     ouvrirCarte: 'Placer sur une carte',
     fermerCarte: 'Fermer la carte',
     avisCarte:

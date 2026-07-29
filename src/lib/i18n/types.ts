@@ -70,6 +70,8 @@ export interface Dictionnaire {
     ouPrise: string;
     aideCoords: string;
     aideCoordsFort: string;
+    /** Input the parser refuses: error text, announced and displayed. */
+    coordsInvalides: string;
     /** The location picker map, folded away until it is asked for. */
     ouvrirCarte: string;
     fermerCarte: string;

@@ -397,6 +397,10 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
  */
 .box:focus-within { outline: 3px solid var(--pink); outline-offset: 3px; }
 .aide { font-size: .78rem; color: var(--muted); margin: .35rem 0 0; }
+/* Colour carries nothing on its own: the text itself begins with "Coordinates
+   not valid — ", so the message stays complete for anyone who cannot tell this
+   pink from the grey beside it. */
+.aide.erreur { color: #ffb0cf; }
 .aide b { color: var(--teal); font-weight: 500; }
 
 .result {

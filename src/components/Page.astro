@@ -207,11 +207,23 @@ const jsonLd = {
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#FF3385" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
                     <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.3-4.3"></path>
                   </svg>
+                  <!-- Pas d'`inputmode`. Il valait `decimal`, et le pavé que
+                       cela ouvre sur iPhone ne porte ni signe moins, ni degré,
+                       ni lettre d'hémisphère : aucune latitude sud, aucune
+                       longitude ouest n'était saisissable au doigt, et le DMS
+                       n'offrait pas de détour puisque « ° ′ ″ N S E O » n'y sont
+                       pas non plus. La moitié du globe pour un attribut. Le
+                       coller marchait, ce qui explique que personne ne l'ait vu.
+                       Absent plutôt que `text` : un attribut qui n'existe pas ne
+                       peut pas redériver. -->
                   <input
                     id="coords"
                     type="text"
-                    inputmode="decimal"
+                    enterkeyhint="done"
                     autocomplete="off"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    spellcheck="false"
                     placeholder="43.9493, 4.8055"
                     aria-describedby="coords-aide"
                   />
@@ -219,6 +231,10 @@ const jsonLd = {
                 <p class="aide" id="coords-aide">
                   {T.app.aideCoords}<b>{T.app.aideCoordsFort}</b>
                 </p>
+                <!-- Une saisie que l'analyseur refuse ne disait rien du tout :
+                     le bouton de téléchargement se grisait, et c'était le seul
+                     indice. Ni texte, ni `aria-invalid`, ni annonce. -->
+                <p class="aide erreur" id="coords-erreur" role="alert" hidden></p>
               </div>
 
               <!-- La carte est REPLIÉE, et c'est tout l'accord : tant que

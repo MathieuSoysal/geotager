@@ -48,6 +48,7 @@ const el = {
   lot: $('lot'),
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
+  coordsErreur: $('coords-erreur'),
   titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
@@ -103,6 +104,26 @@ function annoncer(texte: string): void {
   el.annonce.textContent = texte;
 }
 
+/**
+ * The "input refused" state of the coordinate field.
+ *
+ * Checked on blur rather than on keystroke: "43." is invalid at the third key,
+ * and validating on every character would shout the error while the right
+ * answer is being typed. One entry point, called by everything that writes into
+ * the field, the map included, so the attribute and the text cannot diverge.
+ */
+function majEtatCoords(invalide: boolean): void {
+  el.coordsErreur.hidden = !invalide;
+  el.coordsErreur.textContent = invalide ? T.app.coordsInvalides : '';
+  if (invalide) {
+    el.coords.setAttribute('aria-invalid', 'true');
+    el.coords.setAttribute('aria-describedby', 'coords-aide coords-erreur');
+  } else {
+    el.coords.removeAttribute('aria-invalid');
+    el.coords.setAttribute('aria-describedby', 'coords-aide');
+  }
+}
+
 // State
 
 function marquerEtape(n: 1 | 2 | 3): void {
@@ -135,6 +156,7 @@ function versEtatVide(deplacerFocus = false): void {
   el.vide.hidden = false;
   el.actif.hidden = true;
   el.coords.value = '';
+  majEtatCoords(false);
   el.resultat.hidden = true;
   el.telecharger.disabled = true;
   el.picker.value = '';
@@ -307,6 +329,7 @@ async function ouvrirCarte(): Promise<void> {
       cible = p;
       precision = m;
       el.coords.value = formatDecimal(p);
+      majEtatCoords(false);
       majResultat();
       annoncer(T.app.positionChoisie(formatDecimal(p)));
     },
@@ -499,12 +522,20 @@ el.changer.addEventListener('click', () => versEtatVide(true));
 
 el.coords.addEventListener('input', () => {
   cible = parseCoordinates(el.coords.value);
+  // We clear while typing and never accuse: the reproach belongs to blur,
+  // below.
+  if (cible || !el.coords.value.trim()) majEtatCoords(false);
   // Typed coordinates have no zoom, and so no precision to declare. Inheriting
   // one from an earlier click would write a number nobody measured into
   // somebody's file.
   precision = null;
   if (cible) carte?.centrer(cible);
   majResultat();
+});
+
+el.coords.addEventListener('blur', () => {
+  const saisi = el.coords.value.trim();
+  majEtatCoords(saisi !== '' && parseCoordinates(saisi) === null);
 });
 
 el.carteBascule.addEventListener('click', () => void ouvrirCarte());
