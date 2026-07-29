@@ -72,6 +72,7 @@ export const fr: Dictionnaire = {
     positionChoisie: (p) => `Choisi sur la carte : ${p}`,
     telecharger: 'Télécharger la photo',
     telechargerPourquoi: 'Indisponible tant qu\'aucun lieu n\'est indiqué ci-dessus.',
+    partagerSortie: 'Partager la photo nettoyée',
     effacer: 'Effacer la position',
     effacerTout: 'Tout effacer',
     autres: 'Voir les autres informations',

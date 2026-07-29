@@ -40,6 +40,7 @@ const el = {
   resultatCoords: $('resultat-coords'),
   resultatDetail: $('resultat-detail'),
   telecharger: $<HTMLButtonElement>('telecharger'),
+  partagerSortie: $<HTMLButtonElement>('partager-sortie'),
   effacer: $<HTMLButtonElement>('effacer'),
   effacerTout: $<HTMLButtonElement>('effacer-tout'),
   autres: $<HTMLDetailsElement>('autres'),
@@ -190,6 +191,7 @@ function versEtatVide(deplacerFocus = false): void {
   inactiver(el.telecharger, true);
   el.picker.value = '';
   el.avisVide.hidden = true;
+  proposerPartage([]);
   marquerEtape(1);
   annoncer(T.app.aucuneChargee);
   if (deplacerFocus) el.picker.focus();
@@ -549,6 +551,18 @@ async function appliquer(
     telechargerBlob(zip, T.app.zip);
   }
 
+  /*
+   * Le téléchargement reste ce qu'il était : le partage s'ajoute, il ne
+   * remplace rien. Ce sont les fichiers PRODUITS qu'on retient — jamais les
+   * originaux. Toute la valeur de l'outil tient à cette distinction, et c'est
+   * l'endroit du code où la confondre coûterait le plus cher.
+   */
+  proposerPartage(
+    produits.map(
+      (p) => new File([p.input as BlobPart], p.name, { type: 'application/octet-stream' }),
+    ),
+  );
+
   marquerEtape(3);
   annoncer(
     echecs === 0
@@ -556,6 +570,40 @@ async function appliquer(
       : T.app.pretsAvecEchecs(produits.length, echecs),
   );
 }
+
+/* --- partage sortant ------------------------------------------------ */
+
+/** Les fichiers produits par la dernière opération. Jamais les originaux. */
+let sorties: File[] = [];
+
+/*
+ * `canShare({ files })` et non `'share' in navigator` : le partage de FICHIERS
+ * est plus étroit que celui d'un lien, et un navigateur peut très bien avoir le
+ * second sans le premier. On interroge donc l'API sur les fichiers réels — leur
+ * nombre et leur type comptent — plutôt que sur son existence.
+ */
+function proposerPartage(fichiers: File[]): void {
+  sorties = fichiers;
+  const possible =
+    fichiers.length > 0 &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: fichiers });
+  el.partagerSortie.hidden = !possible;
+}
+
+el.partagerSortie.addEventListener('click', () => {
+  if (!sorties.length) return;
+  /*
+   * Appelé DIRECTEMENT dans le gestionnaire, sans `await` avant : le partage
+   * exige une activation utilisateur transitoire, et le moindre aller-retour
+   * asynchrone la consomme — la feuille de partage ne s'ouvrirait plus.
+   *
+   * Le refus est la normale, pas une panne : fermer la feuille sans rien
+   * choisir rejette la promesse. On l'avale, sinon le contrôle « aucune erreur
+   * de console » du test de bout en bout virerait au rouge à chaque hésitation.
+   */
+  void navigator.share({ files: sorties, title: T.meta.titre }).catch(() => {});
+});
 
 function telechargerBlob(blob: Blob, nom: string): void {
   const url = URL.createObjectURL(blob);

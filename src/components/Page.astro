@@ -338,6 +338,13 @@ const jsonLd = {
                    lieu n'a encore été choisi, et rien ne le disait. -->
               <p class="visually-hidden" id="telecharger-pourquoi">{T.app.telechargerPourquoi}</p>
 
+              <!-- Le partage sortant. Masqué tant qu'aucun fichier n'a été
+                   produit, et tant que le navigateur ne sait pas partager CES
+                   fichiers-là. La photo nettoyée devait jusqu'ici passer par le
+                   dossier de téléchargement pour aller ailleurs. -->
+              <button class="btn ghost" type="button" id="partager-sortie" hidden>
+                {T.app.partagerSortie}
+              </button>
               <div class="minor">
                 <button class="btn ghost" type="button" id="effacer">{T.app.effacer}</button>
                 <button class="btn ghost" type="button" id="effacer-tout">{T.app.effacerTout}</button>

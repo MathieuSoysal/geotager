@@ -92,6 +92,8 @@ export interface Dictionnaire {
     telecharger: string;
     /** Pourquoi « Télécharger » est inactif tant qu'aucun lieu n'est choisi. */
     telechargerPourquoi: string;
+    /** Partager la photo PRODUITE — jamais l'originale. */
+    partagerSortie: string;
     effacer: string;
     effacerTout: string;
     autres: string;
