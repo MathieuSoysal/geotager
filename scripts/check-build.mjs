@@ -128,8 +128,12 @@ const RESSOURCES = [
   /\bfetch\(\s*["'`](https?:\/\/[^"'`]+)/gi,
 ];
 
+// `.webmanifest` is part of it: it is the only file on the site where an icon
+// hosted elsewhere, or a share target, or a screenshot, would pass with nothing
+// seeing it. Leaving it out of the sweep would have opened a hole in the
+// project's main guard rail at the very moment the file was added.
 const textes = fichiers.filter((f) =>
-  ['.html', '.css', '.js', '.mjs', '.json', '.xml'].includes(extname(f)),
+  ['.html', '.css', '.js', '.mjs', '.json', '.xml', '.webmanifest'].includes(extname(f)),
 );
 for (const f of textes) {
   const contenu = readFileSync(f, 'utf8');
@@ -379,6 +383,90 @@ for (const [fichierReadme, page] of [
         );
       }
     });
+  }
+}
+
+// 8. The manifest and its icons
+
+/*
+ * A missing icon is the quietest failure of the lot: the site goes on
+ * displaying, installation goes on being offered, and it is only on the home
+ * screen that you discover an empty square. On Chrome Android a 404 manifest
+ * additionally suspends update checks for thirty days.
+ *
+ * So the whole chain is checked, from the page: the link exists, the target
+ * exists, it is JSON, and each of its addresses names a file actually present
+ * in `dist/`.
+ */
+{
+  const pages = fichiers.filter((x) => extname(x) === '.html');
+  for (const f of pages) {
+    const html = readFileSync(f, 'utf8');
+    const lien = html.match(/<link[^>]+rel=["']manifest["'][^>]*href=["']([^"']+)["']/i)?.[1];
+    if (!lien) {
+      echecs.push(`${rel(f)} : aucun <link rel="manifest">`);
+      continue;
+    }
+    if (/^https?:/i.test(lien)) {
+      echecs.push(`${rel(f)} : le manifeste est hébergé ailleurs — ${lien}`);
+      continue;
+    }
+    const cible = join(DIR, lien.replace(/^\//, ''));
+    if (!existsSync(cible)) {
+      echecs.push(`${rel(f)} : le manifeste ${lien} n'existe pas dans ${DIR}/`);
+      continue;
+    }
+
+    let m;
+    try {
+      m = JSON.parse(readFileSync(cible, 'utf8'));
+    } catch (e) {
+      echecs.push(`${rel(cible)} n'est pas du JSON valide : ${e.message}`);
+      continue;
+    }
+
+    // `id` is an installation's identity. Two manifests that do not share it
+    // are two applications, and changing it one day would orphan every existing
+    // installation.
+    if (m.id !== '/') echecs.push(`${rel(cible)} : « id » vaut « ${m.id} », il doit valoir « / »`);
+    if (m.scope !== '/') echecs.push(`${rel(cible)} : « scope » doit valoir « / »`);
+
+    const adresses = [
+      ['start_url', m.start_url],
+      ['scope', m.scope],
+      ...(m.icons ?? []).map((i, n) => [`icons[${n}].src`, i.src]),
+      ...(m.screenshots ?? []).map((i, n) => [`screenshots[${n}].src`, i.src]),
+    ];
+    for (const [nom, adresse] of adresses) {
+      if (typeof adresse !== 'string') {
+        echecs.push(`${rel(cible)} : « ${nom} » est absent`);
+      } else if (/^https?:/i.test(adresse)) {
+        echecs.push(`${rel(cible)} : « ${nom} » sort de l'origine — ${adresse}`);
+      }
+    }
+    for (const [nom, src] of adresses.filter(([n]) => n.startsWith('icons') || n.startsWith('screenshots'))) {
+      if (typeof src !== 'string' || /^https?:/i.test(src)) continue;
+      if (!existsSync(join(DIR, src.replace(/^\//, '')))) {
+        echecs.push(`${rel(cible)} : « ${nom} » désigne ${src}, absent de ${DIR}/`);
+      }
+    }
+
+    // A maskable icon is cropped by up to 20% on each side. Without one, the
+    // system makes its own by pasting the ordinary icon into the centre of a
+    // white square, which is always ugly and often illegible.
+    if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
+      echecs.push(`${rel(cible)} : aucune icône « maskable »`);
+    }
+  }
+
+  // The `apple-touch-icon` link goes through no manifest: iOS reads only it.
+  for (const f of pages) {
+    const html = readFileSync(f, 'utf8');
+    const apple = html.match(/<link[^>]+rel=["']apple-touch-icon["'][^>]*href=["']([^"']+)["']/i)?.[1];
+    if (!apple) echecs.push(`${rel(f)} : aucun <link rel="apple-touch-icon">`);
+    else if (!existsSync(join(DIR, apple.replace(/^\//, '')))) {
+      echecs.push(`${rel(f)} : apple-touch-icon ${apple} est absent de ${DIR}/`);
+    }
   }
 }
 

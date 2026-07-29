@@ -62,7 +62,25 @@ const jsonLd = {
     <meta property="og:description" content={T.meta.description} />
     <meta property="og:url" content={url} />
     <meta property="og:locale" content={T.ogLocale} />
+    <!-- `summary_large_image` était déclaré depuis toujours SANS aucune image :
+         la carte annoncée n'existait pas, et tout partage du site s'affichait
+         vide. L'image est unique pour les deux langues — un fichier de cette
+         taille ne se double pas pour deux phrases. -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta property="og:image" content={`${site}/og.png`} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={T.meta.imageAlt} />
+    <meta name="twitter:image" content={`${site}/og.png`} />
+
+    <!-- Le manifeste de CETTE langue. Les deux partagent un `id`, donc une
+         seule application installée, sous le nom de la page d'où on l'installe. -->
+    <link rel="manifest" href={`${T.base}manifest.webmanifest`} />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <!-- L'URL de données reste : elle est le secours des navigateurs qui ne
+         savent pas d'un favicon SVG, et elle ne coûte pas une requête. -->
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z' fill='%23FF3385'/%3E%3Ccircle cx='20' cy='17.4' r='5.7' fill='%2317161B'/%3E%3C/svg%3E"

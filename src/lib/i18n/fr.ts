@@ -11,6 +11,7 @@ export const fr: Dictionnaire = {
     titre: "Modifier la géolocalisation d'une photo — Geotager",
     description:
       "Ajoutez, modifiez ou supprimez les coordonnées GPS d'une photo directement dans votre navigateur. Aucun envoi de fichier, aucune inscription.",
+    imageAlt: 'Geotager — changez le lieu d\'une photo, entièrement dans votre navigateur.',
     nomLangue: 'Français',
     sousCategorie: "Édition de métadonnées d'image",
     systeme: 'Tout navigateur web moderne',

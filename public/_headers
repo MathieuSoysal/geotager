@@ -26,3 +26,20 @@ https://:version.:project.workers.dev/*
 
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
+
+# Le manifeste est explicitement typé. Servi en `application/octet-stream`, il
+# est refusé sans un mot : l'installation cesse d'être proposée, et rien dans la
+# page ne le dit. On ne dépend pas de la table MIME de l'hébergeur pour ça.
+/manifest.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
+
+/fr/manifest.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
+
+# Les icônes et l'image de partage n'ont pas d'empreinte dans leur nom : elles
+# ne peuvent donc pas être immuables. Une semaine, et une revalidation.
+/icons/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+
+/og.png
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
