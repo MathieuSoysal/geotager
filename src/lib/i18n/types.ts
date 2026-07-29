@@ -90,6 +90,8 @@ export interface Dictionnaire {
     repereOrigine: string;
     positionChoisie: (p: string) => string;
     telecharger: string;
+    /** Why "Download" is inactive while no location has been chosen. */
+    telechargerPourquoi: string;
     effacer: string;
     effacerTout: string;
     autres: string;

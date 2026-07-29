@@ -71,6 +71,7 @@ export const fr: Dictionnaire = {
     repereOrigine: 'Le lieu inscrit dans la photo',
     positionChoisie: (p) => `Choisi sur la carte : ${p}`,
     telecharger: 'Télécharger la photo',
+    telechargerPourquoi: 'Indisponible tant qu\'aucun lieu n\'est indiqué ci-dessus.',
     effacer: 'Effacer la position',
     effacerTout: 'Tout effacer',
     autres: 'Voir les autres informations',

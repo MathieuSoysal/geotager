@@ -130,6 +130,26 @@ function majEtatCoords(invalide: boolean): void {
   }
 }
 
+/**
+ * A control that is inactive but reachable.
+ *
+ * `disabled` removes the element from the tab order and announces nothing: a
+ * keyboard user passes a greyed-out button without ever being able to land on
+ * it to learn why. `aria-disabled` leaves it focusable and announced, which is
+ * the opposite of a detail on "Erase everything".
+ *
+ * In exchange the button stays clickable: the guard moves to the handler, and
+ * it must be the first line there. Without it a greyed-looking button still
+ * acts, and one of them erases everything.
+ */
+function inactiver(bouton: HTMLButtonElement, inactif: boolean): void {
+  bouton.setAttribute('aria-disabled', String(inactif));
+}
+
+/** The guard, to be placed at the head of every handler. */
+const estInactif = (bouton: HTMLButtonElement): boolean =>
+  bouton.getAttribute('aria-disabled') === 'true';
+
 // State
 
 function marquerEtape(n: 1 | 2 | 3): void {
@@ -167,7 +187,7 @@ function versEtatVide(deplacerFocus = false): void {
   el.coords.value = '';
   majEtatCoords(false);
   el.resultat.hidden = true;
-  el.telecharger.disabled = true;
+  inactiver(el.telecharger, true);
   el.picker.value = '';
   el.avisVide.hidden = true;
   marquerEtape(1);
@@ -214,14 +234,17 @@ function afficherPrincipal(): void {
   el.alerteFormat.textContent = phrase;
   el.alerteFormat.classList.toggle('grave', !r.can.read);
   el.alerteFormat.classList.toggle('attention', r.can.read && !(modifiable && r.can.erase));
-  el.coords.disabled = !modifiable;
+  // A text field is not a button: `aria-disabled` would not stop it being
+  // filled in. `readonly` is the honest equivalent: focusable, announced as
+  // read-only, still selectable and copyable, but not editable.
+  el.coords.readOnly = !modifiable;
   // A map you can pan but whose result will never be written is a trap: it is
   // closed rather than left answering into the void.
-  el.carteBascule.disabled = !modifiable;
+  inactiver(el.carteBascule, !modifiable);
   if (!modifiable) fermerCarte();
   else carte?.marquerOrigine(r.position ?? null);
-  el.effacer.disabled = !r.can.erase;
-  el.effacerTout.disabled = !r.can.eraseAll;
+  inactiver(el.effacer, !r.can.erase);
+  inactiver(el.effacerTout, !r.can.eraseAll);
 
   const nomInfo = (cle: string) => T.infos[cle] ?? cle;
   const infos: Array<[string, string]> = [];
@@ -379,7 +402,7 @@ async function ouvrirCarte(): Promise<void> {
 function majResultat(): void {
   if (!cible) {
     el.resultat.hidden = true;
-    el.telecharger.disabled = true;
+    inactiver(el.telecharger, true);
     el.telecharger.textContent = T.app.telechargerPhotos(items.length);
     return;
   }
@@ -390,7 +413,7 @@ function majResultat(): void {
     ? T.app.depuisOrigine(formatDistance(distanceMetres(origine, cible), T.app.virgule))
     : T.app.nouvellePosition;
   const modifiables = items.filter((i) => i.read?.can.write).length;
-  el.telecharger.disabled = modifiables === 0;
+  inactiver(el.telecharger, modifiables === 0);
   el.telecharger.textContent = T.app.telechargerPhotos(modifiables);
   marquerEtape(3);
 }
@@ -468,9 +491,9 @@ async function appliquer(
   const concernes = items.filter((i) => i.read && permise(i.read));
   if (!concernes.length) return;
 
-  el.telecharger.disabled = true;
-  el.effacer.disabled = true;
-  el.effacerTout.disabled = true;
+  inactiver(el.telecharger, true);
+  inactiver(el.effacer, true);
+  inactiver(el.effacerTout, true);
 
   const statuts = new Map<string, string>();
   const produits: Array<{ name: string; input: Uint8Array }> = [];
@@ -505,9 +528,9 @@ async function appliquer(
   }
 
   if (concernes.length > 1) majListeLot(statuts);
-  el.effacer.disabled = false;
-  el.effacerTout.disabled = false;
-  el.telecharger.disabled = false;
+  inactiver(el.effacer, false);
+  inactiver(el.effacerTout, false);
+  inactiver(el.telecharger, false);
 
   if (!produits.length) {
     el.alerteFormat.hidden = false;
@@ -570,12 +593,15 @@ el.coords.addEventListener('blur', () => {
   majEtatCoords(saisi !== '' && parseCoordinates(saisi) === null);
 });
 
-el.carteBascule.addEventListener('click', () => void ouvrirCarte());
+el.carteBascule.addEventListener('click', () => {
+  if (estInactif(el.carteBascule)) return;
+  void ouvrirCarte();
+});
 el.cartePlus.addEventListener('click', () => carte?.zoomer(1));
 el.carteMoins.addEventListener('click', () => carte?.zoomer(-1));
 
 el.telecharger.addEventListener('click', () => {
-  if (!cible) return;
+  if (estInactif(el.telecharger) || !cible) return;
   // `Operation` has carried `accuracyMetres` from the start and the engine
   // writes it into the file; until now it had no honest source to connect it
   // to. The map's zoom is one. Nothing is announced on screen: on the route
@@ -590,10 +616,12 @@ el.telecharger.addEventListener('click', () => {
 });
 
 el.effacer.addEventListener('click', () => {
+  if (estInactif(el.effacer)) return;
   void appliquer({ kind: 'erase' }, T.app.suffixeSansLieu);
 });
 
 el.effacerTout.addEventListener('click', () => {
+  if (estInactif(el.effacerTout)) return;
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
 
