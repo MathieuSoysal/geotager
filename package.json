@@ -7,11 +7,12 @@
   "license": "MIT",
   "scripts": {
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
-    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/check-build.mjs",
+    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/gen-sw.mjs && node scripts/check-build.mjs",
     "deploy": "node scripts/deploy.mjs",
     "preview": "astro preview",
     "test": "node --experimental-strip-types test/engine.test.ts",
     "fixtures": "node scripts/fetch-fixtures.mjs",
+    "icons": "node scripts/build-icons.mjs",
     "test:e2e": "node --experimental-strip-types test/e2e.test.mjs",
     "test:all": "npm run fixtures && npm test && npm run build && npm run test:e2e"
   },

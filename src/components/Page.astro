@@ -334,6 +334,18 @@ const jsonLd = {
 
     <p class="visually-hidden" role="status" aria-live="polite" id="annonce"></p>
 
+    <!-- Bandeau de mise à jour. Il n'est JAMAIS automatique : rien n'est
+         persisté ici, donc un rechargement imposé détruirait les photos
+         chargées et non exportées. Le nouveau service worker attend derrière,
+         et ne prend la main que si l'on clique. -->
+    <div class="maj" id="maj" role="status" hidden>
+      <p id="maj-texte"></p>
+      <div class="maj-actions">
+        <button class="btn primary xs" type="button" id="maj-recharger">{T.app.majRecharger}</button>
+        <button class="btn ghost xs" type="button" id="maj-plus-tard">{T.app.majPlusTard}</button>
+      </div>
+    </div>
+
     <!-- ============ SOUS LA LIGNE DE FLOTTAISON ============ -->
     <div class="wrap" id="contenu">
       <div class="pitch">

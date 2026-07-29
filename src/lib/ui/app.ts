@@ -49,6 +49,10 @@ const el = {
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
   coordsErreur: $('coords-erreur'),
+  maj: $('maj'),
+  majTexte: $('maj-texte'),
+  majRecharger: $<HTMLButtonElement>('maj-recharger'),
+  majPlusTard: $<HTMLButtonElement>('maj-plus-tard'),
   titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
@@ -567,6 +571,76 @@ el.effacer.addEventListener('click', () => {
 el.effacerTout.addEventListener('click', () => {
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
+
+// Service worker
+
+/*
+ * The tool runs entirely on the user's machine: the only reason it stopped
+ * working offline was that nothing kept it. The service worker precaches the
+ * shell, and the promise that everything happens in your browser becomes
+ * checkable by cutting the connection.
+ *
+ * The update is never automatic. Nothing is persisted here: somebody may have
+ * forty photos open and nothing exported, and a forced reload would destroy all
+ * of it. The new worker waits behind; the click is what brings it forward.
+ */
+function proposerMaj(reg: ServiceWorkerRegistration): void {
+  const enTravaux = items.length > 0;
+  el.majTexte.textContent = enTravaux ? T.app.majTravaux : T.app.majDispo;
+  el.maj.hidden = false;
+  el.majRecharger.onclick = () => {
+    el.maj.hidden = true;
+    // The waiting worker only takes over on this message: see
+    // `scripts/sw-modele.js`, rule 2.
+    reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
+  };
+  el.majPlusTard.onclick = () => {
+    el.maj.hidden = true;
+  };
+}
+
+if ('serviceWorker' in navigator) {
+  /*
+   * After load: registering puts the network in competition with what the page
+   * needs in order to display, and the tool comes before its cache.
+   *
+   * Everything is wrapped. A decoration must not be able to take the tool down,
+   * which is already `blob.ts`'s rule, and a cache even less so: the end-to-end
+   * test refuses any console error, and an insecure context or refused storage
+   * makes `register` throw.
+   */
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => {
+        if (reg.waiting) proposerMaj(reg);
+        reg.addEventListener('updatefound', () => {
+          const arrivant = reg.installing;
+          if (!arrivant) return;
+          arrivant.addEventListener('statechange', () => {
+            // Non-null `controller`: there was already a worker, so this is an
+            // update and not the first installation, for which there is nothing
+            // to offer.
+            if (arrivant.state === 'installed' && navigator.serviceWorker.controller) {
+              proposerMaj(reg);
+            }
+          });
+        });
+      })
+      .catch(() => {
+        /* No cache, and that is all: the application works without one. */
+      });
+
+    // One reload. Without this flag, two tabs claiming control from each other
+    // loop forever.
+    let recharge = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (recharge) return;
+      recharge = true;
+      location.reload();
+    });
+  });
+}
 
 // Drag and drop over the whole page.
 let profondeur = 0;

@@ -597,6 +597,28 @@ footer nav.main { margin: 0 0 1.2rem -.8rem; }
   * { animation: none !important; transition: none !important; }
 }
 
+/* Update banner */
+
+/*
+ * Placed at the bottom, out of flow: it must shift neither the height-locked
+ * stage nor the article. `max-width` rather than full width, since on a wide
+ * screen an edge-to-edge bar for two buttons reads as an alarm, and this is not
+ * one.
+ */
+.maj {
+  position: fixed; z-index: 30;
+  left: 50%; translate: -50% 0; bottom: 1rem;
+  width: min(calc(100vw - 2rem), 32rem);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap;
+  padding: .85rem 1.1rem;
+  border-radius: 1.4rem 1rem 1.2rem .9rem;
+  background: var(--panel-haut); border: 1px solid rgba(255, 51, 133, .35);
+  box-shadow: 0 1rem 3rem -1rem rgba(0, 0, 0, .8);
+}
+.maj p { margin: 0; font-size: .85rem; flex: 1 1 14rem; }
+.maj-actions { display: flex; gap: .4rem; flex: none; }
+
 /* System preferences */
 
 /*
@@ -632,7 +654,7 @@ footer nav.main { margin: 0 0 1.2rem -.8rem; }
  * remained would be an opaque block over the text.
  */
 @media (forced-colors: active) {
-  .decor { display: none; }
+  .decor, .maj { display: none; }
   .btn, .box, .island, .card, .carte-cadre, .step, .pill, .carte-zoom button {
     border: 1px solid ButtonBorder;
   }
@@ -663,7 +685,7 @@ footer nav.main { margin: 0 0 1.2rem -.8rem; }
     background: #fff; background-image: none; color: #000;
     font-size: 11pt; line-height: 1.45;
   }
-  .decor, .app, .scrollcue, .pitch, footer nav.main, .saut { display: none; }
+  .decor, .app, .scrollcue, .pitch, footer nav.main, .saut, .maj { display: none; }
   #contenu { padding: 0; }
   article.contenu { max-width: none; margin: 0; }
   article.contenu a { color: #000; }

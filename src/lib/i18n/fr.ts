@@ -101,6 +101,10 @@ export const fr: Dictionnaire = {
       `${n} fichier${n > 1 ? 's' : ''} prêt${n > 1 ? 's' : ''}, vérifié${n > 1 ? 's' : ''} après écriture.`,
     pretsAvecEchecs: (n, e) =>
       `${n} fichier(s) prêt(s), ${e} en échec. Les originaux concernés sont intacts.`,
+    majDispo: 'Une nouvelle version de Geotager est disponible.',
+    majTravaux: 'Une nouvelle version est disponible. Récupérez vos photos avant de recharger : celles qui sont ouvertes seraient abandonnées.',
+    majRecharger: 'Recharger',
+    majPlusTard: 'Plus tard',
     zip: 'photos-geotager.zip',
     suffixeLieu: '-geotager',
     suffixeSansLieu: '-sans-position',
