@@ -179,6 +179,7 @@ export const en: Dictionnaire = {
   },
 
   matrice: {
+    legende: 'What Geotager can do with each photo format',
     format: 'Format',
     colonnes: ['Read', 'Change', 'Add', 'Remove'],
     oui: 'yes',

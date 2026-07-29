@@ -132,6 +132,8 @@ export interface Dictionnaire {
   erreurs: Record<CodeErreur, string>;
 
   matrice: {
+    /** Légende du tableau, lue avant lui par les technologies d'assistance. */
+    legende: string;
     format: string;
     colonnes: [string, string, string, string];
     oui: string;

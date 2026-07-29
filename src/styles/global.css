@@ -276,7 +276,7 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--rose-clair)
 
 /* Les étapes existent dès l'état vide, en retrait : leur hauteur ne doit
    jamais apparaître d'un coup, sinon c'est du décalage de mise en page. */
-.steps { display: flex; gap: .35rem; flex-wrap: wrap; padding: .2rem 0 .6rem; }
+.steps { display: flex; gap: .35rem; flex-wrap: wrap; padding: .2rem 0 .6rem; list-style: none; margin: 0; }
 .step {
   display: flex; align-items: center; gap: .45rem;
   padding: .34rem .85rem .34rem .42rem; border-radius: 999px;
@@ -436,7 +436,12 @@ details.details dl { display: grid; grid-template-columns: auto 1fr; gap: .3rem 
 details.details dt { color: var(--muted); }
 details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
 
-.file-list { display: flex; flex-direction: column; gap: .3rem; max-height: 11rem; overflow-y: auto; }
+.file-list {
+  display: flex; flex-direction: column; gap: .3rem; max-height: 11rem; overflow-y: auto;
+  /* La liste est une vraie <ul> depuis qu'un lecteur d'ecran doit pouvoir en
+     annoncer le nombre d'elements ; elle n'en veut pas les puces. */
+  list-style: none; margin: 0; padding: 0;
+}
 .file-row {
   display: flex; align-items: center; gap: .6rem; font-size: .84rem;
   padding: .4rem .7rem; border-radius: .7rem; background: rgba(244, 241, 245, .05);
@@ -591,4 +596,89 @@ footer nav.main { margin: 0 0 1.2rem -.8rem; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+
+/* --- préférences système ------------------------------------------- */
+
+/*
+ * « Plus de contraste ». Le site reste sombre — il n'a qu'une palette, et ses
+ * opacités de décor sont calculées contre elle — mais on rend ici ce que le
+ * goût avait pris : le texte secondaire rejoint le texte principal, les bords
+ * cessent d'être des suggestions, et le décor s'efface presque entièrement
+ * puisque c'est lui qui mange le contraste partout où il passe.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #ded9e2;
+    --clair: #ffffff;
+    --clair-mono: #ffffff;
+    --bordure: rgba(244, 241, 245, 0.55);
+  }
+  .bd-rose .dedans, .bd-rose .milieu,
+  .bd-indigo .dedans, .bd-indigo .milieu,
+  .bd-teal .dedans, .bd-teal .milieu,
+  .bd-ambre .dedans, .bd-ambre .milieu { stop-opacity: .02; }
+  .bubble small, .result .l { opacity: 1; }
+  .btn.ghost { border-width: 2px; }
+  :focus-visible, .box:focus-within { outline-width: 4px; }
+}
+
+/*
+ * Contrastes forcés — le mode contraste élevé de Windows, essentiellement. Le
+ * système impose alors sa propre palette et ignore les couleurs déclarées :
+ * ce qui compte n'est plus la teinte mais le fait que chaque chose garde une
+ * FRONTIÈRE. Un bouton rose sur un panneau rose devient sinon un aplat unique.
+ *
+ * Le décor part : ses formes ne survivent pas au remplacement des couleurs, et
+ * ce qui en resterait serait un aplat opaque sur le texte.
+ */
+@media (forced-colors: active) {
+  .decor { display: none; }
+  .btn, .box, .island, .card, .carte-cadre, .step, .pill, .carte-zoom button {
+    border: 1px solid ButtonBorder;
+  }
+  .btn.primary, .step.on { forced-color-adjust: none; }
+  /* `outline` survit aux contrastes forcés, `box-shadow` non : l'anneau du
+     cadre de carte doit donc repasser par un contour. */
+  .carte-cadre:has(.carte-vue:focus-visible) { box-shadow: none; outline: 3px solid Highlight; }
+  :focus-visible, .box:focus-within, .bubble:has(input:focus-visible) {
+    outline: 3px solid Highlight;
+  }
+}
+
+/*
+ * Impression. La page est sombre, l'encre ne l'est pas : sans cette feuille,
+ * l'article sort blanc sur blanc — c'est-à-dire vide — et les quatre dégradés
+ * de `body` partent en aplat gris sur toute la surface.
+ *
+ * On imprime ce qui se lit, et on retire ce qui s'utilise : l'outil est
+ * interactif par nature, un sélecteur de fichier sur papier ne veut rien dire.
+ */
+@media print {
+  :root {
+    --text: #000; --muted: #333; --clair: #000; --clair-mono: #000;
+    --encre: #000; --bordure: #999; --panel: #fff; --panel-haut: #fff;
+    color-scheme: light;
+  }
+  body {
+    background: #fff; background-image: none; color: #000;
+    font-size: 11pt; line-height: 1.45;
+  }
+  .decor, .app, .scrollcue, .pitch, footer nav.main, .saut { display: none; }
+  #contenu { padding: 0; }
+  article.contenu { max-width: none; margin: 0; }
+  article.contenu a { color: #000; }
+  /* L'adresse d'un lien ne survit pas au papier : on l'imprime derrière. */
+  article.contenu a[href^="http"]::after { content: ' (' attr(href) ')'; font-size: .85em; }
+  article.contenu pre, article.contenu code {
+    background: none; border: 1px solid #999; color: #000;
+    /* Une commande qui déborde de la page est une commande perdue. */
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  article.contenu table { border-collapse: collapse; }
+  article.contenu th, article.contenu td { border-bottom: 1px solid #999; }
+  /* Ni un titre ni une ligne de tableau ne doivent être coupés en deux pages. */
+  article.contenu h2, article.contenu h3 { break-after: avoid; }
+  article.contenu tr, article.contenu pre { break-inside: avoid; }
+  footer { border-top: 1px solid #999; color: #333; }
 }

@@ -370,8 +370,11 @@ for (const [fichierReadme, page] of [
     );
   } else {
     lu.forEach((ligne, i) => {
+      // Le libellé de ligne est un `<th scope="row">` et non un `<td>` : la
+      // liste des `<td>` ne contient donc plus QUE les capacités, et la couper
+      // d'un cran perdrait la première colonne au lieu du nom du format.
       const dites = ligne.slice(1).join('|');
-      const vraies = servi[i].slice(1).join('|');
+      const vraies = servi[i].join('|');
       if (dites !== vraies) {
         echecs.push(
           `${fichierReadme} : « ${ligne[0]} » annonce ${dites.replace(/\|/g, '/')}, ` +
