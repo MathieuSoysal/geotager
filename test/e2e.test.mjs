@@ -626,6 +626,91 @@ check("elle cesse de l'être dès que la saisie redevient lisible",
  * is simulated, because what matters is not that the sheet opens but what we
  * put in it: the produced file, never the original.
  */
+/*
+ * Axe, the automatic net.
+ *
+ * The accessibility checks in this file are written by hand: they state
+ * precisely what is expected, and fail with a sentence you can understand. On
+ * the other hand they only find what somebody thought of. Axe covers whole
+ * families of rules nobody thought of.
+ *
+ * It is injected through `addInitScript`: `addScriptTag` would create an inline
+ * script, which `script-src 'self'` refuses. This one goes through the
+ * debugging protocol, out of reach of the page policy, which this test server
+ * does serve, so the constraint is real.
+ */
+const AXE = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
+
+/*
+ * Two rules are waived, by name, each for a written reason. A blanket list of
+ * exemptions would make the whole check decorative.
+ *
+ * `color-contrast`: axe reads declared colours and cannot compose them. The
+ * decoration is a `fixed` layer in `mix-blend-mode: screen` under text, and the
+ * real ratios were measured and then recorded in `global.css`. Axe recomputes
+ * them blind and gets them wrong in both directions. It is contrast that
+ * governs the decoration's opacities, not the other way round; the measurement
+ * stays manual.
+ *
+ * `aria-allowed-role` on the map view: `role="application"` there is a
+ * deliberate choice, since the map consumes the arrow keys that a screen reader
+ * in browse mode would take from it, and it comes with its instructions and a
+ * fully keyboard-driven fallback, the coordinates field.
+ */
+const REGLES_ECARTEES = { 'color-contrast': { enabled: false } };
+
+async function auditer(cible, nom) {
+  await cible.evaluate(AXE);
+  const resultat = await cible.evaluate(
+    (regles) => window.axe.run(document, {
+      rules: regles,
+      resultTypes: ['violations'],
+    }),
+    REGLES_ECARTEES,
+  );
+  const graves = resultat.violations.filter((v) => ['serious', 'critical'].includes(v.impact));
+  check(`axe : ${nom} — aucune violation grave`, graves.length === 0,
+    graves.map((v) => `${v.id} (${v.nodes.length})`).join(', '));
+  const mineures = resultat.violations.filter((v) => !['serious', 'critical'].includes(v.impact));
+  if (mineures.length) {
+    console.log(`       ${nom} — mineures : ${mineures.map((v) => v.id).join(', ')}`);
+  }
+  return resultat.violations;
+}
+
+console.log('\nAudit automatique (axe-core)');
+/*
+ * A separate context, with its own tile routing.
+ *
+ * The audit opens the map, so it requests tiles. In the main context those
+ * incremented `tuilesDemandees`, the counter the proof "dropping a photo
+ * requests no tile" rests on. The check failed, and for the worst possible
+ * reason: not because the application was at fault, but because its own audit
+ * had dirtied the witness. A proof a neighbouring test can falsify proves
+ * nothing any more.
+ */
+const ctxAxe = await navigateur.newContext({ serviceWorkers: 'block' });
+await ctxAxe.route(`https://${HOTE_TUILES}/**`, (route) =>
+  route.fulfill({ status: 200, contentType: 'image/png', body: TUILE_PNG }));
+const pageAxe = await ctxAxe.newPage();
+await pageAxe.addInitScript({ content: AXE });
+
+await pageAxe.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await auditer(pageAxe, 'accueil, état vide');
+
+await pageAxe.setInputFiles('#picker', source);
+await pageAxe.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+await auditer(pageAxe, 'photo chargée');
+
+await pageAxe.click('#carte-bascule');
+await pageAxe.waitForSelector('#carte:not([hidden])');
+await pageAxe.waitForTimeout(500);
+await auditer(pageAxe, 'carte ouverte');
+
+await pageAxe.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
+await auditer(pageAxe, 'version française');
+await ctxAxe.close();
+
 console.log('\nPartager la photo nettoyée');
 check("sans partage de fichiers, le bouton reste caché",
   await page.locator('#partager-sortie').isHidden());
