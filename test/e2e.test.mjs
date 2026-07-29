@@ -423,7 +423,7 @@ check('les deux langues ont exactement les mêmes clés',
   JSON.stringify(Object.keys(DICOS.en.erreurs).sort()) ===
     JSON.stringify(Object.keys(DICOS.fr.erreurs).sort()));
 // The served table must be the one from the code, row for row.
-const tableauServi = await page.locator('#limites ~ table tbody tr').count()
+const tableauServi = await page.locator('#limites ~ * table tbody tr').count()
   .catch(() => 0);
 check('le tableau de la page a autant de lignes que le code en déclare',
   tableauServi === 0 || tableauServi === MATRICE.length, `${tableauServi} vs ${MATRICE.length}`);
@@ -735,6 +735,57 @@ check('les flèches déplacent le point visé', (await page.locator('#coords').i
 
 // Zoom changes the announced precision, and so what will be written to the file.
 await page.click('#carte-plus');
+/*
+ * Pinch. `touch-action: none` disables the browser's zoom on the map, and
+ * nothing replaced it: two fingers did strictly nothing, and the only zoom
+ * controls were two buttons, the gesture nobody uses on a phone.
+ *
+ * The events are synthesised: Playwright drives a single contact point, and
+ * what is judged here is the two-pointer logic.
+ */
+/* The zoom level is read from the tile address: /{z}/{x}/{y}.png. */
+const zoomServi = async () => {
+  const src = await page.locator('.carte-tuile').first().getAttribute('src');
+  return Number(src.match(/\/(\d+)\/\d+\/\d+\.png/)[1]);
+};
+const avantPincement = await zoomServi();
+const coordsAvantPincement = await page.locator('#coords').inputValue();
+
+await page.evaluate(() => {
+  const vue = document.getElementById('carte-vue');
+  const r = vue.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const ev = (type, id, x, y) => vue.dispatchEvent(new PointerEvent(type, {
+    pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch',
+  }));
+  // Two fingers 40 px apart, spread to 160 px: two doublings, so two zoom
+  // steps.
+  ev('pointerdown', 101, cx - 20, cy);
+  ev('pointerdown', 102, cx + 20, cy);
+  ev('pointermove', 101, cx - 80, cy);
+  ev('pointermove', 102, cx + 80, cy);
+  ev('pointerup', 101, cx - 80, cy);
+  ev('pointerup', 102, cx + 80, cy);
+});
+await page.waitForTimeout(300);
+const apresPincement = await zoomServi();
+check("deux doigts qui s'écartent rapprochent vraiment la carte",
+  apresPincement > avantPincement, `${avantPincement} → ${apresPincement}`);
+
+/*
+ * A pinch is not a click: it must not carry the chosen point off to where the
+ * fingers landed. It does move it by a hair, since `zoomer` re-anchors the view
+ * and the number is rewritten to five decimals, so we judge the distance rather
+ * than string equality. A misread click would have jumped several hundredths of
+ * a degree, which is kilometres.
+ */
+const [latAv, lonAv] = coordsAvantPincement.split(',').map(Number);
+const [latAp, lonAp] = (await page.locator('#coords').inputValue()).split(',').map(Number);
+check("le pincement ne se prend pas pour un clic",
+  Math.abs(latAp - latAv) < 0.01 && Math.abs(lonAp - lonAv) < 0.01,
+  `${coordsAvantPincement} → ${latAp}, ${lonAp}`);
+
 check('le zoom reste opérable au clavier comme à la souris',
   await page.locator('#carte-plus').isVisible());
 
