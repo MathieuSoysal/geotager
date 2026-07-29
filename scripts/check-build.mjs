@@ -431,9 +431,18 @@ for (const [fichierReadme, page] of [
     if (m.id !== '/') echecs.push(`${rel(cible)} : « id » vaut « ${m.id} », il doit valoir « / »`);
     if (m.scope !== '/') echecs.push(`${rel(cible)} : « scope » doit valoir « / »`);
 
+    /*
+     * `share_target.action` and `file_handlers[].action` are addresses the
+     * system will send the user's files to. One of them pointing anywhere but
+     * here, and the share system would deliver photos to a third party, on the
+     * strength of a manifest nobody re-reads. It is the place on the site where
+     * a foreign address would cost the most, so it is the place we look.
+     */
     const adresses = [
       ['start_url', m.start_url],
       ['scope', m.scope],
+      ...(m.share_target ? [['share_target.action', m.share_target.action]] : []),
+      ...(m.file_handlers ?? []).map((h, n) => [`file_handlers[${n}].action`, h.action]),
       ...(m.icons ?? []).map((i, n) => [`icons[${n}].src`, i.src]),
       ...(m.screenshots ?? []).map((i, n) => [`screenshots[${n}].src`, i.src]),
     ];
@@ -456,6 +465,25 @@ for (const [fichierReadme, page] of [
     // white square, which is always ugly and often illegible.
     if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
       echecs.push(`${rel(cible)} : aucune icône « maskable »`);
+    }
+
+    /*
+     * The share target exists only in the service worker: no file corresponds
+     * to it in `dist/`. If the worker stopped recognising it, sharing would
+     * fall to a 404 with nothing to warn us, while the manifest went on
+     * promising it to the system.
+     */
+    if (m.share_target) {
+      const sw = join(DIR, 'sw.js');
+      const chemin = String(m.share_target.action ?? '');
+      if (!existsSync(sw)) {
+        echecs.push(`${rel(cible)} annonce un partage, mais ${rel(sw)} n'existe pas`);
+      } else if (!new RegExp(String.raw`\$\{?\w*\}?|partager`).test(readFileSync(sw, 'utf8'))) {
+        echecs.push(`${rel(sw)} ne reconnaît pas la cible de partage « ${chemin} »`);
+      }
+      if (m.share_target.method !== 'POST' || m.share_target.enctype !== 'multipart/form-data') {
+        echecs.push(`${rel(cible)} : un partage de FICHIERS exige POST + multipart/form-data`);
+      }
     }
   }
 

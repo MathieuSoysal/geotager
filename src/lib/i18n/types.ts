@@ -122,6 +122,8 @@ export interface Dictionnaire {
     pretsVerifies: (n: number) => string;
     pretsAvecEchecs: (n: number, e: number) => string;
     /** Update banner, never automatic. See `sw-modele.js`. */
+    /** The share arrived but the bytes did not survive the trip. */
+    partagePerdu: string;
     majDispo: string;
     majTravaux: string;
     majRecharger: string;

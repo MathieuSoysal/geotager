@@ -103,6 +103,7 @@ export const fr: Dictionnaire = {
       `${n} fichier${n > 1 ? 's' : ''} prêt${n > 1 ? 's' : ''}, vérifié${n > 1 ? 's' : ''} après écriture.`,
     pretsAvecEchecs: (n, e) =>
       `${n} fichier(s) prêt(s), ${e} en échec. Les originaux concernés sont intacts.`,
+    partagePerdu: 'La photo partagée n\'est pas arrivée jusqu\'ici — rien n\'ayant été gardé, rien n\'est perdu. Repartagez-la, ou déposez-la ci-dessous.',
     majDispo: 'Une nouvelle version de Geotager est disponible.',
     majTravaux: 'Une nouvelle version est disponible. Récupérez vos photos avant de recharger : celles qui sont ouvertes seraient abandonnées.',
     majRecharger: 'Recharger',

@@ -89,6 +89,26 @@ La liste de préchargement est dérivée de ce que la build a réellement produi
 main — et `scripts/gen-sw.mjs` refuse de produire un worker dont la liste omettrait le worker de
 lecture ou la feuille de style.
 
+### Lui envoyer une photo depuis le système
+
+Une fois installé, Geotager apparaît dans le menu de partage du système et comme application
+d'«&nbsp;Ouvrir avec&nbsp;» pour les images.
+
+«&nbsp;Ouvrir avec&nbsp;» est le cas simple&nbsp;: le système remet une poignée de fichier, il n'y a
+donc rien à transporter et rien à garder.
+
+Le partage, non. L'API de cible de partage livre les fichiers en `POST`, et aucun serveur n'est là
+pour le recevoir — c'est le service worker qui l'intercepte. Toutes les autres applications qui font
+ceci déposent le fichier dans le stockage de cache, redirigent, puis le relisent et l'effacent. Cela
+marche à tous les coups, et cela écrit aussi la photo de quelqu'un sur son disque, ce que ce site
+affirme partout ne pas faire. Les octets restent donc dans une variable du worker, et la page vient
+les réclamer par un canal de message. Le prix est honnête&nbsp;: si le navigateur arrête le worker
+avant — mémoire basse, arbitrage du système — la photo n'arrive pas et la page le dit. On perd un
+geste, jamais un fichier&nbsp;; l'original n'a pas bougé de la galerie.
+
+Le partage vaut pour Android et Chrome/Edge sur ordinateur&nbsp;; iOS ne l'implémente pas.
+L'ouverture de fichiers vaut pour Chrome/Edge sur ordinateur.
+
 ## Développement
 
 ```bash

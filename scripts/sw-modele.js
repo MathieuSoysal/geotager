@@ -73,18 +73,101 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Incoming share
+
+/*
+ * A photo shared from the system arrives here as a `POST`, because that is the
+ * only form the Share Target API accepts for files. There is no server to
+ * receive it: this worker intercepts it, and has to get it to the page that is
+ * about to open.
+ *
+ * It does not touch the disk. The usual path, and the one every application
+ * doing this takes, is to put it in cache storage, redirect, then read it back
+ * and delete it. That works every time. It also writes somebody's photo to their
+ * disk, if only for a moment, and this site states everywhere that nothing is
+ * written there. A promise you have to subtract a case from is no longer the
+ * same promise.
+ *
+ * The bytes therefore stay in this variable, and the worker's life is extended
+ * with `waitUntil` until the page comes to claim them. The price is honest: if
+ * the browser stops the worker anyway, on low memory or system arbitration, the
+ * photo is lost and the page says so. A gesture is lost, never a file: the
+ * original has not moved from the gallery.
+ */
+let partageEnAttente = null;
+let reclame = null;
+
+/** The worker stays awake until the page claims, up to 45 s. */
+function attendreLaPage() {
+  return new Promise((resoudre) => {
+    reclame = resoudre;
+    setTimeout(() => {
+      // Nobody came: release the memory rather than hold on to it.
+      partageEnAttente = null;
+      resoudre();
+    }, 45_000);
+  });
+}
+
+async function recevoirPartage(event, url) {
+  // The home page of the language the share arrived through.
+  const page = url.pathname.startsWith('/fr/') ? '/fr/' : '/';
+  try {
+    const formulaire = await event.request.formData();
+    const fichiers = formulaire
+      .getAll('photos')
+      .filter((f) => typeof f === 'object' && f && 'size' in f && f.size > 0);
+    if (!fichiers.length) return Response.redirect(page, 303);
+
+    partageEnAttente = fichiers;
+    event.waitUntil(attendreLaPage());
+    // 303: the browser goes back to a GET on the page, so a later reload will
+    // not repost the form.
+    return Response.redirect(`${page}?partage=1`, 303);
+  } catch {
+    return Response.redirect(page, 303);
+  }
+}
+
 self.addEventListener('message', (event) => {
+  const message = event.data;
+  if (!message) return;
+
   // The only path by which an update takes over. See rule 2.
-  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (message.type === 'SKIP_WAITING') self.skipWaiting();
+
+  if (message.type === 'RECLAMER_PARTAGE') {
+    const fichiers = partageEnAttente;
+    // Rendered once, and once only: a reload must not bring back a photo the
+    // user thought they had closed.
+    partageEnAttente = null;
+    if (event.ports && event.ports[0]) event.ports[0].postMessage(fichiers || []);
+    if (reclame) {
+      reclame();
+      reclame = null;
+    }
+  }
 });
 
 self.addEventListener('fetch', (event) => {
   const requete = event.request;
-  if (requete.method !== 'GET') return;
-
   const url = new URL(requete.url);
-  // Rule 1. Do not touch anything that is not ours.
+
+  // Rule 1. Do not touch anything that is not ours. First, ahead even of the
+  // method filter: what comes from elsewhere is never our business.
   if (url.origin !== self.location.origin) return;
+
+  /*
+   * The share target. It is the only `POST` this site knows, and it reaches no
+   * server: `/partager` does not exist in `dist/`, it has existence only in
+   * this handler.
+   */
+  if (requete.method === 'POST' && /^\/(fr\/)?partager$/.test(url.pathname)) {
+    event.respondWith(recevoirPartage(event, url));
+    return;
+  }
+
+  if (requete.method !== 'GET') return;
 
   event.respondWith(
     (async () => {

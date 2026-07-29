@@ -46,6 +46,7 @@ const el = {
   autres: $<HTMLDetailsElement>('autres'),
   autresListe: $('autres-liste'),
   alerteFormat: $('alerte-format'),
+  avisVide: $('avis-vide'),
   lot: $('lot'),
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
@@ -168,6 +169,7 @@ function versEtatVide(deplacerFocus = false): void {
   el.resultat.hidden = true;
   el.telecharger.disabled = true;
   el.picker.value = '';
+  el.avisVide.hidden = true;
   marquerEtape(1);
   annoncer(T.app.aucuneChargee);
   if (deplacerFocus) el.picker.focus();
@@ -594,6 +596,89 @@ el.effacer.addEventListener('click', () => {
 el.effacerTout.addEventListener('click', () => {
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
+
+// Arrivals from the system
+
+/*
+ * Two doors, besides the picker and drag and drop.
+ *
+ * "Open with" hands over file handles directly: nothing to carry, nothing to
+ * keep. Sharing goes through a `POST` the service worker intercepts and whose
+ * bytes it keeps in memory; see `scripts/sw-modele.js`. We come and claim them
+ * here, over a dedicated message channel so the reply cannot be confused with
+ * anything else.
+ */
+function reclamerPartage(): void {
+  const sw = navigator.serviceWorker?.controller;
+  if (!sw) {
+    // The worker was stopped between the share and the opening: the bytes are
+    // lost. We say so, since the original has not moved from the gallery and it
+    // is enough to start again, rather than open an empty page with no
+    // explanation.
+    signalerPartagePerdu();
+    return;
+  }
+  const canal = new MessageChannel();
+  let repondu = false;
+  canal.port1.onmessage = (e) => {
+    repondu = true;
+    const fichiers = (e.data as File[]) ?? [];
+    if (fichiers.length) void charger(fichiers);
+    else signalerPartagePerdu();
+  };
+  sw.postMessage({ type: 'RECLAMER_PARTAGE' }, [canal.port2]);
+  // A worker that does not answer must not leave the page waiting for nothing.
+  setTimeout(() => {
+    if (!repondu) signalerPartagePerdu();
+  }, 3_000);
+}
+
+function signalerPartagePerdu(): void {
+  // The message goes into the empty state, which is the one being shown.
+  // Writing it into `#alerte-format` would drop it inside the active state,
+  // which we hide in the same breath: visible nowhere, and the page would stay
+  // silent.
+  el.vide.hidden = false;
+  el.actif.hidden = true;
+  el.avisVide.hidden = false;
+  el.avisVide.textContent = T.app.partagePerdu;
+  annoncer(T.app.partagePerdu);
+}
+
+/*
+ * `?partage=1` is set by the service worker's redirect. It is cleared from the
+ * address bar immediately: reloaded, that address has nothing left to claim,
+ * and leaving the parameter would suggest a share on every reload.
+ */
+if (new URLSearchParams(location.search).has('partage')) {
+  history.replaceState(null, '', location.pathname);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', reclamerPartage, { once: true });
+  } else {
+    reclamerPartage();
+  }
+}
+
+interface FileHandleLike {
+  getFile(): Promise<File>;
+}
+interface LaunchParams {
+  files?: FileHandleLike[];
+}
+
+const filePeutEtreLancee = window as typeof window & {
+  launchQueue?: { setConsumer(f: (p: LaunchParams) => void): void };
+};
+if (filePeutEtreLancee.launchQueue) {
+  filePeutEtreLancee.launchQueue.setConsumer((params) => {
+    void (async () => {
+      const poignees = params.files ?? [];
+      if (!poignees.length) return;
+      const fichiers = await Promise.all(poignees.map((h) => h.getFile()));
+      void charger(fichiers.filter((f) => f.size > 0));
+    })();
+  });
+}
 
 // Service worker
 
