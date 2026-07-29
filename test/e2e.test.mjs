@@ -95,7 +95,21 @@ const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const navigateur = await chromium.launch(
   existsSync(CHROME) ? { executablePath: CHROME } : {},
 );
-const contexte = await navigateur.newContext({ acceptDownloads: true });
+/*
+ * `serviceWorkers: 'block'` — et ce n'est pas un détail de confort.
+ *
+ * Tout ce fichier repose sur le JOURNAL DES REQUÊTES : la preuve du zéro-tiers,
+ * la frontière avant l'ouverture de la carte, le décompte des tuiles. Un service
+ * worker qui sert depuis son cache retire ces requêtes du journal, et les
+ * contrôles se mettraient à passer pour la mauvaise raison — c'est-à-dire à ne
+ * plus rien prouver. Le parcours principal se juge donc sans lui.
+ *
+ * Le service worker a sa propre section, tout en bas, dans un contexte à lui.
+ */
+const contexte = await navigateur.newContext({
+  acceptDownloads: true,
+  serviceWorkers: 'block',
+});
 
 /*
  * Les tuiles de la carte sont interceptées, jamais demandées pour de vrai.
@@ -760,6 +774,67 @@ const restantes = erreursConsole.filter(
 );
 check("une tuile qui n'arrive pas n'emporte rien avec elle", restantes.length === 0,
   restantes[0]);
+
+/*
+ * LE SERVICE WORKER, dans un contexte à part — celui d'au-dessus les bloque.
+ *
+ * Ce qui est jugé ici n'est pas qu'un worker s'enregistre : c'est que l'outil
+ * FONCTIONNE connexion coupée. La page l'a toujours promis ; jusqu'à présent
+ * un rechargement hors ligne ne donnait rien du tout, faute que quiconque garde
+ * la coquille.
+ */
+console.log('\nHors ligne, pour de bon');
+const ctxSw = await navigateur.newContext();
+const pageSw = await ctxSw.newPage();
+const erreursSw = [];
+pageSw.on('pageerror', (e) => erreursSw.push(String(e)));
+pageSw.on('console', (m) => {
+  if (m.type() === 'error') erreursSw.push(m.text());
+});
+
+await pageSw.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+const controle = await pageSw
+  .waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('le service worker prend le contrôle de la page', controle);
+
+// La coupure est réelle : plus rien ne sort, pas même vers l'origine.
+await ctxSw.setOffline(true);
+await pageSw.reload({ waitUntil: 'load' });
+check('hors ligne, la page s\'ouvre encore',
+  await pageSw.locator('#etat-vide').isVisible());
+check('hors ligne, la feuille de style est là aussi',
+  await pageSw.evaluate(() => getComputedStyle(document.body).backgroundColor !== 'rgba(0, 0, 0, 0)'));
+
+/*
+ * Le vrai contrôle. Le worker de lecture est chargé par `new Worker(new URL(…))`
+ * et n'apparaît donc dans aucune balise : s'il tombait de la liste de
+ * préchargement, la page s'ouvrirait hors ligne et refuserait TOUTES les photos,
+ * sans un mot. C'est la panne que ce contrôle existe pour attraper.
+ */
+await pageSw.setInputFiles('#picker', source);
+await pageSw.waitForSelector('#etat-actif:not([hidden])', { timeout: 20_000 });
+const lueHorsLigne = await pageSw
+  .waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && !p.hidden && p.textContent.trim().length > 0;
+  }, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('hors ligne, une photo est encore lue de bout en bout', lueHorsLigne);
+
+// Le morceau de la carte n'est délibérément PAS préchargé : l'ouvrir hors ligne
+// sans l'avoir jamais ouvert en ligne ne peut pas marcher, et ne doit surtout
+// pas emporter l'application avec lui.
+await pageSw.click('#carte-bascule').catch(() => {});
+await pageSw.waitForTimeout(1_000);
+const restantesSw = erreursSw.filter((e) => !/Failed to load resource|net::ERR_|FetchEvent/.test(e));
+check("la carte indisponible hors ligne n'emporte rien avec elle",
+  restantesSw.length === 0, restantesSw[0]);
+
+await ctxSw.setOffline(false);
+await ctxSw.close();
 
 await navigateur.close();
 serveur.close();

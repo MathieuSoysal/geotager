@@ -48,6 +48,10 @@ const el = {
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
   coordsErreur: $('coords-erreur'),
+  maj: $('maj'),
+  majTexte: $('maj-texte'),
+  majRecharger: $<HTMLButtonElement>('maj-recharger'),
+  majPlusTard: $<HTMLButtonElement>('maj-plus-tard'),
   titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
@@ -568,6 +572,77 @@ el.effacer.addEventListener('click', () => {
 el.effacerTout.addEventListener('click', () => {
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
+
+/* --- service worker ------------------------------------------------ */
+
+/*
+ * L'outil tourne entièrement sur la machine de l'utilisateur : la seule raison
+ * pour laquelle il cessait de fonctionner sans réseau, c'est que personne ne le
+ * gardait. Le service worker précharge la coquille, et la promesse « tout se
+ * passe dans votre navigateur » devient vérifiable en coupant la connexion.
+ *
+ * La mise à jour n'est JAMAIS automatique. Rien n'est persisté ici : quelqu'un
+ * peut avoir quarante photos ouvertes et rien d'exporté, et un rechargement
+ * imposé détruirait tout. Le nouveau worker attend derrière ; c'est le clic qui
+ * le fait passer devant.
+ */
+function proposerMaj(reg: ServiceWorkerRegistration): void {
+  const enTravaux = items.length > 0;
+  el.majTexte.textContent = enTravaux ? T.app.majTravaux : T.app.majDispo;
+  el.maj.hidden = false;
+  el.majRecharger.onclick = () => {
+    el.maj.hidden = true;
+    // Le worker en attente ne prend la main que sur ce message : voir
+    // `scripts/sw-modele.js`, règle 2.
+    reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
+  };
+  el.majPlusTard.onclick = () => {
+    el.maj.hidden = true;
+  };
+}
+
+if ('serviceWorker' in navigator) {
+  /*
+   * Après le chargement : l'enregistrement met le réseau en concurrence avec ce
+   * dont la page a besoin pour s'afficher, et l'outil passe avant son cache.
+   *
+   * Tout est enveloppé. Une décoration ne doit pas pouvoir emporter l'outil —
+   * c'est déjà la règle de `blob.ts` — et un cache encore moins : le test de
+   * bout en bout refuse la moindre erreur de console, et un contexte non
+   * sécurisé ou un stockage refusé fait lever `register`.
+   */
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => {
+        if (reg.waiting) proposerMaj(reg);
+        reg.addEventListener('updatefound', () => {
+          const arrivant = reg.installing;
+          if (!arrivant) return;
+          arrivant.addEventListener('statechange', () => {
+            // `controller` non nul : il y avait déjà un worker, donc c'est bien
+            // une mise à jour et non la première installation — pour laquelle
+            // il n'y a rien à proposer.
+            if (arrivant.state === 'installed' && navigator.serviceWorker.controller) {
+              proposerMaj(reg);
+            }
+          });
+        });
+      })
+      .catch(() => {
+        /* Pas de cache, et c'est tout : l'application marche sans. */
+      });
+
+    // Un seul rechargement. Sans ce drapeau, deux onglets qui se réclament le
+    // contrôle l'un à l'autre bouclent indéfiniment.
+    let recharge = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (recharge) return;
+      recharge = true;
+      location.reload();
+    });
+  });
+}
 
 // Glisser-déposer sur toute la page.
 let profondeur = 0;

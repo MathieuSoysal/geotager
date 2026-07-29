@@ -27,6 +27,13 @@ https://:version.:project.workers.dev/*
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
 
+# Le navigateur compare `sw.js` OCTET À OCTET à l'adresse qu'il connaît, et
+# cette adresse ne change jamais. Une copie en cache défait donc la détection de
+# mise à jour : le parc reste sur un ancien worker, donc sur un ancien précache,
+# et rien ne le signale. Le nom reste sans empreinte, exprès.
+/sw.js
+  Cache-Control: no-cache
+
 # Le manifeste est explicitement typé. Servi en `application/octet-stream`, il
 # est refusé sans un mot : l'installation cesse d'être proposée, et rien dans la
 # page ne le dit. On ne dépend pas de la table MIME de l'hébergeur pour ça.

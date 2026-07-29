@@ -117,6 +117,11 @@ export interface Dictionnaire {
     nouvellePosition: string;
     pretsVerifies: (n: number) => string;
     pretsAvecEchecs: (n: number, e: number) => string;
+    /** Bandeau de mise à jour — jamais automatique, voir `sw-modele.js`. */
+    majDispo: string;
+    majTravaux: string;
+    majRecharger: string;
+    majPlusTard: string;
     zip: string;
     /** Suffixes ajoutés au nom du fichier rendu. */
     suffixeLieu: string;
