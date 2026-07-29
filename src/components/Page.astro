@@ -281,6 +281,10 @@ const jsonLd = {
                   aria-expanded="false"
                   aria-controls="carte">{T.app.ouvrirCarte}</button>
                 <div id="carte" hidden>
+                  <!-- Le code de la carte n'est pas préchargé, par choix : hors
+                       ligne il n'est donc pas là, et l'import dynamique échoue.
+                       Il faut le dire ici plutôt que de laisser un cadre vide. -->
+                  <p class="alerte attention" id="carte-erreur" hidden></p>
                   <p class="aide avis">{T.app.avisCarte}</p>
                   <div class="carte-cadre">
                     <div

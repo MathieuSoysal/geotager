@@ -276,7 +276,10 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--rose-clair)
 
 /* The steps exist from the empty state onwards, dimmed: their height must never
    appear all at once, or it is layout shift. */
-.steps { display: flex; gap: .35rem; flex-wrap: wrap; padding: .2rem 0 .6rem; list-style: none; margin: 0; }
+/* `list-style: none` accompanies the template's `role="list"`. No `margin: 0`
+   here: the `<ol>`'s default margin has been part of the stage's vertical
+   rhythm from the start, and removing it would tighten the page by 32 px. */
+.steps { display: flex; gap: .35rem; flex-wrap: wrap; padding: .2rem 0 .6rem; list-style: none; }
 .step {
   display: flex; align-items: center; gap: .45rem;
   padding: .34rem .85rem .34rem .42rem; border-radius: 999px;
@@ -551,6 +554,12 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 }
 .carte-pied a { color: var(--muted); }
 .carte-pied a:hover { color: var(--pink); }
+
+/* No map to show: the frame and the attribution have no purpose left, only the
+   message stays. */
+#carte.sans-carte .carte-cadre, #carte.sans-carte .carte-pied, #carte.sans-carte .avis {
+  display: none;
+}
 
 @media (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
 

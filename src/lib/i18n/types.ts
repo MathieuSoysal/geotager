@@ -80,6 +80,8 @@ export interface Dictionnaire {
     ouvrirCarte: string;
     fermerCarte: string;
     avisCarte: string;
+    /** Loading the map code failed, typically offline. */
+    carteIndisponible: string;
     carteLabel: string;
     carteAide: string;
     zoomAvant: string;

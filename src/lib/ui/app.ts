@@ -34,6 +34,7 @@ const el = {
   carteBascule: $<HTMLButtonElement>('carte-bascule'),
   carte: $('carte'),
   carteVue: $('carte-vue'),
+  carteErreur: $('carte-erreur'),
   cartePlus: $<HTMLButtonElement>('carte-plus'),
   carteMoins: $<HTMLButtonElement>('carte-moins'),
   resultat: $('resultat'),
@@ -314,6 +315,8 @@ function fermerCarte(): void {
   carte?.detruire();
   carte = null;
   el.carte.hidden = true;
+  el.carte.classList.remove('sans-carte');
+  el.carteErreur.hidden = true;
   el.carteBascule.setAttribute('aria-expanded', 'false');
   el.carteBascule.textContent = T.app.ouvrirCarte;
 }
@@ -324,12 +327,32 @@ async function ouvrirCarte(): Promise<void> {
     return;
   }
   el.carte.hidden = false;
+  el.carte.classList.remove('sans-carte');
+  el.carteErreur.hidden = true;
   el.carteBascule.setAttribute('aria-expanded', 'true');
   el.carteBascule.textContent = T.app.fermerCarte;
 
-  // Loaded on demand: while nobody opens the map, not a byte of the code that
-  // talks to tiles is requested, and so no tile is either.
-  const { creerCarte } = await import('./carte.ts');
+  /*
+   * Loaded on demand: while nobody opens the map, not a byte of the code that
+   * talks to tiles is requested, and so no tile is either.
+   *
+   * This load can fail, and it fails for a perfectly ordinary reason: the
+   * service worker deliberately does not precache this chunk, so it is not
+   * there offline. Without this catch the rejection went nowhere, leaving an
+   * open panel, a button saying "Close the map", an empty frame, and a console
+   * error nobody reads.
+   */
+  let creerCarte;
+  try {
+    ({ creerCarte } = await import('./carte.ts'));
+  } catch {
+    el.carte.classList.add('sans-carte');
+    el.carteErreur.hidden = false;
+    el.carteErreur.textContent = T.app.carteIndisponible;
+    annoncer(T.app.carteIndisponible);
+    return;
+  }
+
   carte = creerCarte(el.carteVue, {
     textes: { origine: T.app.repereOrigine },
     onChoix: (p, m) => {
