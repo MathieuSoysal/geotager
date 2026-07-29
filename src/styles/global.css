@@ -398,6 +398,10 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
  */
 .box:focus-within { outline: 3px solid var(--pink); outline-offset: 3px; }
 .aide { font-size: .78rem; color: var(--muted); margin: .35rem 0 0; }
+/* La couleur ne porte rien toute seule : le texte lui-même commence par
+   « Coordonnées non valides — », de sorte que le message reste entier pour qui
+   ne distingue pas ce rose du gris d'à côté. */
+.aide.erreur { color: #ffb0cf; }
 .aide b { color: var(--teal); font-weight: 500; }
 
 .result {

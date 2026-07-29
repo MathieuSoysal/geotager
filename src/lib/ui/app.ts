@@ -47,6 +47,7 @@ const el = {
   lot: $('lot'),
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
+  coordsErreur: $('coords-erreur'),
   titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
@@ -102,6 +103,27 @@ function annoncer(texte: string): void {
   el.annonce.textContent = texte;
 }
 
+/**
+ * L'état « saisie refusée » du champ de coordonnées.
+ *
+ * Contrôlé à la PERTE DE FOCUS et non à la frappe : « 43. » est invalide à la
+ * troisième touche, et valider à chaque caractère ferait crier l'erreur pendant
+ * qu'on écrit la réponse juste. Un seul point d'entrée, appelé par tout ce qui
+ * écrit dans le champ — y compris la carte — pour que l'attribut et le texte ne
+ * puissent pas diverger.
+ */
+function majEtatCoords(invalide: boolean): void {
+  el.coordsErreur.hidden = !invalide;
+  el.coordsErreur.textContent = invalide ? T.app.coordsInvalides : '';
+  if (invalide) {
+    el.coords.setAttribute('aria-invalid', 'true');
+    el.coords.setAttribute('aria-describedby', 'coords-aide coords-erreur');
+  } else {
+    el.coords.removeAttribute('aria-invalid');
+    el.coords.setAttribute('aria-describedby', 'coords-aide');
+  }
+}
+
 /* --- état --------------------------------------------------------- */
 
 function marquerEtape(n: 1 | 2 | 3): void {
@@ -134,6 +156,7 @@ function versEtatVide(deplacerFocus = false): void {
   el.vide.hidden = false;
   el.actif.hidden = true;
   el.coords.value = '';
+  majEtatCoords(false);
   el.resultat.hidden = true;
   el.telecharger.disabled = true;
   el.picker.value = '';
@@ -307,6 +330,7 @@ async function ouvrirCarte(): Promise<void> {
       cible = p;
       precision = m;
       el.coords.value = formatDecimal(p);
+      majEtatCoords(false);
       majResultat();
       annoncer(T.app.positionChoisie(formatDecimal(p)));
     },
@@ -499,12 +523,20 @@ el.changer.addEventListener('click', () => versEtatVide(true));
 
 el.coords.addEventListener('input', () => {
   cible = parseCoordinates(el.coords.value);
+  // On efface pendant la frappe, on n'accuse jamais : le reproche est le fait
+  // de la perte de focus, ci-dessous.
+  if (cible || !el.coords.value.trim()) majEtatCoords(false);
   // Des coordonnées tapées n'ont pas de zoom, donc pas de précision à
   // déclarer. Hériter de celle d'un clic précédent inscrirait dans le fichier
   // de quelqu'un un chiffre que personne n'a mesuré.
   precision = null;
   if (cible) carte?.centrer(cible);
   majResultat();
+});
+
+el.coords.addEventListener('blur', () => {
+  const saisi = el.coords.value.trim();
+  majEtatCoords(saisi !== '' && parseCoordinates(saisi) === null);
 });
 
 el.carteBascule.addEventListener('click', () => void ouvrirCarte());

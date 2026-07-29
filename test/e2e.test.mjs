@@ -469,6 +469,57 @@ check("la zone de dépôt est un label lié à un input de fichier",
 check('une région live existe pour les annonces',
   await page.locator('#annonce[aria-live="polite"]').count() === 1);
 
+// Les repères manquaient tous les trois. Une personne qui navigue de repère en
+// repère ne trouvait qu'une navigation et un pied de page, jamais l'outil.
+const reperes = await page.evaluate(() => ({
+  main: document.querySelectorAll('main').length,
+  header: document.querySelectorAll('body > .app header.bar, header.bar').length,
+  footer: document.querySelectorAll('footer').length,
+  // Un `footer` cesse d'être « contentinfo » dès qu'il est dans un `main`.
+  footerDansMain: !!document.querySelector('main footer'),
+  headerDansMain: !!document.querySelector('main header'),
+}));
+check('la page a exactement un repère principal', reperes.main === 1, String(reperes.main));
+check('la bannière et le pied de page existent',
+  reperes.header === 1 && reperes.footer === 1);
+check('ni la bannière ni le pied ne sont enfermés dans le repère principal',
+  !reperes.footerDansMain && !reperes.headerDansMain);
+check("le lien d'évitement mène à l'outil, pas à la prose",
+  (await page.locator('a.saut').getAttribute('href')) === '#outil');
+
+// Le pavé décimal d'iOS ne porte pas le signe moins : aucune latitude sud ni
+// longitude ouest n'était saisissable au doigt.
+check("le champ de coordonnées n'impose plus de pavé décimal",
+  (await page.locator('#coords').getAttribute('inputmode')) === null);
+
+// Le <h1> vivait dans l'état vide et disparaissait avec lui.
+await page.setInputFiles('#picker', source);
+await page.waitForFunction(() => !document.getElementById('etat-actif').hidden);
+check("un titre de niveau 1 subsiste une fois la photo chargée",
+  await page.evaluate(() => {
+    const h = document.querySelector('h1');
+    // `visually-hidden` reste dans l'arbre ; `hidden` n'y est plus.
+    return !!h && h.offsetParent !== null || (!!h && !h.closest('[hidden]'));
+  }));
+check("le focus n'est pas retombé sur le corps du document",
+  await page.evaluate(() => document.activeElement !== document.body));
+
+// Une saisie refusée ne disait rien : le bouton se grisait, et c'était tout.
+await page.fill('#coords', 'nulle part');
+await page.locator('#coords').blur();
+check("une saisie refusée est signalée",
+  (await page.locator('#coords').getAttribute('aria-invalid')) === 'true');
+check("le message d'erreur est visible et non vide",
+  await page.locator('#coords-erreur').isVisible()
+  && (await page.locator('#coords-erreur').textContent()).trim().length > 0);
+check("le message d'erreur est relié au champ",
+  (await page.locator('#coords').getAttribute('aria-describedby') ?? '').includes('coords-erreur'));
+await page.fill('#coords', '43.9493, 4.8055');
+await page.locator('#coords').blur();
+check("elle cesse de l'être dès que la saisie redevient lisible",
+  (await page.locator('#coords').getAttribute('aria-invalid')) === null
+  && !(await page.locator('#coords-erreur').isVisible()));
+
 console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
 check('le décor est hors de l\'arbre d\'accessibilité',
   await page.evaluate(() => {

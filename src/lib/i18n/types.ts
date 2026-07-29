@@ -70,6 +70,8 @@ export interface Dictionnaire {
     ouPrise: string;
     aideCoords: string;
     aideCoordsFort: string;
+    /** Saisie que l'analyseur refuse : texte d'erreur, annoncé et affiché. */
+    coordsInvalides: string;
     /** La carte de choix du lieu — repliée tant qu'on ne la demande pas. */
     ouvrirCarte: string;
     fermerCarte: string;
