@@ -62,6 +62,8 @@ export interface Dictionnaire {
     titreEm: string;
     sous: string;
     formats: string;
+    /** What someone whose browser runs no script sees. */
+    sansJs: string;
     defiler: string;
   };
 

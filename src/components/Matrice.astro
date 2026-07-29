@@ -23,6 +23,7 @@ const lignes = MATRICE.map((l) => ({
 }));
 ---
 
+<div class="tableau-defilant" role="region" aria-label={T.matrice.legende} tabindex="0">
 <table>
   <!-- Une légende, et des cellules d'en-tête sur les DEUX axes. Sans elles un
        lecteur d'écran annonce « oui, pas encore, oui, oui » sans jamais dire de
@@ -55,3 +56,4 @@ const lignes = MATRICE.map((l) => ({
     }
   </tbody>
 </table>
+</div>

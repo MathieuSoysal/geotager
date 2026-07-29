@@ -536,8 +536,10 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 }
 
 .carte-zoom { position: absolute; top: .55rem; right: .55rem; display: flex; flex-direction: column; gap: .3rem; }
+/* 2rem was 32 px across, below the 44 px floor for touch targets: with a finger
+   you missed the button one time in three. */
 .carte-zoom button {
-  width: 2rem; height: 2rem; border-radius: .6rem; cursor: pointer;
+  width: 2.75rem; height: 2.75rem; border-radius: .7rem; cursor: pointer;
   background: var(--panel); color: var(--text); border: 1px solid var(--bordure);
   font: inherit; font-size: 1.1rem; line-height: 1; display: grid; place-items: center;
 }
@@ -576,7 +578,16 @@ article.contenu code, article.contenu pre {
 article.contenu pre { padding: .9rem 1rem; overflow-x: auto; border: 1px solid var(--bordure); }
 article.contenu pre code { background: none; padding: 0; }
 article.contenu a { color: var(--teal); }
-article.contenu table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 1rem 0; }
+/*
+ * `body` carries `overflow-x: hidden`, which does not hide an overflow: it
+ * clips it, and removes the scrollbar that would have let you go and look. On a
+ * phone the last columns of the capability table were therefore simply
+ * unreachable. The container gives the escape back, and it is focusable so the
+ * scrolling exists for the keyboard too.
+ */
+.tableau-defilant { overflow-x: auto; margin: 1rem 0; }
+.tableau-defilant:focus-visible { outline: 3px solid var(--pink); outline-offset: 3px; }
+article.contenu table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 0; }
 article.contenu th, article.contenu td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
 article.contenu th { color: var(--clair); font-weight: 500; }
 

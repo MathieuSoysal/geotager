@@ -192,17 +192,79 @@ export function creerCarte(hote: HTMLElement, opts: OptionsCarte): Carte {
   let departY = 0;
   let parcours = 0;
 
+  /*
+   * Pinch.
+   *
+   * The map followed only one finger: `touch-action: none` disables browser
+   * zoom and nothing replaced it, so two fingers on the map did nothing at all.
+   * The only zoom controls were two buttons, the gesture nobody uses on a
+   * phone.
+   *
+   * All active pointers are kept. With two, the distance between them drives
+   * the zoom: each doubling of that distance is worth one level, and the level
+   * changes past the halfway point, without which you would have to spread your
+   * fingers the full width of the screen to gain one.
+   */
+  const pointeurs = new Map<number, { x: number; y: number }>();
+  let ecartDepart = 0;
+  let zoomDepart = 0;
+
+  const ecart = (): number => {
+    const [a, b] = [...pointeurs.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  const milieu = (): { x: number; y: number } => {
+    const [a, b] = [...pointeurs.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+
   function surDescente(e: PointerEvent): void {
-    if (pointeur !== null) return;
+    pointeurs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Capture throws if the pointer is no longer active; a finger lifted
+    // between the event being dispatched and handled is enough. That is no
+    // reason to lose the gesture: the map follows perfectly well without it.
+    try {
+      hote.setPointerCapture(e.pointerId);
+    } catch {
+      /* capture not available */
+    }
+
+    if (pointeurs.size === 2) {
+      // The second finger ends the pan in progress: we do not do both at once,
+      // and a pinch is never a click.
+      pointeur = null;
+      parcours = Infinity;
+      ecartDepart = ecart();
+      zoomDepart = zoom;
+      hote.classList.remove('glisse');
+      return;
+    }
+    if (pointeurs.size > 2) return;
+
     pointeur = e.pointerId;
     departX = e.clientX;
     departY = e.clientY;
     parcours = 0;
-    hote.setPointerCapture(e.pointerId);
     hote.classList.add('glisse');
   }
 
   function surMouvement(e: PointerEvent): void {
+    if (pointeurs.has(e.pointerId)) pointeurs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointeurs.size === 2) {
+      const courant = ecart();
+      if (ecartDepart > 0 && courant > 0) {
+        const crans = Math.round(Math.log2(courant / ecartDepart));
+        const vise = zoomDepart + crans;
+        if (vise !== zoom) {
+          const r = hote.getBoundingClientRect();
+          const m = milieu();
+          zoomer(vise - zoom, m.x - r.left, m.y - r.top);
+        }
+      }
+      return;
+    }
+
     if (e.pointerId !== pointeur) return;
     const dx = e.clientX - departX;
     const dy = e.clientY - departY;
@@ -216,10 +278,28 @@ export function creerCarte(hote: HTMLElement, opts: OptionsCarte): Carte {
   }
 
   function surRemontee(e: PointerEvent): void {
+    pointeurs.delete(e.pointerId);
+    try {
+      if (hote.hasPointerCapture(e.pointerId)) hote.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+
+    // The finger left after a pinch must neither jump the map nor count as a
+    // click: we restart cleanly from its position.
+    if (pointeurs.size === 1) {
+      const [id] = [...pointeurs.keys()];
+      const p = pointeurs.get(id)!;
+      pointeur = id;
+      departX = p.x;
+      departY = p.y;
+      parcours = Infinity;
+      return;
+    }
+
     if (e.pointerId !== pointeur) return;
     pointeur = null;
     hote.classList.remove('glisse');
-    if (hote.hasPointerCapture(e.pointerId)) hote.releasePointerCapture(e.pointerId);
 
     if (parcours < SEUIL_CLIC) {
       // A click: the point aimed at becomes the centre, and so the marker.
