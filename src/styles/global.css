@@ -537,8 +537,10 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 }
 
 .carte-zoom { position: absolute; top: .55rem; right: .55rem; display: flex; flex-direction: column; gap: .3rem; }
+/* 2rem faisait 32 px de côté, sous le plancher de 44 px des cibles tactiles :
+   au doigt, on manquait le bouton une fois sur trois. */
 .carte-zoom button {
-  width: 2rem; height: 2rem; border-radius: .6rem; cursor: pointer;
+  width: 2.75rem; height: 2.75rem; border-radius: .7rem; cursor: pointer;
   background: var(--panel); color: var(--text); border: 1px solid var(--bordure);
   font: inherit; font-size: 1.1rem; line-height: 1; display: grid; place-items: center;
 }
@@ -577,7 +579,16 @@ article.contenu code, article.contenu pre {
 article.contenu pre { padding: .9rem 1rem; overflow-x: auto; border: 1px solid var(--bordure); }
 article.contenu pre code { background: none; padding: 0; }
 article.contenu a { color: var(--teal); }
-article.contenu table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 1rem 0; }
+/*
+ * `body` porte `overflow-x: hidden`, qui ne cache pas un débordement : il le
+ * ROGNE, et retire la barre de défilement qui aurait permis d'aller voir. Sur
+ * un téléphone, les dernières colonnes du tableau des capacités étaient donc
+ * simplement inatteignables. Le conteneur rend l'échappatoire, et il est
+ * focalisable pour que le défilement existe aussi au clavier.
+ */
+.tableau-defilant { overflow-x: auto; margin: 1rem 0; }
+.tableau-defilant:focus-visible { outline: 3px solid var(--pink); outline-offset: 3px; }
+article.contenu table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 0; }
 article.contenu th, article.contenu td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
 article.contenu th { color: var(--clair); font-weight: 500; }
 

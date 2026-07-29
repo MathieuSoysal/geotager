@@ -51,6 +51,7 @@ export const en: Dictionnaire = {
     titreEm: 'of a photo',
     sous: 'Nothing is sent anywhere: everything happens in your browser.',
     formats: 'JPEG · HEIC · PNG · WebP · TIFF',
+    sansJs: 'Geotager needs JavaScript to read and change a photo. Everything still runs on your device — nothing is sent anywhere.',
     defiler: 'How it works, and why it stays private ↓',
   },
 

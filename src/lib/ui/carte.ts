@@ -196,17 +196,79 @@ export function creerCarte(hote: HTMLElement, opts: OptionsCarte): Carte {
   let departY = 0;
   let parcours = 0;
 
+  /*
+   * Le pincement.
+   *
+   * La carte ne suivait qu'un seul doigt : `touch-action: none` coupe le zoom
+   * du navigateur, et rien ne le remplaçait — deux doigts sur la carte ne
+   * faisaient donc rigoureusement rien. Les seules commandes de zoom étaient
+   * deux boutons, ce qui est le geste que personne n'emploie sur un téléphone.
+   *
+   * On garde tous les pointeurs actifs. À deux, l'écart entre eux pilote le
+   * zoom : chaque doublement de cet écart vaut un cran, et le cran est franchi
+   * quand on dépasse la moitié — sans quoi il faudrait écarter les doigts de
+   * toute la largeur de l'écran pour gagner un niveau.
+   */
+  const pointeurs = new Map<number, { x: number; y: number }>();
+  let ecartDepart = 0;
+  let zoomDepart = 0;
+
+  const ecart = (): number => {
+    const [a, b] = [...pointeurs.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  const milieu = (): { x: number; y: number } => {
+    const [a, b] = [...pointeurs.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+
   function surDescente(e: PointerEvent): void {
-    if (pointeur !== null) return;
+    pointeurs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // La capture lève si le pointeur n'est plus actif — un doigt relevé entre
+    // l'émission de l'événement et son traitement suffit. Ce n'est pas une
+    // raison de perdre le geste : la carte suit très bien sans la capture.
+    try {
+      hote.setPointerCapture(e.pointerId);
+    } catch {
+      /* tant pis pour la capture */
+    }
+
+    if (pointeurs.size === 2) {
+      // Le second doigt met fin au déplacement en cours : on ne fait pas les
+      // deux à la fois, et un pincement n'est jamais un clic.
+      pointeur = null;
+      parcours = Infinity;
+      ecartDepart = ecart();
+      zoomDepart = zoom;
+      hote.classList.remove('glisse');
+      return;
+    }
+    if (pointeurs.size > 2) return;
+
     pointeur = e.pointerId;
     departX = e.clientX;
     departY = e.clientY;
     parcours = 0;
-    hote.setPointerCapture(e.pointerId);
     hote.classList.add('glisse');
   }
 
   function surMouvement(e: PointerEvent): void {
+    if (pointeurs.has(e.pointerId)) pointeurs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointeurs.size === 2) {
+      const courant = ecart();
+      if (ecartDepart > 0 && courant > 0) {
+        const crans = Math.round(Math.log2(courant / ecartDepart));
+        const vise = zoomDepart + crans;
+        if (vise !== zoom) {
+          const r = hote.getBoundingClientRect();
+          const m = milieu();
+          zoomer(vise - zoom, m.x - r.left, m.y - r.top);
+        }
+      }
+      return;
+    }
+
     if (e.pointerId !== pointeur) return;
     const dx = e.clientX - departX;
     const dy = e.clientY - departY;
@@ -220,10 +282,28 @@ export function creerCarte(hote: HTMLElement, opts: OptionsCarte): Carte {
   }
 
   function surRemontee(e: PointerEvent): void {
+    pointeurs.delete(e.pointerId);
+    try {
+      if (hote.hasPointerCapture(e.pointerId)) hote.releasePointerCapture(e.pointerId);
+    } catch {
+      /* déjà relâché */
+    }
+
+    // Le doigt qui reste après un pincement ne doit ni déplacer la carte d'un
+    // bond, ni compter pour un clic : on repart proprement de sa position.
+    if (pointeurs.size === 1) {
+      const [id] = [...pointeurs.keys()];
+      const p = pointeurs.get(id)!;
+      pointeur = id;
+      departX = p.x;
+      departY = p.y;
+      parcours = Infinity;
+      return;
+    }
+
     if (e.pointerId !== pointeur) return;
     pointeur = null;
     hote.classList.remove('glisse');
-    if (hote.hasPointerCapture(e.pointerId)) hote.releasePointerCapture(e.pointerId);
 
     if (parcours < SEUIL_CLIC) {
       // Un clic : le point visé devient le centre, donc le repère.

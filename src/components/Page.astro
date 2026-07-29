@@ -202,6 +202,10 @@ const jsonLd = {
             <p class="hero-titre" aria-hidden="true">{T.hero.titre} <em>{T.hero.titreEm}</em></p>
             <p class="sub">{T.hero.sous}</p>
             <p class="formats">{T.hero.formats}</p>
+            <!-- Le sélecteur s'ouvre sans JavaScript — la bulle est un label —
+                 mais rien ne lit la photo ensuite. Mieux vaut le dire que
+                 laisser quelqu'un choisir un fichier et attendre. -->
+            <noscript><p class="alerte attention">{T.hero.sansJs}</p></noscript>
           </div>
 
           <!-- ÉTAT ACTIF — occupe exactement la même zone. -->
@@ -373,7 +377,11 @@ const jsonLd = {
           <a href="#verifier">{T.nav.verifier}</a>
           {
             LANGUES.filter((l) => l !== T.langue).map((l) => (
-              <a href={DICOS[l].base} lang={DICOS[l].htmlLang} rel="alternate">
+              <a
+                href={DICOS[l].base}
+                lang={DICOS[l].htmlLang}
+                hreflang={DICOS[l].htmlLang}
+                rel="alternate">
                 {DICOS[l].meta.nomLangue}
               </a>
             ))

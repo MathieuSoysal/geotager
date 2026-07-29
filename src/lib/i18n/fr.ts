@@ -45,6 +45,7 @@ export const fr: Dictionnaire = {
     titreEm: "d'une photo",
     sous: "Rien n'est envoyé nulle part : tout se passe dans votre navigateur.",
     formats: 'JPEG · HEIC · PNG · WebP · TIFF',
+    sansJs: 'Geotager a besoin de JavaScript pour lire et modifier une photo. Tout continue de se passer sur votre appareil : rien n\'est envoyé nulle part.',
     defiler: "Comment ça marche, et pourquoi c'est privé ↓",
   },
 
