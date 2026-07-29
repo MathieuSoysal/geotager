@@ -41,6 +41,7 @@ const el = {
   resultatCoords: $('resultat-coords'),
   resultatDetail: $('resultat-detail'),
   telecharger: $<HTMLButtonElement>('telecharger'),
+  partagerSortie: $<HTMLButtonElement>('partager-sortie'),
   effacer: $<HTMLButtonElement>('effacer'),
   effacerTout: $<HTMLButtonElement>('effacer-tout'),
   autres: $<HTMLDetailsElement>('autres'),
@@ -190,6 +191,7 @@ function versEtatVide(deplacerFocus = false): void {
   inactiver(el.telecharger, true);
   el.picker.value = '';
   el.avisVide.hidden = true;
+  proposerPartage([]);
   marquerEtape(1);
   annoncer(T.app.aucuneChargee);
   if (deplacerFocus) el.picker.focus();
@@ -548,6 +550,18 @@ async function appliquer(
     telechargerBlob(zip, T.app.zip);
   }
 
+  /*
+   * Downloading stays what it was: sharing is added, it replaces nothing. It is
+   * the produced files that are kept, never the originals. All the tool's value
+   * rests on that distinction, and this is the place in the code where
+   * conflating them would cost the most.
+   */
+  proposerPartage(
+    produits.map(
+      (p) => new File([p.input as BlobPart], p.name, { type: 'application/octet-stream' }),
+    ),
+  );
+
   marquerEtape(3);
   annoncer(
     echecs === 0
@@ -555,6 +569,40 @@ async function appliquer(
       : T.app.pretsAvecEchecs(produits.length, echecs),
   );
 }
+
+// Outgoing share
+
+/** The files produced by the last operation. Never the originals. */
+let sorties: File[] = [];
+
+/*
+ * `canShare({ files })` rather than `'share' in navigator`: sharing files is
+ * narrower than sharing a link, and a browser can perfectly well have the
+ * second without the first. So the API is asked about the real files, whose
+ * number and type matter, rather than about its own existence.
+ */
+function proposerPartage(fichiers: File[]): void {
+  sorties = fichiers;
+  const possible =
+    fichiers.length > 0 &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: fichiers });
+  el.partagerSortie.hidden = !possible;
+}
+
+el.partagerSortie.addEventListener('click', () => {
+  if (!sorties.length) return;
+  /*
+   * Called directly in the handler, with no `await` before it: sharing requires
+   * transient user activation, and the slightest asynchronous round trip
+   * consumes it, after which the share sheet no longer opens.
+   *
+   * A refusal is the norm, not a failure: closing the sheet without choosing
+   * rejects the promise. We swallow it, or the end-to-end "no console error"
+   * check would turn red on every hesitation.
+   */
+  void navigator.share({ files: sorties, title: T.meta.titre }).catch(() => {});
+});
 
 function telechargerBlob(blob: Blob, nom: string): void {
   const url = URL.createObjectURL(blob);

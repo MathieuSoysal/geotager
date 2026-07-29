@@ -92,6 +92,8 @@ export interface Dictionnaire {
     telecharger: string;
     /** Why "Download" is inactive while no location has been chosen. */
     telechargerPourquoi: string;
+    /** Share the produced photo, never the original. */
+    partagerSortie: string;
     effacer: string;
     effacerTout: string;
     autres: string;

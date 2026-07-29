@@ -77,6 +77,7 @@ export const en: Dictionnaire = {
     positionChoisie: (p) => `Picked on the map: ${p}`,
     telecharger: 'Download the photo',
     telechargerPourquoi: 'Unavailable until you enter a location above.',
+    partagerSortie: 'Share the cleaned photo',
     effacer: 'Remove the location',
     effacerTout: 'Remove everything',
     autres: 'Show the other information',
