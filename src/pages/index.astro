@@ -20,19 +20,35 @@ import { en } from '../lib/i18n/index.ts';
   </p>
   <p>
     At no point does that path involve a network call. There is no server to send anything to: the
-    site is a set of static files. You can confirm it three ways:
+    site is a set of static files.
+  </p>
+  <p>
+    One thing on this page does reach outside, and only if you ask it to. Behind “Place it on a
+    map” there is a map, and its pictures come from openstreetmap.org, who therefore learn roughly
+    which area you are looking at. They learn nothing about your photo — not its name, not its
+    size, not the position stored in it. The map stays folded away until you click it, so if you
+    never open it, nothing is ever requested. You can confirm all of this three ways:
   </p>
   <ol>
     <li>
       Open the <strong>Network</strong> tab of your developer tools, then drop a photo and download
-      it. No request appears.
+      it. No request appears. Open the map and requests appear — to
+      <code>tile.openstreetmap.org</code>, and to nothing else.
     </li>
     <li>
       <strong>Turn off your connection</strong> after the page has loaded, then use the tool. It
-      works in full.
+      works in full; only the map pictures are missing, and you can still type coordinates.
     </li>
     <li>Read the code. The repository is public under the MIT licence, and so is the build script.</li>
   </ol>
+  <p>
+    Two details about the map we would rather write down than have you discover. Its requests carry
+    the name of this site — <code>geotager.app</code> — and nothing else: no page address, no file
+    name, no coordinates. OpenStreetMap ask that a site using their pictures say who it is, and
+    that is the smallest honest way to do it; every other request this site makes carries no name
+    at all. And the page is not allowed to ask your browser where <em>you</em> are: the site's own
+    headers switch that off, which is why there is no “use my location” button here.
+  </p>
 
   <h2 id="mode-emploi">{en.titres.modeEmploi}</h2>
   <ol>

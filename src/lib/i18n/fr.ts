@@ -52,7 +52,19 @@ export const fr: Dictionnaire = {
     ouPrise: 'Où cette photo a-t-elle été prise ?',
     aideCoords:
       'Collez des coordonnées depuis une carte : dans Google Maps, clic droit sur le lieu puis clic sur les chiffres pour les copier. Le format décimal et le format degrés-minutes-secondes sont acceptés. ',
-    aideCoordsFort: 'Rien ne sort de votre navigateur.',
+    aideCoordsFort: 'Votre photo reste ici.',
+    ouvrirCarte: 'Placer sur une carte',
+    fermerCarte: 'Fermer la carte',
+    avisCarte:
+      "La carte est dessinée par openstreetmap.org : l'ouvrir leur indique approximativement la zone que vous regardez. Votre photo, elle, ne quitte toujours pas ce navigateur.",
+    carteLabel: 'Carte. Cliquez un lieu pour y placer le repère.',
+    carteAide:
+      'Cliquez sur le lieu, ou faites glisser la carte sous le repère. Les flèches marchent aussi.',
+    zoomAvant: 'Zoom avant',
+    zoomArriere: 'Zoom arrière',
+    contributeurs: 'contributeurs',
+    repereOrigine: 'Le lieu inscrit dans la photo',
+    positionChoisie: (p) => `Choisi sur la carte : ${p}`,
     telecharger: 'Télécharger la photo',
     effacer: 'Effacer la position',
     effacerTout: 'Tout effacer',

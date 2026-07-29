@@ -6,6 +6,7 @@
  */
 import { downloadZip } from 'client-zip';
 import { parseCoordinates, formatDecimal, formatDms, distanceMetres, formatDistance } from '../exif/coords.ts';
+import type { Carte } from './carte.ts';
 import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '../exif/types.ts';
 import { dicoDuDocument, type CodeErreur } from '../i18n/index.ts';
 
@@ -29,6 +30,11 @@ const el = {
   pillPosition: $('pill-position'),
   changer: $<HTMLButtonElement>('changer'),
   coords: $<HTMLInputElement>('coords'),
+  carteBascule: $<HTMLButtonElement>('carte-bascule'),
+  carte: $('carte'),
+  carteVue: $('carte-vue'),
+  cartePlus: $<HTMLButtonElement>('carte-plus'),
+  carteMoins: $<HTMLButtonElement>('carte-moins'),
   resultat: $('resultat'),
   resultatCoords: $('resultat-coords'),
   resultatDetail: $('resultat-detail'),
@@ -55,6 +61,12 @@ const items: Item[] = [];
 let principal: Item | null = null;
 let cible: LatLon | null = null;
 let compteur = 0;
+/** La carte n'existe qu'une fois demandée : avant, rien n'a été chargé. */
+let carte: Carte | null = null;
+/** Précision du geste qui a désigné `cible`, en mètres. Null si elle a été saisie. */
+let precision: number | null = null;
+/** Empêche l'aller-retour champ → carte → champ de se mordre la queue. */
+let enSync = false;
 
 /* --- worker ------------------------------------------------------- */
 
@@ -110,6 +122,8 @@ function versEtatVide(): void {
   items.length = 0;
   principal = null;
   cible = null;
+  precision = null;
+  fermerCarte();
   el.vide.hidden = false;
   el.actif.hidden = true;
   el.coords.value = '';
@@ -160,6 +174,11 @@ function afficherPrincipal(): void {
   el.alerteFormat.classList.toggle('grave', !r.can.read);
   el.alerteFormat.classList.toggle('attention', r.can.read && !(modifiable && r.can.erase));
   el.coords.disabled = !modifiable;
+  // Une carte qu'on peut promener mais dont le résultat ne sera jamais inscrit
+  // est un piège : on la referme plutôt que de la laisser répondre à vide.
+  el.carteBascule.disabled = !modifiable;
+  if (!modifiable) fermerCarte();
+  else carte?.marquerOrigine(r.position ?? null);
   el.effacer.disabled = !r.can.erase;
   el.effacerTout.disabled = !r.can.eraseAll;
 
@@ -229,6 +248,61 @@ function majListeLot(statuts: Map<string, string> = new Map()): void {
   );
 }
 
+/* --- carte -------------------------------------------------------- */
+
+/*
+ * Deux règles suffisent à empêcher la boucle champ → carte → champ, et aucune
+ * des deux n'est un drapeau qu'on peut oublier de poser :
+ *
+ * 1. Écrire `el.coords.value` depuis le script n'émet PAS d'événement `input`.
+ *    Le sens carte → champ est donc sans retour, par spécification.
+ * 2. `carte.centrer()` ne rappelle jamais `onChoix`. Le sens champ → carte est
+ *    sans retour, par contrat.
+ *
+ * Si quelqu'un ajoute un jour un `dispatchEvent(new Event('input'))` ou un
+ * écouteur `change`, les deux garanties tombent en même temps.
+ */
+
+function fermerCarte(): void {
+  carte?.detruire();
+  carte = null;
+  el.carte.hidden = true;
+  el.carteBascule.setAttribute('aria-expanded', 'false');
+  el.carteBascule.textContent = T.app.ouvrirCarte;
+}
+
+async function ouvrirCarte(): Promise<void> {
+  if (carte) {
+    fermerCarte();
+    return;
+  }
+  el.carte.hidden = false;
+  el.carteBascule.setAttribute('aria-expanded', 'true');
+  el.carteBascule.textContent = T.app.fermerCarte;
+
+  // Chargé à la demande : tant que personne n'ouvre la carte, pas un octet du
+  // code qui sait parler aux tuiles n'est demandé — et donc aucune tuile.
+  const { creerCarte } = await import('./carte.ts');
+  carte = creerCarte(el.carteVue, {
+    textes: { origine: T.app.repereOrigine },
+    onChoix: (p, m) => {
+      cible = p;
+      precision = m;
+      el.coords.value = formatDecimal(p);
+      majResultat();
+      annoncer(T.app.positionChoisie(formatDecimal(p)));
+    },
+  });
+
+  const origine = principal?.read?.position ?? null;
+  const depart = cible ?? origine;
+  // On n'ouvre pas au zoom maximal sur la position de la photo : la première
+  // requête dirait alors le pas de porte. Le quartier suffit à se repérer, et
+  // l'utilisateur zoome lui-même s'il le veut.
+  carte.centrer(depart ?? { lat: 46.6, lon: 2.4 }, depart ? 13 : 4);
+  carte.marquerOrigine(origine);
+}
+
 function majResultat(): void {
   if (!cible) {
     el.resultat.hidden = true;
@@ -257,6 +331,7 @@ async function charger(fichiers: File[]): Promise<void> {
   items.length = 0;
   principal = null;
   cible = null;
+  precision = null;
   el.coords.value = '';
 
   for (const file of utiles) {
@@ -393,12 +468,31 @@ el.changer.addEventListener('click', versEtatVide);
 
 el.coords.addEventListener('input', () => {
   cible = parseCoordinates(el.coords.value);
+  // Des coordonnées tapées n'ont pas de zoom, donc pas de précision à
+  // déclarer. Hériter de celle d'un clic précédent inscrirait dans le fichier
+  // de quelqu'un un chiffre que personne n'a mesuré.
+  precision = null;
+  if (cible) carte?.centrer(cible);
   majResultat();
 });
 
+el.carteBascule.addEventListener('click', () => void ouvrirCarte());
+el.cartePlus.addEventListener('click', () => carte?.zoomer(1));
+el.carteMoins.addEventListener('click', () => carte?.zoomer(-1));
+
 el.telecharger.addEventListener('click', () => {
   if (!cible) return;
-  void appliquer({ kind: 'set', position: cible }, T.app.suffixeLieu);
+  // `Operation` porte `accuracyMetres` depuis l'origine et le moteur l'inscrit
+  // dans le fichier ; il n'avait jusqu'ici aucune source honnête à quoi le
+  // relier. Le zoom de la carte en est une. Rien n'est annoncé à l'écran :
+  // sur la voie « sans rien déplacer », le moteur ne peut pas ajouter le
+  // champ et ne le prétend pas (voir `conteneurs.ts`).
+  void appliquer(
+    precision === null
+      ? { kind: 'set', position: cible }
+      : { kind: 'set', position: cible, accuracyMetres: precision },
+    T.app.suffixeLieu,
+  );
 });
 
 el.effacer.addEventListener('click', () => {

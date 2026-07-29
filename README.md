@@ -7,6 +7,10 @@ View, change and remove the GPS location of a photo, **entirely in the browser**
 No server, no account, no ads, no trackers. The site is a set of static files; image processing
 happens in a Web Worker, on your machine.
 
+One thing, and one only, reaches outside: the map behind “Place it on a map”, which fetches its
+pictures from `tile.openstreetmap.org`. It is folded away until you click it, so a session that
+never opens it makes no outside request at all — and your photo is never part of one either way.
+
 ## Status
 
 **V1.1 — all four operations on every image format.** Read, change, add and remove a location on
@@ -121,7 +125,10 @@ build only runs `npm run build`, and its image contains neither ExifTool nor lib
 
 `scripts/check-build.mjs` exits **non-zero** — the only thing Cloudflare reads — if:
 
-- a page loads a third-party resource (the one criterion that admits no exception);
+- a page loads a third-party resource from a host that is not on the resource allowlist — which
+  holds exactly one entry, the map tiles, recorded in `CREDITS.md`;
+- a served JavaScript file contains an absolute URL whose host is on no list at all (the regexes
+  above only see HTML- and CSS-shaped references; a URL built by concatenation escaped them);
 - a `<title>` exceeds 60 characters or a meta description 155;
 - a page does not have exactly one `<h1>`;
 - one of the required content blocks is missing from the served HTML, in that page's language;

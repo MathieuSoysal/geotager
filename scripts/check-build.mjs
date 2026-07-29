@@ -24,7 +24,37 @@ const LIENS_AUTORISES = new Set([
   'schema.org',
   'exiftool.org',
   'developer.mozilla.org',
+  // L'attribution exigée par OpenStreetMap. C'est un lien, pas une ressource.
+  'www.openstreetmap.org',
 ]);
+
+/**
+ * Hôtes autorisés en RESSOURCE — la seule exception du projet, et elle se
+ * compte sur un doigt. Toute entrée ici doit être justifiée dans CREDITS.md.
+ */
+const RESSOURCES_AUTORISEES = new Set([
+  // Tuiles de la carte de choix du lieu, chargées seulement si l'utilisateur
+  // ouvre la carte. Voir CREDITS.md et l'entrée Q-044 de QUESTIONS.md.
+  'tile.openstreetmap.org',
+]);
+
+/**
+ * Hôtes qui apparaissent en URL sans jamais être chargés : des identifiants
+ * d'espace de noms XML, qui ressemblent à des adresses parce que la spécifi-
+ * cation le veut ainsi. `exifr` en embarque deux pour XMP. Aucun navigateur ne
+ * va les chercher, et les confondre avec une ressource ferait crier le contrôle
+ * pour rien — ce qui est le meilleur moyen de le faire désactiver.
+ */
+const HOTES_DECLARATIFS = new Set(['ns.adobe.com']);
+
+/** L'hôte d'une URL, ou null si elle est illisible. */
+function hote(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
 
 const echecs = [];
 const infos = [];
@@ -71,9 +101,20 @@ for (const f of fichiers) {
 /* --- 2. aucune ressource tierce ----------------------------------- */
 
 /*
- * C'est le seul critère du projet qui ne souffre aucune exception. On distingue
- * un LIEN hypertexte (l'utilisateur clique, rien n'est chargé) d'une RESSOURCE
- * (le navigateur va la chercher tout seul). Seule la seconde est interdite.
+ * On distingue un LIEN hypertexte (l'utilisateur clique, rien n'est chargé)
+ * d'une RESSOURCE (le navigateur va la chercher tout seul). Seule la seconde
+ * est interdite.
+ *
+ * Ce critère ne souffrait aucune exception. Il en souffre désormais UNE, nommée
+ * dans `RESSOURCES_AUTORISEES` : les tuiles de la carte, que rien ne demande
+ * tant que l'utilisateur n'a pas ouvert la carte. La phrase précédente disait
+ * « aucune exception » ; la laisser telle quelle aurait fait mentir le seul
+ * endroit où quelqu'un vient vérifier.
+ *
+ * Et la liste ci-dessous ne suffisait pas. Elle cherche des formes HTML et CSS
+ * — `<img src=…>`, `url(…)`, `fetch('…')`. Une URL construite dans du
+ * JavaScript, par concaténation, n'en déclenche aucune : un fond de carte tiers
+ * serait passé sans un mot. Le contrôle §2 bis, plus bas, ferme ce trou.
  */
 const RESSOURCES = [
   /<script[^>]+src\s*=\s*["'](https?:\/\/[^"']+)/gi,
@@ -82,7 +123,10 @@ const RESSOURCES = [
   /<link(?![^>]*rel\s*=\s*["'](?:canonical|alternate)["'])[^>]+href\s*=\s*["'](https?:\/\/[^"']+)/gi,
   /<img[^>]+src\s*=\s*["'](https?:\/\/[^"']+)/gi,
   /<(?:video|audio|source|iframe|embed)[^>]+src\s*=\s*["'](https?:\/\/[^"']+)/gi,
-  /url\(\s*["']?(https?:\/\/[^)"']+)/gi,
+  // `(?<![\w-])` : sans cela, le drapeau `i` fait correspondre `URL(` aussi
+  // bien que `url(`, et un `new URL('https://…')` parfaitement légitime fait
+  // échouer la build avec un message qui accuse une feuille de style.
+  /(?<![\w-])url\(\s*["']?(https?:\/\/[^)"']+)/gi,
   /@import\s+["'](https?:\/\/[^"']+)/gi,
   /\bfetch\(\s*["'`](https?:\/\/[^"'`]+)/gi,
 ];
@@ -95,6 +139,7 @@ for (const f of textes) {
   for (const re of RESSOURCES) {
     re.lastIndex = 0;
     for (const m of contenu.matchAll(re)) {
+      if (RESSOURCES_AUTORISEES.has(hote(m[1]))) continue;
       echecs.push(`${rel(f)} charge une ressource tierce : ${m[1].slice(0, 80)}`);
     }
   }
@@ -103,6 +148,28 @@ for (const f of textes) {
     if (!LIENS_AUTORISES.has(m[1])) {
       echecs.push(`${rel(f)} pointe vers un hôte non listé : ${m[1]}`);
     }
+  }
+}
+
+/* --- 2 bis. aucune URL absolue inattendue dans le JavaScript ------- */
+
+/*
+ * Les motifs du §2 attrapent des balises et des appels écrits en toutes
+ * lettres. Ils n'attrapent pas `const T = 'https://exemple/{z}/{x}/{y}.png'`,
+ * qui suffit pourtant à charger un tiers depuis une `<img>` construite à la
+ * volée. On contrôle donc TOUTE URL absolue littérale du JavaScript servi,
+ * contre l'union des deux listes blanches.
+ *
+ * Aucun fichier du dépôt n'en plaçait dans le bundle avant la carte : ce
+ * contrôle naît vert, et il n'a de sens qu'à cette condition.
+ */
+const AUTORISES = new Set([...LIENS_AUTORISES, ...RESSOURCES_AUTORISEES, ...HOTES_DECLARATIFS]);
+for (const f of fichiers.filter((x) => ['.js', '.mjs'].includes(extname(x)))) {
+  const contenu = readFileSync(f, 'utf8');
+  for (const m of contenu.matchAll(/["'`](https?:\/\/[^"'`\s]+)["'`]/g)) {
+    const h = hote(m[1]);
+    if (h && AUTORISES.has(h)) continue;
+    echecs.push(`${rel(f)} contient une URL absolue non listée : ${m[1].slice(0, 80)}`);
   }
 }
 

@@ -7,6 +7,11 @@ Voir, modifier et supprimer la position GPS d'une photo, **entièrement dans le 
 Aucun serveur, aucun compte, aucune publicité, aucun traceur. Le site est un ensemble de fichiers
 statiques&nbsp;; le traitement des images a lieu dans un Web Worker, sur votre machine.
 
+Une seule chose va chercher quelque chose au dehors&nbsp;: la carte de «&nbsp;Placer sur une
+carte&nbsp;», qui demande ses images à `tile.openstreetmap.org`. Elle reste repliée tant qu'on ne
+clique pas dessus&nbsp;: une visite qui ne l'ouvre jamais n'émet aucune requête sortante — et votre
+photo n'entre dans aucune, dans un cas comme dans l'autre.
+
 ## État
 
 **V1.1 — les quatre opérations sur tous les formats d'image.** Lire, corriger, ajouter et effacer
@@ -112,7 +117,11 @@ Cloudflare ne lance que `npm run build`, et son image ne contient pas ExifTool.
 
 `scripts/check-build.mjs` échoue **en code non nul** — Cloudflare ne lit que cela — si&nbsp;:
 
-- une ressource tierce est chargée par une page (le critère qui ne souffre aucune exception) ;
+- une ressource tierce est chargée depuis un hôte absent de la liste blanche des ressources — qui
+  compte exactement une entrée, les tuiles de la carte, consignée dans `CREDITS.md` ;
+- un fichier JavaScript servi contient une URL absolue dont l'hôte n'est sur aucune liste (les
+  motifs ci-dessus ne voient que des formes HTML et CSS&nbsp;; une URL construite par concaténation
+  leur échappait) ;
 - un `<title>` dépasse 60 caractères ou une meta description 155 ;
 - une page n'a pas exactement un `<h1>` ;
 - un des blocs de contenu obligatoires manque du HTML servi ;
