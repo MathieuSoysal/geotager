@@ -130,6 +130,26 @@ function majEtatCoords(invalide: boolean): void {
   }
 }
 
+/**
+ * Un contrôle inactif, mais ATTEIGNABLE.
+ *
+ * `disabled` retire l'élément de l'ordre de tabulation et n'annonce rien : qui
+ * navigue au clavier passe devant un bouton grisé sans jamais pouvoir s'y poser
+ * pour apprendre POURQUOI il l'est. `aria-disabled` le laisse focalisable et
+ * annoncé, ce qui est le contraire d'un détail sur « Tout effacer ».
+ *
+ * En échange, le bouton reste CLIQUABLE : la garde revient au gestionnaire, et
+ * elle doit y être la première ligne. Sans elle, un bouton d'apparence grisée
+ * agit quand même — et ici l'un d'eux efface tout.
+ */
+function inactiver(bouton: HTMLButtonElement, inactif: boolean): void {
+  bouton.setAttribute('aria-disabled', String(inactif));
+}
+
+/** La garde, à placer en tête de chaque gestionnaire. */
+const estInactif = (bouton: HTMLButtonElement): boolean =>
+  bouton.getAttribute('aria-disabled') === 'true';
+
 /* --- état --------------------------------------------------------- */
 
 function marquerEtape(n: 1 | 2 | 3): void {
@@ -167,7 +187,7 @@ function versEtatVide(deplacerFocus = false): void {
   el.coords.value = '';
   majEtatCoords(false);
   el.resultat.hidden = true;
-  el.telecharger.disabled = true;
+  inactiver(el.telecharger, true);
   el.picker.value = '';
   el.avisVide.hidden = true;
   marquerEtape(1);
@@ -214,14 +234,17 @@ function afficherPrincipal(): void {
   el.alerteFormat.textContent = phrase;
   el.alerteFormat.classList.toggle('grave', !r.can.read);
   el.alerteFormat.classList.toggle('attention', r.can.read && !(modifiable && r.can.erase));
-  el.coords.disabled = !modifiable;
+  // Un champ texte n'est pas un bouton : `aria-disabled` ne l'empêcherait pas
+  // d'être rempli. `readonly` est l'équivalent honnête — focalisable, annoncé
+  // en lecture seule, toujours sélectionnable et copiable, mais pas modifiable.
+  el.coords.readOnly = !modifiable;
   // Une carte qu'on peut promener mais dont le résultat ne sera jamais inscrit
   // est un piège : on la referme plutôt que de la laisser répondre à vide.
-  el.carteBascule.disabled = !modifiable;
+  inactiver(el.carteBascule, !modifiable);
   if (!modifiable) fermerCarte();
   else carte?.marquerOrigine(r.position ?? null);
-  el.effacer.disabled = !r.can.erase;
-  el.effacerTout.disabled = !r.can.eraseAll;
+  inactiver(el.effacer, !r.can.erase);
+  inactiver(el.effacerTout, !r.can.eraseAll);
 
   const nomInfo = (cle: string) => T.infos[cle] ?? cle;
   const infos: Array<[string, string]> = [];
@@ -380,7 +403,7 @@ async function ouvrirCarte(): Promise<void> {
 function majResultat(): void {
   if (!cible) {
     el.resultat.hidden = true;
-    el.telecharger.disabled = true;
+    inactiver(el.telecharger, true);
     el.telecharger.textContent = T.app.telechargerPhotos(items.length);
     return;
   }
@@ -391,7 +414,7 @@ function majResultat(): void {
     ? T.app.depuisOrigine(formatDistance(distanceMetres(origine, cible), T.app.virgule))
     : T.app.nouvellePosition;
   const modifiables = items.filter((i) => i.read?.can.write).length;
-  el.telecharger.disabled = modifiables === 0;
+  inactiver(el.telecharger, modifiables === 0);
   el.telecharger.textContent = T.app.telechargerPhotos(modifiables);
   marquerEtape(3);
 }
@@ -469,9 +492,9 @@ async function appliquer(
   const concernes = items.filter((i) => i.read && permise(i.read));
   if (!concernes.length) return;
 
-  el.telecharger.disabled = true;
-  el.effacer.disabled = true;
-  el.effacerTout.disabled = true;
+  inactiver(el.telecharger, true);
+  inactiver(el.effacer, true);
+  inactiver(el.effacerTout, true);
 
   const statuts = new Map<string, string>();
   const produits: Array<{ name: string; input: Uint8Array }> = [];
@@ -506,9 +529,9 @@ async function appliquer(
   }
 
   if (concernes.length > 1) majListeLot(statuts);
-  el.effacer.disabled = false;
-  el.effacerTout.disabled = false;
-  el.telecharger.disabled = false;
+  inactiver(el.effacer, false);
+  inactiver(el.effacerTout, false);
+  inactiver(el.telecharger, false);
 
   if (!produits.length) {
     el.alerteFormat.hidden = false;
@@ -571,12 +594,15 @@ el.coords.addEventListener('blur', () => {
   majEtatCoords(saisi !== '' && parseCoordinates(saisi) === null);
 });
 
-el.carteBascule.addEventListener('click', () => void ouvrirCarte());
+el.carteBascule.addEventListener('click', () => {
+  if (estInactif(el.carteBascule)) return;
+  void ouvrirCarte();
+});
 el.cartePlus.addEventListener('click', () => carte?.zoomer(1));
 el.carteMoins.addEventListener('click', () => carte?.zoomer(-1));
 
 el.telecharger.addEventListener('click', () => {
-  if (!cible) return;
+  if (estInactif(el.telecharger) || !cible) return;
   // `Operation` porte `accuracyMetres` depuis l'origine et le moteur l'inscrit
   // dans le fichier ; il n'avait jusqu'ici aucune source honnête à quoi le
   // relier. Le zoom de la carte en est une. Rien n'est annoncé à l'écran :
@@ -591,10 +617,12 @@ el.telecharger.addEventListener('click', () => {
 });
 
 el.effacer.addEventListener('click', () => {
+  if (estInactif(el.effacer)) return;
   void appliquer({ kind: 'erase' }, T.app.suffixeSansLieu);
 });
 
 el.effacerTout.addEventListener('click', () => {
+  if (estInactif(el.effacerTout)) return;
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
 

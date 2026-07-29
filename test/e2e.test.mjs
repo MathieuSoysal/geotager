@@ -190,7 +190,8 @@ check(
   `affiché ${latAff},${lonAff} / réel ${attendueOrigine.join(',')}`,
 );
 check('les étapes ont avancé', (await page.locator('.step.on').textContent()).includes('place'));
-check('le bouton principal est encore désactivé', await page.locator('#telecharger').isDisabled());
+check('le bouton principal est encore inactif',
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'true');
 
 console.log('\nSaisie de nouvelles coordonnées');
 await page.fill('#coords', '43.9493, 4.8055');
@@ -198,7 +199,8 @@ await page.waitForSelector('#resultat:not([hidden])');
 check('le récapitulatif apparaît', (await page.locator('#resultat-coords').textContent()).includes('43,94949') === false);
 check('la distance à l\'origine est annoncée',
   /km|m$/.test((await page.locator('#resultat-detail').textContent()).trim()));
-check('le bouton principal est activé', !(await page.locator('#telecharger').isDisabled()));
+check('le bouton principal est actif',
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
 
 console.log('\nTéléchargement et relecture par ExifTool');
 const [download] = await Promise.all([
@@ -283,7 +285,7 @@ check('la phrase affichée ne contient aucun jargon de format',
   !MOTS_INTERDITS.en.test(await alerte.textContent()),
   (await alerte.textContent()).trim().slice(0, 80));
 check('« Tout effacer » est désactivé là où l\'opération n\'existe pas',
-  await page.locator('#effacer-tout').isDisabled());
+  (await page.locator('#effacer-tout').getAttribute('aria-disabled')) === 'true');
 
 const [dlHeic] = await Promise.all([
   page.waitForEvent('download', { timeout: 30_000 }),
@@ -310,8 +312,8 @@ await page.waitForFunction(() => {
   const p = document.getElementById('pill-position');
   return p && !p.hidden && p.textContent.trim().length > 0;
 }, null, { timeout: 20_000 });
-check('le champ de saisie est actif sur un PNG',
-  !(await page.locator('#coords').isDisabled()));
+check('le champ de saisie est modifiable sur un PNG',
+  (await page.locator('#coords').getAttribute('readonly')) === null);
 
 await page.fill('#coords', '43.9493, 4.8055');
 await page.waitForSelector('#resultat:not([hidden])');
@@ -391,7 +393,10 @@ await page.waitForSelector('#alerte-format:not([hidden])', { timeout: 20_000 });
 const phrase = (await page.locator('#alerte-format').textContent()).trim();
 check('la limite est annoncée avant toute action', phrase.length > 0, phrase.slice(0, 80));
 check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phrase), phrase.slice(0, 80));
-check('le champ de saisie est désactivé', await page.locator('#coords').isDisabled());
+// Un champ texte inactif est `readonly`, pas `disabled` : il reste focalisable,
+// annoncé en lecture seule, et son contenu reste sélectionnable.
+check('le champ de saisie est en lecture seule',
+  (await page.locator('#coords').getAttribute('readonly')) !== null);
 
 // Les deux contrôles ci-dessus ne voient que les deux phrases que ces deux
 // fichiers déclenchent. Le parcours en compte onze, et c'est celle qu'on n'a
@@ -489,7 +494,9 @@ const FRONTIERE = requetes.length;
 console.log('\nAccessibilité du chemin principal');
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
 const focusable = await page.evaluate(() => {
-  const sel = 'a[href],button:not([disabled]),input:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
+  // `aria-disabled` ne retire rien de l'ordre de tabulation — c'est tout son
+  // objet. Le sélecteur ne doit donc plus exclure les contrôles inactifs.
+  const sel = 'a[href],button,input:not([type="hidden"]),summary,[tabindex]:not([tabindex="-1"])';
   return [...document.querySelectorAll(sel)].filter((e) => e.offsetParent !== null).length;
 });
 check('des éléments focalisables existent dès le HTML', focusable > 3, String(focusable));
@@ -535,6 +542,56 @@ check("un titre de niveau 1 subsiste une fois la photo chargée",
   }));
 check("le focus n'est pas retombé sur le corps du document",
   await page.evaluate(() => document.activeElement !== document.body));
+
+/*
+ * L'objet même du passage à `aria-disabled` : un contrôle inactif reste
+ * ATTEIGNABLE. Avec `disabled`, il quittait l'ordre de tabulation et personne ne
+ * pouvait s'y poser pour apprendre pourquoi il ne faisait rien.
+ *
+ * Et il reste inoffensif : `aria-disabled` n'empêche pas le clic, c'est la garde
+ * du gestionnaire qui s'en charge. Le contrôle vaut donc pour les deux moitiés —
+ * on l'atteint, et l'atteindre ne déclenche rien.
+ */
+const inactifAtteignable = await page.evaluate(() => {
+  const b = document.getElementById('telecharger');
+  b.focus();
+  return {
+    inactif: b.getAttribute('aria-disabled') === 'true',
+    focalise: document.activeElement === b,
+    explique: !!document.getElementById(b.getAttribute('aria-describedby') ?? '')
+      ?.textContent?.trim(),
+  };
+});
+check('un bouton inactif reçoit tout de même le focus',
+  inactifAtteignable.inactif && inactifAtteignable.focalise);
+check("et il dit pourquoi il est inactif", inactifAtteignable.explique);
+
+/*
+ * Cliquer dessus ne doit RIEN faire. L'événement est DISPATCHÉ et non cliqué :
+ * Playwright refuse d'actionner un élément portant `aria-disabled="true"` — ce
+ * qui est en soi la meilleure confirmation que l'attribut porte — mais cette
+ * prudence-là est celle de l'outil de test, pas celle de l'application. Ce qu'on
+ * veut éprouver ici est la garde du gestionnaire, seule chose qui protège un
+ * vrai navigateur, où le clic passe.
+ */
+await page.locator('#telecharger').dispatchEvent('click');
+await page.waitForTimeout(500);
+check("cliquer un bouton inactif ne déclenche rien",
+  await page.locator('#resultat').isHidden());
+
+// Et la même chose pour le bouton qui efface tout, sur un fichier où
+// l'opération n'existe pas : c'est celui dont la garde compte vraiment.
+const effacerToutInactif = await page.evaluate(async () => {
+  const b = document.getElementById('effacer-tout');
+  if (b.getAttribute('aria-disabled') !== 'true') return 'actif ici';
+  const avant = document.getElementById('lot-liste').children.length;
+  b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 400));
+  return document.getElementById('lot-liste').children.length === avant ? 'inerte' : 'a agi';
+});
+check("« Tout effacer » inactif reste inerte au clic",
+  effacerToutInactif !== 'a agi', effacerToutInactif);
+
 
 // Une saisie refusée ne disait rien : le bouton se grisait, et c'était tout.
 await page.fill('#coords', 'nulle part');
@@ -723,7 +780,8 @@ const saisi = await page.locator('#coords').inputValue();
 check('un clic sur la carte remplit le champ de coordonnées',
   /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(saisi), saisi);
 check('le récapitulatif est apparu', !(await page.locator('#resultat').isHidden()));
-check('le bouton de téléchargement est activé', !(await page.locator('#telecharger').isDisabled()));
+check('le bouton de téléchargement est actif',
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
 
 // La carte est opérable sans souris : c'est la condition pour qu'elle soit
 // autre chose qu'un ornement.
@@ -863,7 +921,7 @@ check("saisir des coordonnées marche toujours",
     c.value = '48.8584, 2.2945';
     c.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 200));
-    return !document.getElementById('telecharger').disabled;
+    return document.getElementById('telecharger').getAttribute('aria-disabled') === 'false';
   }));
 const nouvelles = erreursConsole.slice(avantEchecCarte)
   .filter((e) => !/Failed to load resource|net::ERR_/.test(e));
@@ -890,7 +948,7 @@ await page.fill('#coords', '48.8584, 2.2945');
 await page.waitForFunction(() => !document.getElementById('resultat').hidden, null,
   { timeout: 5_000 });
 check('sans tuile, la saisie au clavier fonctionne toujours',
-  !(await page.locator('#telecharger').isDisabled()));
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
 
 /*
  * Le navigateur journalise chaque image qui n'arrive pas : `net::ERR_FAILED`.

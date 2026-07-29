@@ -384,6 +384,9 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
   flex: 1; min-width: 0; border: none; background: none; color: var(--text);
   font-family: var(--mono); font-size: .98rem; outline: none;
 }
+/* Lecture seule : le champ reste lisible et copiable, mais il ne doit pas
+   inviter à écrire. */
+.box:has(input:read-only) { opacity: .55; border-style: dashed; }
 /*
  * `.box input` neutralise le contour pour qu'aucun anneau ne soit tracé DANS la
  * pilule. Restait qu'il n'était tracé nulle part : ce sélecteur pèse (0,1,1),
@@ -420,10 +423,13 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
   border-radius: 999px; border: none; cursor: pointer;
   background: rgba(244, 241, 245, .09); color: var(--text);
 }
-.btn:hover:not(:disabled) { background: rgba(244, 241, 245, .16); }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
+/* `:disabled` ne se déclenche plus : les contrôles inactifs portent
+   `aria-disabled`, pour rester atteignables au clavier. L'apparence suit
+   l'attribut, et le survol cesse de réagir là où le clic ne fera rien. */
+.btn:hover:not([aria-disabled="true"]) { background: rgba(244, 241, 245, .16); }
+.btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .btn.primary { background: var(--pink); color: var(--encre); font-weight: 600; width: 100%; font-size: .98rem; padding: .8rem 1.2rem; }
-.btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn.primary:hover:not([aria-disabled="true"]) { filter: brightness(1.1); }
 .btn.ghost { background: none; border: 1.5px solid rgba(244, 241, 245, .22); }
 .btn.xs { font-size: .8rem; padding: .38rem .9rem; }
 .minor { display: flex; gap: .45rem; flex-wrap: wrap; }

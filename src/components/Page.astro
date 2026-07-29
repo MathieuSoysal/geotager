@@ -321,9 +321,22 @@ const jsonLd = {
                 <span class="l" id="resultat-detail"></span>
               </div>
 
-              <button class="btn primary" type="button" id="telecharger" disabled>
+              <!-- `aria-disabled` et non `disabled` : le bouton reste atteignable
+                   au clavier, donc on peut s'y poser pour entendre POURQUOI il
+                   ne fait rien. La garde est dans le gestionnaire. -->
+              <button
+                class="btn primary"
+                type="button"
+                id="telecharger"
+                aria-disabled="true"
+                aria-describedby="telecharger-pourquoi">
                 {T.app.telecharger}
               </button>
+              <!-- Les trois autres contrôles inactifs sont déjà expliqués : la
+                   phrase de capacité dit ce que le fichier permet, et elle est
+                   annoncée. Celui-ci ne l'était pas — il est gris parce qu'aucun
+                   lieu n'a encore été choisi, et rien ne le disait. -->
+              <p class="visually-hidden" id="telecharger-pourquoi">{T.app.telechargerPourquoi}</p>
 
               <div class="minor">
                 <button class="btn ghost" type="button" id="effacer">{T.app.effacer}</button>
