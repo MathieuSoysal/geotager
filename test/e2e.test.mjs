@@ -17,16 +17,30 @@ const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const PORT = 4319;
 
 /**
- * The CSP actually served, read from `public/_headers`.
+ * Every header actually served for `/*`, read from `public/_headers`.
  *
- * It is read rather than copied: a policy copied here would drift from the one
- * the host serves, and the test would end up validating a page nobody receives.
- * Until now this server set no header at all, so a `style` attribute refused in
- * production went unnoticed in the tests, and there was one, on the template.
+ * They are read rather than copied: a policy copied here would drift from the
+ * one the host serves, and the test would end up validating a page nobody
+ * receives. Until now this server set no header at all, so a `style` attribute
+ * refused in production went unnoticed in the tests, and there was one, on the
+ * template.
+ *
+ * And until now it only set the CSP. The six other headers, which the pages
+ * describe in so many words, were asserted by nothing: one could be removed
+ * without a single check complaining.
  */
-const CSP = readFileSync('public/_headers', 'utf8')
-  .match(/^\s*Content-Security-Policy:\s*(.+)$/m)[1]
-  .trim();
+const EN_TETES = (() => {
+  const brut = readFileSync('public/_headers', 'utf8').split('\n');
+  const debut = brut.findIndex((l) => l.trim() === '/*');
+  const entetes = {};
+  for (const ligne of brut.slice(debut + 1)) {
+    if (/^\S/.test(ligne)) break; // le bloc suivant commence
+    const m = ligne.match(/^\s+([A-Za-z-]+):\s*(.+)$/);
+    if (m) entetes[m[1]] = m[2].trim();
+  }
+  return entetes;
+})();
+const CSP = EN_TETES['Content-Security-Policy'];
 
 const MIME = {
   // Without those two the test server returns `application/octet-stream`:
@@ -80,7 +94,7 @@ const serveur = createServer((req, res) => {
   }
   res.writeHead(200, {
     'content-type': MIME[extname(f)] ?? 'application/octet-stream',
-    'Content-Security-Policy': CSP,
+    ...EN_TETES,
   });
   res.end(readFileSync(f));
 });
@@ -537,6 +551,34 @@ await page.locator('#coords').blur();
 check("elle cesse de l'être dès que la saisie redevient lisible",
   (await page.locator('#coords').getAttribute('aria-invalid')) === null
   && !(await page.locator('#coords-erreur').isVisible()));
+
+/*
+ * The headers the pages promise in so many words. They were served by the host
+ * and asserted by nobody: one could be removed without a single check
+ * complaining, and the prose would have gone on announcing them.
+ *
+ * They are read from `public/_headers`, so this check judges the file that
+ * ships rather than a copy, but it requires each one to be present and to say
+ * the right thing.
+ */
+console.log('\nLes en-têtes promis sont bien là');
+for (const [nom, motif] of [
+  ['Referrer-Policy', /^no-referrer$/],
+  ['X-Frame-Options', /^DENY$/],
+  ['X-Content-Type-Options', /^nosniff$/],
+  ['Strict-Transport-Security', /max-age=\d{7,}/],
+  ['Cross-Origin-Opener-Policy', /^same-origin$/],
+  ['Cross-Origin-Resource-Policy', /^same-origin$/],
+  ['Permissions-Policy', /geolocation=\(\)/],
+]) {
+  check(`« ${nom} » est servi et dit ce qu'il doit`,
+    motif.test(EN_TETES[nom] ?? ''), EN_TETES[nom] ?? '(absent)');
+}
+// Geolocation is refused on purpose: that is why there is no "locate me"
+// button, and the prose builds on it.
+check('aucune fonction sensible n\'est laissée ouverte',
+  ['camera', 'microphone', 'geolocation', 'browsing-topics', 'interest-cohort']
+    .every((f) => (EN_TETES['Permissions-Policy'] ?? '').includes(`${f}=()`)));
 
 console.log("\nLe manifeste et ses icônes");
 for (const [base, langue, depart] of [['/', 'en', '/'], ['/fr/', 'fr', '/fr/']]) {
