@@ -617,6 +617,70 @@ check("elle cesse de l'être dès que la saisie redevient lisible",
  * ships rather than a copy, but it requires each one to be present and to say
  * the right thing.
  */
+/*
+ * Outgoing share.
+ *
+ * Chromium without system integration has no file sharing: `canShare` says no,
+ * the button stays hidden, and that is the correct behaviour, which is the
+ * first thing verified. The rest is exercised on a separate page where the API
+ * is simulated, because what matters is not that the sheet opens but what we
+ * put in it: the produced file, never the original.
+ */
+console.log('\nPartager la photo nettoyée');
+check("sans partage de fichiers, le bouton reste caché",
+  await page.locator('#partager-sortie').isHidden());
+
+const pagePartage = await contexte.newPage();
+await pagePartage.addInitScript(() => {
+  // `addInitScript` rather than `addScriptTag`: the latter injects an inline
+  // script, which `script-src 'self'` refuses. This one goes through the
+  // debugging protocol, out of reach of the page policy.
+  window.__partages = [];
+  navigator.canShare = () => true;
+  navigator.share = async (donnees) => {
+    window.__partages.push(
+      (donnees.files ?? []).map((f) => ({ nom: f.name, taille: f.size })),
+    );
+  };
+});
+await pagePartage.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await pagePartage.setInputFiles('#picker', source);
+await pagePartage.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+await pagePartage.fill('#coords', '43.9493, 4.8055');
+await pagePartage.waitForSelector('#resultat:not([hidden])');
+const [dlPartage] = await Promise.all([
+  pagePartage.waitForEvent('download'),
+  pagePartage.click('#telecharger'),
+]);
+const produitPartage = join('/tmp', dlPartage.suggestedFilename());
+await dlPartage.saveAs(produitPartage);
+
+check("le bouton apparaît une fois un fichier produit",
+  await pagePartage.locator('#partager-sortie').isVisible());
+await pagePartage.click('#partager-sortie');
+await pagePartage.waitForFunction(() => window.__partages.length > 0, null, { timeout: 5_000 });
+const partages = await pagePartage.evaluate(() => window.__partages);
+
+check("un seul fichier est partagé", partages[0].length === 1, JSON.stringify(partages[0]));
+// The check: it is the produced photo that leaves, not the one we dropped.
+check("c'est le fichier produit qui est partagé, pas l'original",
+  partages[0][0].nom === dlPartage.suggestedFilename()
+  && partages[0][0].nom !== 'DSCN0010.jpg',
+  `${partages[0][0].nom} vs ${dlPartage.suggestedFilename()}`);
+check("et ce sont bien ses octets",
+  partages[0][0].taille === statSync(produitPartage).size,
+  `${partages[0][0].taille} vs ${statSync(produitPartage).size}`);
+// The shared file is the one ExifTool reads back with no position.
+const [latPartage, lonPartage] = execFileSync(
+  'exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', produitPartage],
+  { encoding: 'utf8' },
+).trim().split('\n').map(Number);
+check("le lieu qu'il porte est le nouveau, pas celui de l'origine",
+  Math.abs(latPartage - 43.9493) < 0.0001 && Math.abs(lonPartage - 4.8055) < 0.0001,
+  `${latPartage}, ${lonPartage}`);
+await pagePartage.close();
+
 console.log('\nLes en-têtes promis sont bien là');
 for (const [nom, motif] of [
   ['Referrer-Policy', /^no-referrer$/],
