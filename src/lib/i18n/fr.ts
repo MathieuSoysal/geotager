@@ -175,6 +175,7 @@ export const fr: Dictionnaire = {
   },
 
   matrice: {
+    legende: 'Ce que Geotager sait faire selon le format de la photo',
     format: 'Format',
     colonnes: ['Lire', 'Corriger', 'Ajouter', 'Effacer'],
     oui: 'oui',

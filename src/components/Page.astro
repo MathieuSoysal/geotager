@@ -45,7 +45,12 @@ const jsonLd = {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#FF3385" />
+    <!-- La couleur du fond de page, et non le rose de la marque. Le rose
+         peignait la barre du navigateur d'une teinte qui n'existe nulle part
+         comme surface : la fenêtre annonçait une application claire au-dessus
+         d'une page sombre. C'est aussi cette valeur que prend la barre de titre
+         une fois l'application installée, et l'écran de démarrage à froid. -->
+    <meta name="theme-color" content="#17161b" />
     <title>{T.meta.titre}</title>
     <meta name="description" content={T.meta.description} />
     <link rel="canonical" href={url} />
@@ -150,7 +155,9 @@ const jsonLd = {
 
           <!-- Les étapes sont rendues dès l'état vide : leur hauteur est ainsi
                réservée, et l'arrivée d'une photo ne décale rien. -->
-          <ol class="steps" id="etapes" aria-label={T.etapes.titre}>
+          <!-- `role="list"` : `display: flex` retire les semantiques de liste sous
+               Safari/VoiceOver, et les trois etapes redeviennent trois textes. -->
+          <ol class="steps" id="etapes" role="list" aria-label={T.etapes.titre}>
             <li class="step on" data-etape="1"><span class="no">1</span> {T.etapes.deposer}</li>
             <li class="step" data-etape="2"><span class="no">2</span> {T.etapes.choisir}</li>
             <li class="step" data-etape="3"><span class="no">3</span> {T.etapes.telecharger}</li>
@@ -187,7 +194,9 @@ const jsonLd = {
             <h2 class="visually-hidden" id="titre-actif" tabindex="-1">{T.app.titreActif}</h2>
             <div class="island-hd">
               <div class="filename">
-                <span class="nm" id="nom-fichier"></span>
+                <!-- `bdi` : un nom de fichier vient de l'utilisateur, et un nom arabe ou
+                     hebreu retournerait la ponctuation de toute la ligne autour de lui. -->
+                <bdi class="nm" id="nom-fichier"></bdi>
                 <span class="pill" id="pill-format"></span>
                 <span class="pill hot" id="pill-position" hidden></span>
               </div>
@@ -196,7 +205,7 @@ const jsonLd = {
             <div class="panel">
               <div id="lot" hidden>
                 <p class="aide" id="lot-resume"></p>
-                <div class="file-list" id="lot-liste"></div>
+                <ul class="file-list" id="lot-liste"></ul>
               </div>
 
               <div id="alerte-format" class="alerte" hidden></div>

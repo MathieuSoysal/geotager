@@ -131,6 +131,9 @@ function marquerEtape(n: 1 | 2 | 3): void {
     const e = Number(li.dataset.etape);
     li.classList.toggle('done', e < n);
     li.classList.toggle('on', e === n);
+    // The current step rested on nothing but a colour and a weight.
+    if (e === n) li.setAttribute('aria-current', 'step');
+    else li.removeAttribute('aria-current');
     if (e < n) {
       const no = li.querySelector('.no');
       if (no) no.textContent = '✓';
@@ -258,9 +261,9 @@ function majListeLot(statuts: Map<string, string> = new Map()): void {
   el.lotResume.textContent = `${items.length} ${T.app.fichiers} · ${modifiables} ${T.app.modifiables}`;
   el.lotListe.replaceChildren(
     ...items.map((it) => {
-      const row = document.createElement('div');
+      const row = document.createElement('li');
       row.className = 'file-row';
-      const nm = document.createElement('span');
+      const nm = document.createElement('bdi');
       nm.className = 'nm';
       nm.textContent = it.file.name;
       const st = document.createElement('span');

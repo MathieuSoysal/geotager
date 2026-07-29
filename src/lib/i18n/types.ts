@@ -132,6 +132,8 @@ export interface Dictionnaire {
   erreurs: Record<CodeErreur, string>;
 
   matrice: {
+    /** Table caption, read before it by assistive technology. */
+    legende: string;
     format: string;
     colonnes: [string, string, string, string];
     oui: string;

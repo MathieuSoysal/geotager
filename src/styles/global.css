@@ -276,7 +276,7 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--rose-clair)
 
 /* The steps exist from the empty state onwards, dimmed: their height must never
    appear all at once, or it is layout shift. */
-.steps { display: flex; gap: .35rem; flex-wrap: wrap; padding: .2rem 0 .6rem; }
+.steps { display: flex; gap: .35rem; flex-wrap: wrap; padding: .2rem 0 .6rem; list-style: none; margin: 0; }
 .step {
   display: flex; align-items: center; gap: .45rem;
   padding: .34rem .85rem .34rem .42rem; border-radius: 999px;
@@ -435,7 +435,12 @@ details.details dl { display: grid; grid-template-columns: auto 1fr; gap: .3rem 
 details.details dt { color: var(--muted); }
 details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
 
-.file-list { display: flex; flex-direction: column; gap: .3rem; max-height: 11rem; overflow-y: auto; }
+.file-list {
+  display: flex; flex-direction: column; gap: .3rem; max-height: 11rem; overflow-y: auto;
+  /* The list has been a real <ul> since a screen reader had to be able to
+     announce how many items it holds; it does not want the bullets. */
+  list-style: none; margin: 0; padding: 0;
+}
 .file-row {
   display: flex; align-items: center; gap: .6rem; font-size: .84rem;
   padding: .4rem .7rem; border-radius: .7rem; background: rgba(244, 241, 245, .05);
@@ -590,4 +595,89 @@ footer nav.main { margin: 0 0 1.2rem -.8rem; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+
+/* System preferences */
+
+/*
+ * "More contrast". The site stays dark, since it has one palette and its decor
+ * opacities are calculated against it, but here we give back what taste had
+ * taken: the secondary text joins the primary text, edges stop being
+ * suggestions, and the decor almost entirely fades out, since it is what eats
+ * contrast wherever it passes.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #ded9e2;
+    --clair: #ffffff;
+    --clair-mono: #ffffff;
+    --bordure: rgba(244, 241, 245, 0.55);
+  }
+  .bd-rose .dedans, .bd-rose .milieu,
+  .bd-indigo .dedans, .bd-indigo .milieu,
+  .bd-teal .dedans, .bd-teal .milieu,
+  .bd-ambre .dedans, .bd-ambre .milieu { stop-opacity: .02; }
+  .bubble small, .result .l { opacity: 1; }
+  .btn.ghost { border-width: 2px; }
+  :focus-visible, .box:focus-within { outline-width: 4px; }
+}
+
+/*
+ * Forced colours, essentially Windows high contrast mode. The system then
+ * imposes its own palette and ignores declared colours: what matters is no
+ * longer hue but that each thing keeps a boundary. A pink button on a pink
+ * panel otherwise becomes one flat area.
+ *
+ * The decor goes: its shapes do not survive the colour substitution, and what
+ * remained would be an opaque block over the text.
+ */
+@media (forced-colors: active) {
+  .decor { display: none; }
+  .btn, .box, .island, .card, .carte-cadre, .step, .pill, .carte-zoom button {
+    border: 1px solid ButtonBorder;
+  }
+  .btn.primary, .step.on { forced-color-adjust: none; }
+  /* `outline` survives forced colours, `box-shadow` does not: the map frame's
+     ring therefore has to go back through an outline. */
+  .carte-cadre:has(.carte-vue:focus-visible) { box-shadow: none; outline: 3px solid Highlight; }
+  :focus-visible, .box:focus-within, .bubble:has(input:focus-visible) {
+    outline: 3px solid Highlight;
+  }
+}
+
+/*
+ * Printing. The page is dark, the ink is not: without this sheet the article
+ * comes out white on white, that is, empty, and `body`'s four gradients turn
+ * into flat grey over the whole surface.
+ *
+ * We print what is read and drop what is used: the tool is interactive by
+ * nature, and a file picker on paper means nothing.
+ */
+@media print {
+  :root {
+    --text: #000; --muted: #333; --clair: #000; --clair-mono: #000;
+    --encre: #000; --bordure: #999; --panel: #fff; --panel-haut: #fff;
+    color-scheme: light;
+  }
+  body {
+    background: #fff; background-image: none; color: #000;
+    font-size: 11pt; line-height: 1.45;
+  }
+  .decor, .app, .scrollcue, .pitch, footer nav.main, .saut { display: none; }
+  #contenu { padding: 0; }
+  article.contenu { max-width: none; margin: 0; }
+  article.contenu a { color: #000; }
+  /* A link's address does not survive paper: print it behind the text. */
+  article.contenu a[href^="http"]::after { content: ' (' attr(href) ')'; font-size: .85em; }
+  article.contenu pre, article.contenu code {
+    background: none; border: 1px solid #999; color: #000;
+    /* A command that runs off the page is a command lost. */
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  article.contenu table { border-collapse: collapse; }
+  article.contenu th, article.contenu td { border-bottom: 1px solid #999; }
+  /* Neither a heading nor a table row may be split across two pages. */
+  article.contenu h2, article.contenu h3 { break-after: avoid; }
+  article.contenu tr, article.contenu pre { break-inside: avoid; }
+  footer { border-top: 1px solid #999; color: #333; }
 }

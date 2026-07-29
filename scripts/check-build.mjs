@@ -367,8 +367,11 @@ for (const [fichierReadme, page] of [
     );
   } else {
     lu.forEach((ligne, i) => {
+      // The row label is a `<th scope="row">` rather than a `<td>`: the list of
+      // `<td>` therefore holds only the capabilities, and trimming it by one
+      // would lose the first column instead of the format name.
       const dites = ligne.slice(1).join('|');
-      const vraies = servi[i].slice(1).join('|');
+      const vraies = servi[i].join('|');
       if (dites !== vraies) {
         echecs.push(
           `${fichierReadme} : « ${ligne[0]} » annonce ${dites.replace(/\|/g, '/')}, ` +
