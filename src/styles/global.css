@@ -225,6 +225,9 @@ body {
    positionnée : sans cette règle, `#contenu` — qui est un frère de `.app`, pas
    un descendant — passerait sous le décor. */
 .app, #contenu { position: relative; z-index: 1; }
+/* `#contenu` était déjà `position: relative`, donc déjà le bloc conteneur de
+   ses descendants absolus : la containment n'en déplace aucun. */
+#contenu { container: prose / inline-size; }
 
 /* Le geste est accusé au compositeur seul, comme la bulle plus bas. Exclure
    `.parti` : hors du héros, le décor ne doit pas se rallumer sous l'article. */
@@ -243,12 +246,16 @@ body.glisse .decor:not(.parti) { transform: scale(1.07); opacity: 1; }
   border-radius: 0.6rem;
 }
 
+/* `inset-inline-start` et non `left` : en écriture de droite à gauche, un lien
+   d'évitement caché à gauche réapparaîtrait du mauvais côté, c'est-à-dire au
+   milieu du contenu. C'est le seul endroit de la feuille où la direction change
+   vraiment quelque chose au comportement. */
 .saut {
-  position: absolute; left: -9999px; top: 0;
+  position: absolute; inset-inline-start: -9999px; top: 0;
   background: var(--pink); color: var(--encre); padding: .6rem 1rem; z-index: 20;
   border-radius: 0 0 .8rem 0; font-weight: 600;
 }
-.saut:focus { left: 0; }
+.saut:focus { inset-inline-start: 0; }
 
 /* --- barre --- */
 .bar {
@@ -377,6 +384,10 @@ body.glisse .bubble { transform: scale(1.07); box-shadow: 0 0 7rem -.5rem rgba(2
 .panel {
   padding: 1.1rem 1.3rem 1.3rem; display: flex; flex-direction: column; gap: .9rem;
   overflow-y: auto; width: 100%; max-width: 40rem; margin: 0 auto;
+  /* Conteneur nommé : la carte se règle sur CE panneau, pas sur la fenêtre.
+     `inline-size` implique `contain: layout`, donc un bloc conteneur pour les
+     descendants positionnés — `.panel` n'en a aucun qui en sorte. */
+  container: panneau / inline-size;
 }
 .panel label.champ { display: block; font-size: .88rem; font-weight: 500; margin-bottom: .4rem; }
 .box {
@@ -516,6 +527,18 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   box-shadow: 0 0 0 6px var(--encre);
 }
 
+/*
+ * CE QUI SUIT NE DOIT PAS PASSER EN PROPRIÉTÉS LOGIQUES.
+ *
+ * Ces `left`/`top` ne décrivent pas une mise en page : ils posent l'origine d'un
+ * plan de pixels Mercator, que le script déplace ensuite par `transform`.
+ * `inset-inline-start` les retournerait en écriture de droite à gauche, et la
+ * carte entière — tuiles, repère, origine — atterrirait à côté du lieu qu'elle
+ * prétend montrer. La direction du texte n'a pas d'opinion sur la longitude.
+ *
+ * Même famille de piège que l'avertissement sur `rotate` plus bas : ce qui est
+ * géométrique ne suit pas ce qui est typographique.
+ */
 .carte-tuiles { position: absolute; top: 0; left: 0; will-change: transform; }
 .carte-tuile {
   position: absolute; top: 0; left: 0; width: 256px; height: 256px;
@@ -551,7 +574,7 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   background: var(--muted); border: 2px solid var(--encre); opacity: .85;
 }
 
-.carte-zoom { position: absolute; top: .55rem; right: .55rem; display: flex; flex-direction: column; gap: .3rem; }
+.carte-zoom { position: absolute; top: .55rem; inset-inline-end: .55rem; display: flex; flex-direction: column; gap: .3rem; }
 /* 2rem faisait 32 px de côté, sous le plancher de 44 px des cibles tactiles :
    au doigt, on manquait le bouton une fois sur trois. */
 .carte-zoom button {
@@ -574,7 +597,15 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   display: none;
 }
 
-@media (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
+/*
+ * Requête de CONTENEUR et non de fenêtre. `.panel` est plafonné à 40rem : sur un
+ * grand écran il cesse de suivre la fenêtre, et une requête de fenêtre décrit
+ * alors quelque chose que ce composant ne vit pas. Le gain est de justesse plus
+ * que d'apparence — les deux largeurs coïncident dans les cas courants — mais la
+ * règle dit désormais ce qu'elle veut dire : « quand le panneau est étroit », et
+ * non « quand l'écran l'est ».
+ */
+@container panneau (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
 
 .scrollcue { display: flex; justify-content: center; padding: .2rem 0 1.1rem; }
 .scrollcue a { color: var(--clair); font-size: .82rem; text-decoration: none; }
@@ -582,7 +613,7 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 
 /* --- contenu sous la ligne de flottaison --- */
 .pitch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; padding: 2.6rem 0 0; }
-@media (max-width: 52rem) { .pitch { grid-template-columns: 1fr; } }
+@container prose (max-width: 52rem) { .pitch { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--bordure); border-radius: 2rem 1.4rem 1.8rem 1.2rem; padding: 1.4rem; }
 .card h2 { font-weight: 800; font-size: 1.28rem; letter-spacing: -.025em; margin: 0 0 .35rem; }
 .card p { margin: 0; color: var(--muted); font-size: .91rem; }
@@ -610,7 +641,7 @@ article.contenu a { color: var(--teal); }
 .tableau-defilant { overflow-x: auto; margin: 1rem 0; }
 .tableau-defilant:focus-visible { outline: 3px solid var(--pink); outline-offset: 3px; }
 article.contenu table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 0; }
-article.contenu th, article.contenu td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
+article.contenu th, article.contenu td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
 article.contenu th { color: var(--clair); font-weight: 500; }
 
 footer { padding: 3rem 0; font-size: .82rem; color: var(--clair); border-top: 1px solid var(--bordure); margin-top: 3rem; }
