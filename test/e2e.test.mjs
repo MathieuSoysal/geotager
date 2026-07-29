@@ -93,7 +93,22 @@ const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const navigateur = await chromium.launch(
   existsSync(CHROME) ? { executablePath: CHROME } : {},
 );
-const contexte = await navigateur.newContext({ acceptDownloads: true });
+/*
+ * `serviceWorkers: 'block'`, and it is not a convenience.
+ *
+ * This whole file rests on the request log: the zero-third-party proof, the
+ * boundary before the map opens, the tile count. A service worker serving from
+ * its cache removes those requests from the log, and the checks would start
+ * passing for the wrong reason, which is to say proving nothing. The main
+ * journey is therefore judged without one.
+ *
+ * The service worker has its own section, at the very bottom, in a context of
+ * its own.
+ */
+const contexte = await navigateur.newContext({
+  acceptDownloads: true,
+  serviceWorkers: 'block',
+});
 
 /*
  * Map tiles are intercepted, never actually requested.
@@ -757,6 +772,66 @@ const restantes = erreursConsole.filter(
 );
 check("une tuile qui n'arrive pas n'emporte rien avec elle", restantes.length === 0,
   restantes[0]);
+
+/*
+ * The service worker, in a separate context, since the one above blocks them.
+ *
+ * What is judged here is not that a worker registers: it is that the tool works
+ * with the connection cut. The page has always promised it; until now an
+ * offline reload gave nothing at all, for want of anybody keeping the shell.
+ */
+console.log('\nHors ligne, pour de bon');
+const ctxSw = await navigateur.newContext();
+const pageSw = await ctxSw.newPage();
+const erreursSw = [];
+pageSw.on('pageerror', (e) => erreursSw.push(String(e)));
+pageSw.on('console', (m) => {
+  if (m.type() === 'error') erreursSw.push(m.text());
+});
+
+await pageSw.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+const controle = await pageSw
+  .waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('le service worker prend le contrôle de la page', controle);
+
+// The cut is real: nothing leaves any more, not even to the origin.
+await ctxSw.setOffline(true);
+await pageSw.reload({ waitUntil: 'load' });
+check('hors ligne, la page s\'ouvre encore',
+  await pageSw.locator('#etat-vide').isVisible());
+check('hors ligne, la feuille de style est là aussi',
+  await pageSw.evaluate(() => getComputedStyle(document.body).backgroundColor !== 'rgba(0, 0, 0, 0)'));
+
+/*
+ * The real check. The reading worker is loaded by `new Worker(new URL(…))` and
+ * therefore appears in no tag: if it fell out of the precache list, the page
+ * would open offline and refuse every photo, without a word. That is the
+ * failure this check exists to catch.
+ */
+await pageSw.setInputFiles('#picker', source);
+await pageSw.waitForSelector('#etat-actif:not([hidden])', { timeout: 20_000 });
+const lueHorsLigne = await pageSw
+  .waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && !p.hidden && p.textContent.trim().length > 0;
+  }, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('hors ligne, une photo est encore lue de bout en bout', lueHorsLigne);
+
+// The map chunk is deliberately not precached: opening it offline without ever
+// having opened it online cannot work, and above all must not take the
+// application down with it.
+await pageSw.click('#carte-bascule').catch(() => {});
+await pageSw.waitForTimeout(1_000);
+const restantesSw = erreursSw.filter((e) => !/Failed to load resource|net::ERR_|FetchEvent/.test(e));
+check("la carte indisponible hors ligne n'emporte rien avec elle",
+  restantesSw.length === 0, restantesSw[0]);
+
+await ctxSw.setOffline(false);
+await ctxSw.close();
 
 await navigateur.close();
 serveur.close();
