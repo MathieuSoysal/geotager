@@ -61,6 +61,7 @@ export const fr: Dictionnaire = {
     fermerCarte: 'Fermer la carte',
     avisCarte:
       "La carte est dessinée par openstreetmap.org : l'ouvrir leur indique approximativement la zone que vous regardez. Votre photo, elle, ne quitte toujours pas ce navigateur.",
+    carteIndisponible: 'La carte n\'a pas pu être chargée — vous êtes peut-être hors ligne. Vous pouvez toujours saisir ou coller des coordonnées ci-dessus.',
     carteLabel: 'Carte. Cliquez un lieu pour y placer le repère.',
     carteAide:
       'Cliquez sur le lieu, ou faites glisser la carte sous le repère. Les flèches marchent aussi.',

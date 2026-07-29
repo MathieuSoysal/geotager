@@ -80,6 +80,8 @@ export interface Dictionnaire {
     ouvrirCarte: string;
     fermerCarte: string;
     avisCarte: string;
+    /** L'import du code de la carte a échoué — hors ligne, typiquement. */
+    carteIndisponible: string;
     carteLabel: string;
     carteAide: string;
     zoomAvant: string;

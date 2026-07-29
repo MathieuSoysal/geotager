@@ -833,6 +833,45 @@ for (let i = erreursConsole.length - 1; i >= 0; i--) {
 }
 
 /*
+ * LE MORCEAU DE LA CARTE MANQUE.
+ *
+ * Il n'est délibérément pas préchargé par le service worker, donc hors ligne il
+ * n'est pas là et l'import dynamique échoue. Le rejet n'était rattrapé nulle
+ * part : on restait avec un panneau ouvert, un bouton annonçant « Fermer la
+ * carte », un cadre vide et une erreur de console que personne ne lit.
+ *
+ * La panne est provoquée en refusant la requête, et non en coupant le réseau :
+ * c'est le seul moyen d'en faire un contrôle déterministe.
+ */
+console.log("\nLe morceau de la carte manque, et l'outil le dit");
+await contexte.route('**/_astro/carte*.js', (route) => route.abort('failed'));
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', source);
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+const avantEchecCarte = erreursConsole.length;
+await page.click('#carte-bascule');
+await page.waitForTimeout(1_500);
+check("l'indisponibilité de la carte est DITE, et non subie",
+  await page.locator('#carte-erreur').isVisible());
+check('le message renvoie vers la saisie, qui elle fonctionne',
+  ((await page.locator('#carte-erreur').textContent()) ?? '').length > 20);
+check('le cadre vide ne reste pas à l\'écran',
+  !(await page.locator('.carte-cadre').isVisible()));
+check("saisir des coordonnées marche toujours",
+  await page.evaluate(async () => {
+    const c = document.getElementById('coords');
+    c.value = '48.8584, 2.2945';
+    c.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    return !document.getElementById('telecharger').disabled;
+  }));
+const nouvelles = erreursConsole.slice(avantEchecCarte)
+  .filter((e) => !/Failed to load resource|net::ERR_/.test(e));
+check("aucune exception ne s'échappe du chargement raté",
+  nouvelles.length === 0, nouvelles[0]);
+await contexte.unroute('**/_astro/carte*.js');
+
+/*
  * Et sans réseau ? La page promet que l'outil « fonctionne intégralement »
  * connexion coupée. La carte, elle, ne peut pas : elle doit donc se contenter
  * de rester vide, sans rien emporter avec elle. Une carte qui lèverait une
@@ -919,8 +958,15 @@ check('hors ligne, une photo est encore lue de bout en bout', lueHorsLigne);
 // Le morceau de la carte n'est délibérément PAS préchargé : l'ouvrir hors ligne
 // sans l'avoir jamais ouvert en ligne ne peut pas marcher, et ne doit surtout
 // pas emporter l'application avec lui.
+/*
+ * Ouvrir la carte hors ligne ne doit rien emporter. Ce qu'il advient
+ * exactement du morceau dépend de l'environnement — selon les versions,
+ * la coupure de Playwright atteint ou non les requêtes émises par le service
+ * worker lui-même — donc on ne juge ici QUE l'innocuité. Le chemin d'échec
+ * proprement dit est éprouvé plus haut, de façon déterministe.
+ */
 await pageSw.click('#carte-bascule').catch(() => {});
-await pageSw.waitForTimeout(1_000);
+await pageSw.waitForTimeout(1_500);
 const restantesSw = erreursSw.filter((e) => !/Failed to load resource|net::ERR_|FetchEvent/.test(e));
 check("la carte indisponible hors ligne n'emporte rien avec elle",
   restantesSw.length === 0, restantesSw[0]);

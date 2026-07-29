@@ -33,6 +33,7 @@ const el = {
   carteBascule: $<HTMLButtonElement>('carte-bascule'),
   carte: $('carte'),
   carteVue: $('carte-vue'),
+  carteErreur: $('carte-erreur'),
   cartePlus: $<HTMLButtonElement>('carte-plus'),
   carteMoins: $<HTMLButtonElement>('carte-moins'),
   resultat: $('resultat'),
@@ -315,6 +316,8 @@ function fermerCarte(): void {
   carte?.detruire();
   carte = null;
   el.carte.hidden = true;
+  el.carte.classList.remove('sans-carte');
+  el.carteErreur.hidden = true;
   el.carteBascule.setAttribute('aria-expanded', 'false');
   el.carteBascule.textContent = T.app.ouvrirCarte;
 }
@@ -325,12 +328,32 @@ async function ouvrirCarte(): Promise<void> {
     return;
   }
   el.carte.hidden = false;
+  el.carte.classList.remove('sans-carte');
+  el.carteErreur.hidden = true;
   el.carteBascule.setAttribute('aria-expanded', 'true');
   el.carteBascule.textContent = T.app.fermerCarte;
 
-  // Chargé à la demande : tant que personne n'ouvre la carte, pas un octet du
-  // code qui sait parler aux tuiles n'est demandé — et donc aucune tuile.
-  const { creerCarte } = await import('./carte.ts');
+  /*
+   * Chargé à la demande : tant que personne n'ouvre la carte, pas un octet du
+   * code qui sait parler aux tuiles n'est demandé — et donc aucune tuile.
+   *
+   * Ce chargement PEUT échouer, et il échoue pour une raison parfaitement
+   * ordinaire : le service worker ne précharge délibérément pas ce morceau, si
+   * bien qu'il n'est pas là hors ligne. Sans cette prise, le rejet ne va nulle
+   * part — on restait avec un panneau ouvert, un bouton qui annonce « Fermer la
+   * carte », un cadre vide, et une erreur dans la console que personne ne lit.
+   */
+  let creerCarte;
+  try {
+    ({ creerCarte } = await import('./carte.ts'));
+  } catch {
+    el.carte.classList.add('sans-carte');
+    el.carteErreur.hidden = false;
+    el.carteErreur.textContent = T.app.carteIndisponible;
+    annoncer(T.app.carteIndisponible);
+    return;
+  }
+
   carte = creerCarte(el.carteVue, {
     textes: { origine: T.app.repereOrigine },
     onChoix: (p, m) => {

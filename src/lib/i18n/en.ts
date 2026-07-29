@@ -67,6 +67,7 @@ export const en: Dictionnaire = {
     fermerCarte: 'Close the map',
     avisCarte:
       'The map is drawn by openstreetmap.org, so opening it tells them roughly which area you are looking at. Your photo still never leaves this browser.',
+    carteIndisponible: 'The map could not be loaded — you may be offline. You can still type or paste coordinates above.',
     carteLabel: 'Map. Click a spot to place the marker there.',
     carteAide: 'Click the spot, or drag the map under the marker. Arrow keys work too.',
     zoomAvant: 'Zoom in',

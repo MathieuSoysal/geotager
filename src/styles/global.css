@@ -276,7 +276,10 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--rose-clair)
 
 /* Les étapes existent dès l'état vide, en retrait : leur hauteur ne doit
    jamais apparaître d'un coup, sinon c'est du décalage de mise en page. */
-.steps { display: flex; gap: .35rem; flex-wrap: wrap; padding: .2rem 0 .6rem; list-style: none; margin: 0; }
+/* `list-style: none` accompagne le `role="list"` du gabarit. Pas de `margin: 0`
+   ici : la marge par défaut du `<ol>` fait partie du rythme vertical de la
+   scène depuis l'origine, et la retirer resserrerait la page de 32 px. */
+.steps { display: flex; gap: .35rem; flex-wrap: wrap; padding: .2rem 0 .6rem; list-style: none; }
 .step {
   display: flex; align-items: center; gap: .45rem;
   padding: .34rem .85rem .34rem .42rem; border-radius: 999px;
@@ -552,6 +555,12 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 }
 .carte-pied a { color: var(--muted); }
 .carte-pied a:hover { color: var(--pink); }
+
+/* Pas de carte à montrer : le cadre et l'attribution n'ont plus d'objet, seul
+   le message reste. */
+#carte.sans-carte .carte-cadre, #carte.sans-carte .carte-pied, #carte.sans-carte .avis {
+  display: none;
+}
 
 @media (max-width: 34rem) { .carte-cadre { aspect-ratio: 1 / 1; } }
 
