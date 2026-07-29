@@ -24,10 +24,22 @@ import { fr } from '../../lib/i18n/index.ts';
     envoyer quoi que ce soit&nbsp;: le site est un ensemble de fichiers statiques.
   </p>
   <p>
+    Ces fichiers, quelqu'un doit tout de même les servir, et la version honnête de «&nbsp;pas de
+    serveur&nbsp;» le dit. Ils sont hébergés chez Cloudflare, qui termine la connexion HTTPS et
+    voit donc votre adresse IP, la page demandée et l'heure de la demande — ce que voit n'importe
+    quel site que vous visitez, et le minimum qu'un hébergeur puisse savoir tout en étant capable
+    de vous répondre. Ces journaux de requêtes sont conservés brièvement, pour l'exploitation. Ce
+    que Cloudflare ne voit pas, et ne peut pas voir, c'est votre photo&nbsp;: elle ne devient
+    jamais une requête. Aucun outil de mesure d'audience n'est activé sur ce site, aucun cookie
+    n'est posé, et rien n'est ajouté à ces pages entre la construction et votre navigateur — un
+    contrôle du dépôt va chercher le site en ligne et échoue si quoi que ce soit l'a été.
+  </p>
+  <p>
     Une seule chose, sur cette page, va chercher quelque chose au dehors, et seulement si vous le
     demandez. Derrière «&nbsp;Placer sur une carte&nbsp;» il y a une carte, et ses images viennent
-    d'openstreetmap.org, qui apprend donc approximativement quelle zone vous regardez. Ils
-    n'apprennent rien de votre photo&nbsp;: ni son nom, ni sa taille, ni le lieu qui y est inscrit.
+    d'openstreetmap.org, qui apprend donc votre adresse IP et approximativement quelle zone vous
+    regardez. Ils n'apprennent rien de votre photo&nbsp;: ni son nom, ni sa taille, ni le lieu qui
+    y est inscrit.
     La carte reste repliée tant que vous ne cliquez pas&nbsp;: si vous ne l'ouvrez jamais, rien
     n'est jamais demandé. Vous pouvez tout constater de trois façons&nbsp;:
   </p>
