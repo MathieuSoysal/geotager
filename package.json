@@ -13,6 +13,7 @@
     "test": "node --experimental-strip-types test/engine.test.ts",
     "fixtures": "node scripts/fetch-fixtures.mjs",
     "icons": "node scripts/build-icons.mjs",
+    "verifier:en-ligne": "node scripts/verifier-en-ligne.mjs",
     "test:e2e": "node --experimental-strip-types test/e2e.test.mjs",
     "test:all": "npm run fixtures && npm test && npm run build && npm run test:e2e"
   },

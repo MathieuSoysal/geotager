@@ -17,17 +17,30 @@ const FIXTURES = process.env.FIXTURES ?? 'test/fixtures';
 const PORT = 4319;
 
 /**
- * La CSP réellement servie, lue dans `public/_headers`.
+ * TOUS les en-têtes réellement servis pour `/*`, lus dans `public/_headers`.
  *
- * Elle est lue et non recopiée : une politique recopiée ici dériverait de celle
+ * Ils sont lus et non recopiés : une politique recopiée ici dériverait de celle
  * que sert l'hébergeur, et le test finirait par valider une page que personne
  * ne reçoit. Jusqu'ici ce serveur ne posait aucun en-tête, si bien qu'un
  * attribut `style` refusé en production passait inaperçu dans les tests — il y
  * en avait un, sur le gabarit.
+ *
+ * Et jusqu'ici il ne posait que la CSP. Les six autres en-têtes — dont les pages
+ * parlent en toutes lettres — n'étaient donc affirmés par rien : on pouvait en
+ * supprimer un sans qu'aucun contrôle ne bronche.
  */
-const CSP = readFileSync('public/_headers', 'utf8')
-  .match(/^\s*Content-Security-Policy:\s*(.+)$/m)[1]
-  .trim();
+const EN_TETES = (() => {
+  const brut = readFileSync('public/_headers', 'utf8').split('\n');
+  const debut = brut.findIndex((l) => l.trim() === '/*');
+  const entetes = {};
+  for (const ligne of brut.slice(debut + 1)) {
+    if (/^\S/.test(ligne)) break; // le bloc suivant commence
+    const m = ligne.match(/^\s+([A-Za-z-]+):\s*(.+)$/);
+    if (m) entetes[m[1]] = m[2].trim();
+  }
+  return entetes;
+})();
+const CSP = EN_TETES['Content-Security-Policy'];
 
 const MIME = {
   // Sans ces deux-là, le serveur de test renvoie `application/octet-stream` :
@@ -82,7 +95,7 @@ const serveur = createServer((req, res) => {
   }
   res.writeHead(200, {
     'content-type': MIME[extname(f)] ?? 'application/octet-stream',
-    'Content-Security-Policy': CSP,
+    ...EN_TETES,
   });
   res.end(readFileSync(f));
 });
@@ -538,6 +551,33 @@ await page.locator('#coords').blur();
 check("elle cesse de l'être dès que la saisie redevient lisible",
   (await page.locator('#coords').getAttribute('aria-invalid')) === null
   && !(await page.locator('#coords-erreur').isVisible()));
+
+/*
+ * Les en-têtes que les pages promettent en toutes lettres. Ils étaient servis
+ * par l'hébergeur et affirmés par personne : on pouvait en retirer un sans
+ * qu'aucun contrôle ne bronche, et la prose aurait continué à les annoncer.
+ *
+ * On les lit dans `public/_headers`, donc ce contrôle juge le FICHIER LIVRÉ et
+ * non une copie — mais il exige que chacun soit présent et dise la bonne chose.
+ */
+console.log('\nLes en-têtes promis sont bien là');
+for (const [nom, motif] of [
+  ['Referrer-Policy', /^no-referrer$/],
+  ['X-Frame-Options', /^DENY$/],
+  ['X-Content-Type-Options', /^nosniff$/],
+  ['Strict-Transport-Security', /max-age=\d{7,}/],
+  ['Cross-Origin-Opener-Policy', /^same-origin$/],
+  ['Cross-Origin-Resource-Policy', /^same-origin$/],
+  ['Permissions-Policy', /geolocation=\(\)/],
+]) {
+  check(`« ${nom} » est servi et dit ce qu'il doit`,
+    motif.test(EN_TETES[nom] ?? ''), EN_TETES[nom] ?? '(absent)');
+}
+// La géolocalisation est refusée EXPRÈS : c'est pour cela qu'il n'existe aucun
+// bouton « me localiser », et la prose s'appuie dessus.
+check('aucune fonction sensible n\'est laissée ouverte',
+  ['camera', 'microphone', 'geolocation', 'browsing-topics', 'interest-cohort']
+    .every((f) => (EN_TETES['Permissions-Policy'] ?? '').includes(`${f}=()`)));
 
 console.log("\nLe manifeste et ses icônes");
 for (const [base, langue, depart] of [['/', 'en', '/'], ['/fr/', 'fr', '/fr/']]) {
