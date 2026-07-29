@@ -1,0 +1,25 @@
+# Geotager — redirections servies avec les assets statiques.
+# Même mécanique que `_headers`, supportée nativement par Workers.
+#
+# Une seule règle, et elle ne sert QUE de filet.
+#
+# `/partager` n'existe dans aucun fichier : c'est la cible de partage déclarée
+# par le manifeste, et elle n'a d'existence que dans le service worker, qui
+# intercepte le `POST` du système avant qu'il ne quitte le navigateur. Tant que
+# le worker contrôle la page — c'est-à-dire toujours, sur une application
+# installée, puisque c'est l'installation qui rend le partage possible — cette
+# règle-ci n'est jamais atteinte.
+#
+# Elle l'est dans un seul cas : un partage qui arriverait pendant que le worker
+# est remplacé, ou avant qu'il ait pris la main. La requête part alors vraiment
+# sur le réseau, et sans cette règle l'hébergeur répond 404 — une page d'erreur
+# nue, pour quelqu'un qui venait simplement de partager une photo. Avec elle,
+# il atterrit sur l'outil, qui lui explique que la photo n'est pas arrivée et
+# l'invite à recommencer. Voir `partagePerdu` dans les dictionnaires.
+#
+# La photo est perdue dans les deux cas — c'est le prix assumé de ne rien
+# écrire sur le disque. Autant que ce soit dit dans l'application plutôt que
+# par un code d'erreur.
+
+/partager     /?partage=echec      302
+/fr/partager  /fr/?partage=echec   302
