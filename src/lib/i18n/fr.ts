@@ -24,6 +24,7 @@ export const fr: Dictionnaire = {
   },
 
   nav: {
+    enSavoirPlus: 'Comment fonctionne Geotager',
     viePrivee: 'Vie privée',
     modeEmploi: "Mode d'emploi",
     verifier: 'Vérifier vous-même',

@@ -51,7 +51,15 @@ export interface Dictionnaire {
     fonctions: string[];
   };
 
-  nav: { viePrivee: string; modeEmploi: string; verifier: string; sections: string; aller: string };
+  nav: {
+    viePrivee: string;
+    modeEmploi: string;
+    verifier: string;
+    sections: string;
+    aller: string;
+    /** Nom accessible du repère qui porte les cartes et l'article. */
+    enSavoirPlus: string;
+  };
 
   etapes: { titre: string; deposer: string; choisir: string; telecharger: string };
 

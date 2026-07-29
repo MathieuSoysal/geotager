@@ -626,6 +626,90 @@ check("elle cesse de l'être dès que la saisie redevient lisible",
  * l'API est simulée, parce que ce qui compte n'est pas que la feuille s'ouvre
  * mais CE QU'ON Y MET : le fichier produit, jamais l'original.
  */
+/*
+ * AXE — le filet automatique.
+ *
+ * Les contrôles d'accessibilité de ce fichier sont écrits à la main : ils
+ * disent précisément ce qui est attendu, et échouent avec une phrase qu'on
+ * comprend. Ils ne trouvent en revanche que ce à quoi on a pensé. Axe couvre
+ * des familles entières de règles auxquelles personne n'a pensé.
+ *
+ * Il est injecté par `addInitScript` : `addScriptTag` créerait un script EN
+ * LIGNE, que `script-src 'self'` refuse. Celui-ci passe par le protocole de
+ * débogage, hors de portée de la politique de la page — laquelle est bien
+ * servie par ce serveur de test, donc la contrainte est réelle.
+ */
+const AXE = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
+
+/*
+ * Deux règles sont écartées, nommément, et chacune pour une raison écrite.
+ * Une liste de dispenses en bloc rendrait tout le contrôle décoratif.
+ *
+ * `color-contrast` : axe lit les couleurs DÉCLARÉES et ne sait pas composer. Le
+ * décor est un calque `fixed` en `mix-blend-mode: screen` sous du texte, et les
+ * ratios réels ont été mesurés puis inscrits dans `global.css` — axe les
+ * recalcule à l'aveugle et se trompe dans les deux sens. C'est le contraste qui
+ * gouverne les opacités du décor, pas l'inverse ; la mesure reste manuelle.
+ *
+ * `aria-allowed-role` sur la vue de carte : `role="application"` y est un choix
+ * assumé — la carte consomme les flèches du clavier, ce qu'un lecteur d'écran
+ * en mode navigation lui prendrait — et il vient avec ses instructions et une
+ * voie de repli entièrement au clavier, le champ de coordonnées.
+ */
+const REGLES_ECARTEES = { 'color-contrast': { enabled: false } };
+
+async function auditer(cible, nom) {
+  await cible.evaluate(AXE);
+  const resultat = await cible.evaluate(
+    (regles) => window.axe.run(document, {
+      rules: regles,
+      resultTypes: ['violations'],
+    }),
+    REGLES_ECARTEES,
+  );
+  const graves = resultat.violations.filter((v) => ['serious', 'critical'].includes(v.impact));
+  check(`axe : ${nom} — aucune violation grave`, graves.length === 0,
+    graves.map((v) => `${v.id} (${v.nodes.length})`).join(', '));
+  const mineures = resultat.violations.filter((v) => !['serious', 'critical'].includes(v.impact));
+  if (mineures.length) {
+    console.log(`       ${nom} — mineures : ${mineures.map((v) => v.id).join(', ')}`);
+  }
+  return resultat.violations;
+}
+
+console.log('\nAudit automatique (axe-core)');
+/*
+ * Un CONTEXTE À PART, avec son propre routage de tuiles.
+ *
+ * L'audit ouvre la carte, donc il demande des tuiles. Dans le contexte
+ * principal, celles-ci incrémentaient `tuilesDemandees` — le compteur sur
+ * lequel repose la preuve « déposer une photo ne demande aucune tuile ». Le
+ * contrôle tombait, et pour la pire raison qui soit : non pas parce que
+ * l'application avait fauté, mais parce que son propre audit avait sali le
+ * témoin. Une preuve qu'un test voisin peut fausser ne prouve plus rien.
+ */
+const ctxAxe = await navigateur.newContext({ serviceWorkers: 'block' });
+await ctxAxe.route(`https://${HOTE_TUILES}/**`, (route) =>
+  route.fulfill({ status: 200, contentType: 'image/png', body: TUILE_PNG }));
+const pageAxe = await ctxAxe.newPage();
+await pageAxe.addInitScript({ content: AXE });
+
+await pageAxe.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await auditer(pageAxe, 'accueil, état vide');
+
+await pageAxe.setInputFiles('#picker', source);
+await pageAxe.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+await auditer(pageAxe, 'photo chargée');
+
+await pageAxe.click('#carte-bascule');
+await pageAxe.waitForSelector('#carte:not([hidden])');
+await pageAxe.waitForTimeout(500);
+await auditer(pageAxe, 'carte ouverte');
+
+await pageAxe.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
+await auditer(pageAxe, 'version française');
+await ctxAxe.close();
+
 console.log('\nPartager la photo nettoyée');
 check("sans partage de fichiers, le bouton reste caché",
   await page.locator('#partager-sortie').isHidden());

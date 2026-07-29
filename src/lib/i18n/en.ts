@@ -30,6 +30,7 @@ export const en: Dictionnaire = {
   },
 
   nav: {
+    enSavoirPlus: 'How Geotager works',
     viePrivee: 'Privacy',
     modeEmploi: 'How to use it',
     verifier: 'Check for yourself',

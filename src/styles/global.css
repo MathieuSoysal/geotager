@@ -272,7 +272,10 @@ nav.main a:hover { background: rgba(255, 51, 133, .16); color: var(--rose-clair)
 
 /* --- scène : hauteur verrouillée, les deux états s'y superposent --- */
 .app { min-height: 100svh; display: flex; flex-direction: column; }
-.stage { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: auto 1fr; }
+/* `auto 1fr auto` : les étapes, l'état courant, et l'invite à défiler — cette
+   dernière ayant rejoint le repère principal. Déclarée plutôt qu'implicite,
+   pour que la rangée `1fr` reste ce qui absorbe la hauteur. */
+.stage { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: auto 1fr auto; }
 
 /* Les étapes existent dès l'état vide, en retrait : leur hauteur ne doit
    jamais apparaître d'un coup, sinon c'est du décalage de mise en page. */
