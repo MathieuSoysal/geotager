@@ -107,6 +107,7 @@ export const en: Dictionnaire = {
     pretsVerifies: (n) => `${n} file${n > 1 ? 's' : ''} ready, checked after writing.`,
     pretsAvecEchecs: (n, e) =>
       `${n} file(s) ready, ${e} failed. The originals concerned are untouched.`,
+    partagePerdu: 'The shared photo did not make it across — nothing was stored, so nothing was lost. Share it again, or drop it below.',
     majDispo: 'A new version of Geotager is available.',
     majTravaux: 'A new version is available. Download your photos first — reloading discards the ones you have open.',
     majRecharger: 'Reload',

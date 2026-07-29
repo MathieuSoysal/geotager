@@ -461,6 +461,9 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
   background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .12); color: var(--muted);
 }
 .alerte.attention { background: rgba(255, 176, 32, .12); border-color: rgba(255, 176, 32, .35); color: #ffd28a; }
+/* Dans l'état vide, tout est centré : l'avis ne doit pas s'étirer sur toute la
+   largeur de la scène. */
+#avis-vide { max-width: 32rem; }
 .alerte.grave { background: rgba(255, 51, 133, .12); border-color: rgba(255, 51, 133, .4); color: #ffb0cf; }
 
 /* --- carte de choix du lieu --------------------------------------- */

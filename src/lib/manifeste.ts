@@ -42,6 +42,68 @@ export function manifeste(langue: Langue): string {
       background_color: FOND,
       theme_color: FOND,
       categories: ['photo', 'utilities', 'productivity'],
+
+      /*
+       * Recevoir une photo depuis le partage du système.
+       *
+       * `POST` en `multipart/form-data` : c'est la seule forme que l'API
+       * accepte pour des fichiers. Il n'y a pourtant aucun serveur pour la
+       * recevoir — c'est le service worker qui l'intercepte, garde les octets
+       * EN MÉMOIRE, et les passe à la page qui suit. Rien n'est écrit sur le
+       * disque, pas même le temps d'un aller-retour : voir `sw-modele.js`.
+       *
+       * Images seulement. L'outil accepte les vidéos dans le sélecteur — mieux
+       * vaut prendre le fichier et expliquer que le refuser sans un mot — mais
+       * s'inscrire dans le menu de partage des vidéos serait autre chose : ce
+       * serait se proposer pour un travail qu'on ne sait pas faire, à quelqu'un
+       * qui ne nous a rien demandé.
+       */
+      share_target: {
+        action: `${T.base}partager`,
+        method: 'POST',
+        enctype: 'multipart/form-data',
+        params: {
+          files: [
+            {
+              name: 'photos',
+              accept: [
+                'image/*',
+                'image/jpeg',
+                'image/png',
+                'image/webp',
+                'image/heic',
+                'image/heif',
+                'image/avif',
+                'image/tiff',
+              ],
+            },
+          ],
+        },
+      },
+
+      /*
+       * « Ouvrir avec ». Plus simple que le partage, et plus propre : le système
+       * remet directement une poignée de fichier, sans requête, sans corps de
+       * formulaire, donc sans rien à garder entre deux instants.
+       *
+       * `single-client` : une seule fenêtre reçoit tout le lot, au lieu d'en
+       * ouvrir une par photo.
+       */
+      file_handlers: [
+        {
+          action: T.base,
+          accept: {
+            'image/jpeg': ['.jpg', '.jpeg'],
+            'image/png': ['.png'],
+            'image/webp': ['.webp'],
+            'image/heic': ['.heic'],
+            'image/heif': ['.heif'],
+            'image/avif': ['.avif'],
+            'image/tiff': ['.tif', '.tiff'],
+          },
+          launch_type: 'single-client',
+        },
+      ],
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

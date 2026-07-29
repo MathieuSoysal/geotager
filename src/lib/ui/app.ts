@@ -45,6 +45,7 @@ const el = {
   autres: $<HTMLDetailsElement>('autres'),
   autresListe: $('autres-liste'),
   alerteFormat: $('alerte-format'),
+  avisVide: $('avis-vide'),
   lot: $('lot'),
   lotResume: $('lot-resume'),
   lotListe: $('lot-liste'),
@@ -168,6 +169,7 @@ function versEtatVide(deplacerFocus = false): void {
   el.resultat.hidden = true;
   el.telecharger.disabled = true;
   el.picker.value = '';
+  el.avisVide.hidden = true;
   marquerEtape(1);
   annoncer(T.app.aucuneChargee);
   if (deplacerFocus) el.picker.focus();
@@ -595,6 +597,87 @@ el.effacer.addEventListener('click', () => {
 el.effacerTout.addEventListener('click', () => {
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
+
+/* --- arrivées depuis le système ------------------------------------ */
+
+/*
+ * Deux portes, en plus du sélecteur et du glisser-déposer.
+ *
+ * « Ouvrir avec » remet directement des poignées de fichier : rien à
+ * transporter, rien à garder. Le partage, lui, passe par un `POST` que le
+ * service worker intercepte et dont il garde les octets EN MÉMOIRE — voir
+ * `scripts/sw-modele.js`. On vient les réclamer ici, par un canal de message
+ * dédié pour que la réponse ne puisse pas se confondre avec autre chose.
+ */
+function reclamerPartage(): void {
+  const sw = navigator.serviceWorker?.controller;
+  if (!sw) {
+    // Le worker a été arrêté entre le partage et l'ouverture : les octets sont
+    // perdus. On le dit — l'original n'a pas bougé de la galerie, il suffit de
+    // recommencer — plutôt que d'ouvrir une page vide sans explication.
+    signalerPartagePerdu();
+    return;
+  }
+  const canal = new MessageChannel();
+  let repondu = false;
+  canal.port1.onmessage = (e) => {
+    repondu = true;
+    const fichiers = (e.data as File[]) ?? [];
+    if (fichiers.length) void charger(fichiers);
+    else signalerPartagePerdu();
+  };
+  sw.postMessage({ type: 'RECLAMER_PARTAGE' }, [canal.port2]);
+  // Un worker qui ne répond pas ne doit pas laisser la page attendre en vain.
+  setTimeout(() => {
+    if (!repondu) signalerPartagePerdu();
+  }, 3_000);
+}
+
+function signalerPartagePerdu(): void {
+  // Le message va dans l'état VIDE, qui est celui qu'on affiche. L'écrire dans
+  // `#alerte-format` le déposerait à l'intérieur de l'état actif, qu'on masque
+  // dans la même respiration : visible nulle part, et la page resterait muette.
+  el.vide.hidden = false;
+  el.actif.hidden = true;
+  el.avisVide.hidden = false;
+  el.avisVide.textContent = T.app.partagePerdu;
+  annoncer(T.app.partagePerdu);
+}
+
+/*
+ * `?partage=1` est posé par la redirection du service worker. On l'efface de la
+ * barre d'adresse aussitôt : rechargée, cette adresse n'a plus rien à réclamer,
+ * et laisser le paramètre ferait croire à un partage à chaque rechargement.
+ */
+if (new URLSearchParams(location.search).has('partage')) {
+  history.replaceState(null, '', location.pathname);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', reclamerPartage, { once: true });
+  } else {
+    reclamerPartage();
+  }
+}
+
+interface FileHandleLike {
+  getFile(): Promise<File>;
+}
+interface LaunchParams {
+  files?: FileHandleLike[];
+}
+
+const filePeutEtreLancee = window as typeof window & {
+  launchQueue?: { setConsumer(f: (p: LaunchParams) => void): void };
+};
+if (filePeutEtreLancee.launchQueue) {
+  filePeutEtreLancee.launchQueue.setConsumer((params) => {
+    void (async () => {
+      const poignees = params.files ?? [];
+      if (!poignees.length) return;
+      const fichiers = await Promise.all(poignees.map((h) => h.getFile()));
+      void charger(fichiers.filter((f) => f.size > 0));
+    })();
+  });
+}
 
 /* --- service worker ------------------------------------------------ */
 

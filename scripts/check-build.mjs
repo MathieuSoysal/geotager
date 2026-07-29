@@ -435,9 +435,19 @@ for (const [fichierReadme, page] of [
     if (m.id !== '/') echecs.push(`${rel(cible)} : « id » vaut « ${m.id} », il doit valoir « / »`);
     if (m.scope !== '/') echecs.push(`${rel(cible)} : « scope » doit valoir « / »`);
 
+    /*
+     * `share_target.action` et `file_handlers[].action` sont des adresses vers
+     * lesquelles le SYSTÈME enverra des fichiers de l'utilisateur. Une seule
+     * d'entre elles pointant ailleurs qu'ici, et le système de partage
+     * livrerait des photos à un tiers — sur la foi d'un manifeste que
+     * personne ne relit. C'est l'endroit du site où une adresse étrangère
+     * coûterait le plus cher, donc c'est l'endroit où on la cherche.
+     */
     const adresses = [
       ['start_url', m.start_url],
       ['scope', m.scope],
+      ...(m.share_target ? [['share_target.action', m.share_target.action]] : []),
+      ...(m.file_handlers ?? []).map((h, n) => [`file_handlers[${n}].action`, h.action]),
       ...(m.icons ?? []).map((i, n) => [`icons[${n}].src`, i.src]),
       ...(m.screenshots ?? []).map((i, n) => [`screenshots[${n}].src`, i.src]),
     ];
@@ -460,6 +470,25 @@ for (const [fichierReadme, page] of [
     // carré blanc — ce qui est toujours laid et souvent illisible.
     if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
       echecs.push(`${rel(cible)} : aucune icône « maskable »`);
+    }
+
+    /*
+     * La cible de partage n'existe QUE dans le service worker : aucun fichier
+     * ne lui correspond dans `dist/`. Si le worker cessait de la reconnaître,
+     * le partage tomberait en 404 sans que rien ne prévienne — le manifeste,
+     * lui, continuerait de la promettre au système.
+     */
+    if (m.share_target) {
+      const sw = join(DIR, 'sw.js');
+      const chemin = String(m.share_target.action ?? '');
+      if (!existsSync(sw)) {
+        echecs.push(`${rel(cible)} annonce un partage, mais ${rel(sw)} n'existe pas`);
+      } else if (!new RegExp(String.raw`\$\{?\w*\}?|partager`).test(readFileSync(sw, 'utf8'))) {
+        echecs.push(`${rel(sw)} ne reconnaît pas la cible de partage « ${chemin} »`);
+      }
+      if (m.share_target.method !== 'POST' || m.share_target.enctype !== 'multipart/form-data') {
+        echecs.push(`${rel(cible)} : un partage de FICHIERS exige POST + multipart/form-data`);
+      }
     }
   }
 

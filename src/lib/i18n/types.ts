@@ -122,6 +122,8 @@ export interface Dictionnaire {
     pretsVerifies: (n: number) => string;
     pretsAvecEchecs: (n: number, e: number) => string;
     /** Bandeau de mise à jour — jamais automatique, voir `sw-modele.js`. */
+    /** Le partage est arrivé mais les octets n'ont pas survécu au trajet. */
+    partagePerdu: string;
     majDispo: string;
     majTravaux: string;
     majRecharger: string;

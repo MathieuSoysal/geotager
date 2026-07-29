@@ -206,6 +206,11 @@ const jsonLd = {
                  mais rien ne lit la photo ensuite. Mieux vaut le dire que
                  laisser quelqu'un choisir un fichier et attendre. -->
             <noscript><p class="alerte attention">{T.hero.sansJs}</p></noscript>
+            <!-- Les avis qui concernent l'état VIDE. `#alerte-format` vit dans
+                 l'état actif : y écrire pendant qu'on revient ici afficherait le
+                 message dans un conteneur qu'on vient de masquer, donc nulle
+                 part. C'est ce qui arrivait au partage perdu. -->
+            <p class="alerte attention" id="avis-vide" hidden></p>
           </div>
 
           <!-- ÉTAT ACTIF — occupe exactement la même zone. -->

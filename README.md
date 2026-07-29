@@ -98,6 +98,25 @@ The precache list is derived from what the build actually produced — never wri
 `scripts/gen-sw.mjs` refuses to emit a worker whose list is missing the reading worker or the
 stylesheet.
 
+### Sending a photo to it from the system
+
+Once installed, Geotager appears in the OS share sheet and as an “Open with” handler for images.
+
+“Open with” is the simple one: the system hands over a file handle, so there is nothing to carry
+and nothing to keep.
+
+Sharing is not. The Web Share Target API delivers files as a `POST`, and there is no server here to
+receive one — the service worker intercepts it. Every other app that does this parks the file in
+Cache Storage, redirects, then reads it back and deletes it. That always works, and it also writes
+someone's photo to their disk, which this site says everywhere that it does not do. So the bytes
+stay in a variable in the worker instead, and the page claims them over a `MessageChannel`. The
+price is honest: if the browser stops the worker first — low memory, system arbitration — the photo
+does not arrive and the page says so. You lose a gesture, never a file; the original never moved
+from the gallery.
+
+Share target is Android and desktop Chrome/Edge; iOS does not implement it. File handling is
+desktop Chrome/Edge.
+
 ## Development
 
 ```bash

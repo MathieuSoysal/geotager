@@ -78,18 +78,101 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/* --- partage entrant ----------------------------------------------- */
+
+/*
+ * Une photo partagée depuis le système arrive ici, en `POST`, parce que c'est
+ * la seule forme que l'API du partage accepte pour des fichiers. Il n'y a aucun
+ * serveur pour la recevoir : ce worker l'intercepte, et doit la faire parvenir
+ * à la page qui va s'ouvrir juste après.
+ *
+ * ELLE NE TOUCHE PAS LE DISQUE. Le chemin habituel — et celui de toutes les
+ * applications qui font ceci — est de la déposer dans le stockage de cache, de
+ * rediriger, puis de la relire et de l'effacer. Cela marche à tous les coups.
+ * Cela écrit aussi la photo de quelqu'un sur son disque, ne serait-ce qu'un
+ * instant, et ce site affirme partout que rien n'y est écrit. Une promesse dont
+ * il faut retrancher un cas n'est plus la même promesse.
+ *
+ * Les octets restent donc dans cette variable, et la vie du worker est
+ * prolongée par `waitUntil` le temps que la page vienne les réclamer. Le prix
+ * est honnête : si le navigateur arrête tout de même le worker — mémoire
+ * basse, arbitrage du système — la photo est perdue et la page le dit. On perd
+ * alors un geste, jamais un fichier : l'original n'a pas bougé de la galerie.
+ */
+let partageEnAttente = null;
+let reclame = null;
+
+/** Le worker reste éveillé tant que la page n'a pas réclamé, sans excéder 45 s. */
+function attendreLaPage() {
+  return new Promise((resoudre) => {
+    reclame = resoudre;
+    setTimeout(() => {
+      // Personne n'est venu : on relâche la mémoire plutôt que de la garder.
+      partageEnAttente = null;
+      resoudre();
+    }, 45_000);
+  });
+}
+
+async function recevoirPartage(event, url) {
+  // La page d'accueil de la langue par laquelle le partage est arrivé.
+  const page = url.pathname.startsWith('/fr/') ? '/fr/' : '/';
+  try {
+    const formulaire = await event.request.formData();
+    const fichiers = formulaire
+      .getAll('photos')
+      .filter((f) => typeof f === 'object' && f && 'size' in f && f.size > 0);
+    if (!fichiers.length) return Response.redirect(page, 303);
+
+    partageEnAttente = fichiers;
+    event.waitUntil(attendreLaPage());
+    // 303 : le navigateur repart en GET sur la page, et un rechargement
+    // ultérieur ne repostera pas le formulaire.
+    return Response.redirect(`${page}?partage=1`, 303);
+  } catch {
+    return Response.redirect(page, 303);
+  }
+}
+
 self.addEventListener('message', (event) => {
+  const message = event.data;
+  if (!message) return;
+
   // Le seul chemin par lequel une mise à jour prend la main. Voir règle 2.
-  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (message.type === 'SKIP_WAITING') self.skipWaiting();
+
+  if (message.type === 'RECLAMER_PARTAGE') {
+    const fichiers = partageEnAttente;
+    // Rendus une fois, et une seule : un rechargement ne doit pas faire
+    // réapparaître une photo que l'utilisateur croyait avoir refermée.
+    partageEnAttente = null;
+    if (event.ports && event.ports[0]) event.ports[0].postMessage(fichiers || []);
+    if (reclame) {
+      reclame();
+      reclame = null;
+    }
+  }
 });
 
 self.addEventListener('fetch', (event) => {
   const requete = event.request;
-  if (requete.method !== 'GET') return;
-
   const url = new URL(requete.url);
-  // Règle 1. Ne rien toucher de ce qui n'est pas à nous.
+
+  // Règle 1. Ne rien toucher de ce qui n'est pas à nous. En tête, avant même le
+  // filtre sur la méthode : ce qui vient d'ailleurs ne nous regarde jamais.
   if (url.origin !== self.location.origin) return;
+
+  /*
+   * La cible du partage. C'est le seul `POST` que ce site connaisse, et il
+   * n'atteint aucun serveur — `/partager` n'existe pas dans `dist/`, il n'a
+   * d'existence que dans ce gestionnaire.
+   */
+  if (requete.method === 'POST' && /^\/(fr\/)?partager$/.test(url.pathname)) {
+    event.respondWith(recevoirPartage(event, url));
+    return;
+  }
+
+  if (requete.method !== 'GET') return;
 
   event.respondWith(
     (async () => {
