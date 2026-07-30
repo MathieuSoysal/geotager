@@ -995,17 +995,26 @@ interface InviteInstall extends Event {
 }
 
 let invite: InviteInstall | null = null;
+/** The browser has confirmed the app is installed. See below. */
+let installationConfirmee = false;
+
+/** The modes meaning "running in a window of our own, not in a tab". */
+const MODES_INSTALLES = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
 
 /** The app runs in its own window: there is nothing left to install. */
 function dejaInstallee(): boolean {
-  const enFenetre =
-    matchMedia('(display-mode: standalone)').matches ||
-    matchMedia('(display-mode: minimal-ui)').matches;
+  // All four modes, not just the two requested today: the day
+  // `display_override` asks for another, this guard keeps holding without
+  // anyone having to think about it.
+  if (MODES_INSTALLES.some((m) => matchMedia(`(display-mode: ${m})`).matches)) return true;
+  // A packaged Android app opens the site with no display mode saying so: it is
+  // recognised by its referrer.
+  if (document.referrer.startsWith('android-app://')) return true;
   // iOS does not know `display-mode` and answers through this non-standard
-  // property. Reading it costs nothing; ignoring it would let the button appear
-  // in an app already on the home screen.
-  const iOS = (navigator as Navigator & { standalone?: boolean }).standalone === true;
-  return enFenetre || iOS;
+  // property, which the documentation does not mention but which costs nothing.
+  // Ignoring it would let the button appear in an app already on the home
+  // screen.
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
 }
 
 function cacherInstallation(): void {
@@ -1013,11 +1022,40 @@ function cacherInstallation(): void {
   el.installer.hidden = true;
 }
 
+/*
+ * Ask the browser, instead of inferring.
+ *
+ * The four locks above rest on an inference: no prompt, so probably already
+ * installed. That is true, and it is not a check; from an ordinary tab nothing
+ * confirms it. This interface answers for real: an empty array means not
+ * installed, and that is the only case the inference could get wrong.
+ *
+ * It does not exist everywhere. Where it is missing we fall back exactly on the
+ * previous inference, which was not wrong, hence the silence on failure.
+ */
+async function verifierInstallation(): Promise<void> {
+  const nav = navigator as Navigator & {
+    getInstalledRelatedApps?: () => Promise<unknown[]>;
+  };
+  if (typeof nav.getInstalledRelatedApps !== 'function') return;
+  try {
+    const posees = await nav.getInstalledRelatedApps();
+    if (!posees.length) return;
+    installationConfirmee = true;
+    // The answer can arrive after the prompt has revealed the button: in that
+    // direction too, it must disappear.
+    cacherInstallation();
+  } catch {
+    /* No answer, and that is all: the other locks hold. */
+  }
+}
+void verifierInstallation();
+
 window.addEventListener('beforeinstallprompt', (e) => {
   // Without this the browser additionally puts its own bar at the bottom of the
   // screen: two competing offers for one gesture.
   e.preventDefault();
-  if (dejaInstallee()) return;
+  if (dejaInstallee() || installationConfirmee) return;
   invite = e as InviteInstall;
   el.installer.hidden = false;
 });
@@ -1026,15 +1064,27 @@ el.installer.addEventListener('click', () => {
   const invitee = invite;
   if (!invitee) return;
   /*
-   * The button goes immediately: a prompt is not replayed, and a second call on
-   * the same event throws. If the dialog is dismissed without choosing, the
-   * browser will fire a new one on the next visit and the button will reappear.
+   * The prompt is discarded immediately, since it serves once and a second call
+   * on the same event replays nothing, but the button stays while the browser's
+   * dialog is open. That is the order the documentation keeps: ask, wait for
+   * the decision, and only then tidy up. The reverse made the button disappear
+   * before we even knew whether the request had succeeded.
    *
    * A refusal is not a failure, the same reasoning as for outgoing shares: we
-   * do not insist, and we say nothing.
+   * do not insist, and we say nothing. The browser will fire another prompt on
+   * the next visit and the button will reappear on its own.
    */
-  cacherInstallation();
-  void invitee.prompt().catch(() => {});
+  invite = null;
+  void (async () => {
+    try {
+      await invitee.prompt();
+      await invitee.userChoice;
+    } catch {
+      /* Nothing to add: the button goes either way. */
+    } finally {
+      el.installer.hidden = true;
+    }
+  })();
 });
 
 window.addEventListener('appinstalled', () => {

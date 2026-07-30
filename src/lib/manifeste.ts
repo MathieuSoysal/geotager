@@ -17,7 +17,7 @@
  * unnoticed.
  */
 import type { Langue } from './i18n/types.ts';
-import { DICOS } from './i18n/index.ts';
+import { DICOS, LANGUES } from './i18n/index.ts';
 
 /** The application background: cold-start splash screen and title bar. */
 export const FOND = '#17161b';
@@ -42,6 +42,26 @@ export function manifeste(langue: Langue): string {
       background_color: FOND,
       theme_color: FOND,
       categories: ['photo', 'utilities', 'productivity'],
+
+      /*
+       * Naming itself, so the page can ask the browser whether the application
+       * is already installed instead of inferring it from silence. See
+       * `getInstalledRelatedApps` in `ui/app.ts`.
+       *
+       * Both manifests are listed, and that is not decorative symmetry: an
+       * installation remembers the address of the manifest it was made from.
+       * Installed from `/fr/`, it would not be recognised by an English page
+       * that announced only its own.
+       *
+       * `prefer_related_applications` stays absent and must: set to true, the
+       * installability criterion stops being met, no prompt is ever fired, and
+       * the install button disappears everywhere without a word. The build
+       * check refuses its return.
+       */
+      related_applications: LANGUES.map((l) => ({
+        platform: 'webapp',
+        url: `${DICOS[l].base}manifest.webmanifest`,
+      })),
 
       /*
        * Receiving a photo from the system share sheet.

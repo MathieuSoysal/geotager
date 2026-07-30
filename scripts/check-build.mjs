@@ -522,6 +522,9 @@ for (const [fichierReadme, page] of [
       ...(m.file_handlers ?? []).map((h, n) => [`file_handlers[${n}].action`, h.action]),
       ...(m.icons ?? []).map((i, n) => [`icons[${n}].src`, i.src]),
       ...(m.screenshots ?? []).map((i, n) => [`screenshots[${n}].src`, i.src]),
+      // One more address the system reads: it inherits the refusal of foreign
+      // addresses, like all the others.
+      ...(m.related_applications ?? []).map((a, n) => [`related_applications[${n}].url`, a.url]),
     ];
     for (const [nom, adresse] of adresses) {
       if (typeof adresse !== 'string') {
@@ -547,12 +550,22 @@ for (const [fichierReadme, page] of [
     /*
      * What makes the application installable, and what nothing was checking.
      *
-     * A browser only fires its install prompt if the manifest carries a name, a
-     * description, a standalone display mode and icons of at least 192 and 512
-     * pixels. While installation was only offered from the browser menu, losing
-     * one went unnoticed. Now that a button depends on it, the same loss makes
-     * it disappear from the page for everybody, with no message, no error,
-     * nothing.
+     * Chrome's published list, word for word: the app is not already installed,
+     * the engagement heuristics are met, the site is on HTTPS, and the manifest
+     * carries "short_name or name", icons that "must include a 192px and a
+     * 512px icon", a "start_url", a "display" among fullscreen / standalone /
+     * minimal-ui / window-controls-overlay, and "prefer_related_applications
+     * must not be present, or be false".
+     *
+     * Two things are worth noting, because we believed otherwise. The service
+     * worker is not on it: neither it, nor a `fetch` handler, nor any offline
+     * capability. And nor is `display_override`; it is `display` alone that is
+     * judged.
+     *
+     * While installation was only offered from the browser menu, losing one of
+     * these fields went unnoticed. Now that a button depends on it, the same
+     * loss makes it disappear from the page for everybody, with no message, no
+     * error, nothing.
      */
     for (const [cle, valeur] of [
       ['name', m.name],
@@ -571,6 +584,41 @@ for (const [fichierReadme, page] of [
     for (const taille of ['192x192', '512x512']) {
       if (!(m.icons ?? []).some((i) => String(i.sizes ?? '').split(/\s+/).includes(taille))) {
         echecs.push(`${rel(cible)} : aucune icône « ${taille} », exigée pour l'installation`);
+      }
+    }
+
+    /*
+     * `prefer_related_applications` set to true means "offer some other
+     * application rather than this one". The installability criterion then
+     * stops being met, no prompt is ever fired, and the install button
+     * disappears from every page. It is the least visible regression of the
+     * lot: nothing breaks, nothing is displayed, a button simply stops
+     * existing.
+     */
+    if (m.prefer_related_applications === true) {
+      echecs.push(
+        `${rel(cible)} : « prefer_related_applications » à vrai supprime l'invitation à installer`,
+      );
+    }
+
+    /*
+     * The manifest names itself so the page can ask the browser whether the app
+     * is already installed. A malformed entry throws nothing: the question
+     * simply gets an empty answer, and we fall back unknowingly on the
+     * inference it was meant to replace.
+     */
+    const parentes = m.related_applications ?? [];
+    if (!parentes.length) {
+      echecs.push(`${rel(cible)} : « related_applications » est absent — voir getInstalledRelatedApps`);
+    }
+    for (const [n, a] of parentes.entries()) {
+      const nom = `related_applications[${n}]`;
+      if (a.platform !== 'webapp') {
+        echecs.push(`${rel(cible)} : « ${nom}.platform » vaut « ${a.platform} », attendu « webapp »`);
+      }
+      const adresse = String(a.url ?? '');
+      if (!adresse.startsWith('/') || !existsSync(join(DIR, adresse.replace(/^\//, '')))) {
+        echecs.push(`${rel(cible)} : « ${nom}.url » ne désigne aucun manifeste — ${adresse}`);
       }
     }
 
