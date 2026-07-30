@@ -1563,3 +1563,90 @@ plus : elle se juge sur une installation réelle, à la vérification que le nav
 lui-même.
 
 **Bloque :** non.
+
+---
+
+## [V1.5] Q-046 — Le plan du site disait « mensuel » à un moteur qui ne l'écoute pas
+
+**Contexte :** la demande était d'ajouter « des choses SEO : plan du site, robots.txt ». Elles
+existaient déjà, et elles étaient bonnes : `robots.txt` avec sa ligne `Sitemap:`, un plan du site
+bilingue avec ses `xhtml:link` et son `x-default`, un canonique auto-référent, des `hreflang`
+réciproques, Open Graph complet avec une vraie image, une carte Twitter, du JSON-LD, un seul `<h1>`,
+des repères sémantiques, et tout le contenu rendu côté serveur. Un audit déterministe rend zéro
+erreur et zéro avertissement sur les deux pages. **Il n'y avait donc rien à ajouter là où on le
+demandait, et quatre choses fausses ailleurs.**
+
+1. `<changefreq>monthly</changefreq>` était écrit dans le plan du site. La documentation de Google
+   est sans nuance : « Google ignores `<priority>` and `<changefreq>` values. » La balise
+   n'annonçait rien à personne.
+2. `<lastmod>` manquait, et c'est la seule des trois qui compte : « Google uses the `<lastmod>` value
+   if it's consistently and verifiably accurate. »
+3. L'adresse du site était recopiée trois fois — la configuration, la coquille, le plan du site.
+   Trois occasions qu'un canonique, un `og:url` et un plan du site se contredisent, et un moteur qui
+   reçoit des signaux contradictoires ne tranche pas en notre faveur : il les ignore.
+4. Il n'y avait aucune page 404, et surtout aucun `not_found_handling` chez l'hébergeur — l'écrire
+   sans l'activer n'aurait rien servi.
+
+**Et surtout : rien ne surveillait ces deux fichiers.** `check-build.mjs` ne les mentionnait pas, le
+test de bout en bout ne les demandait pas. Ce n'est pas une hypothèse : l'en-tête de
+`sitemap-index.xml.ts` raconte que « `robots.txt` l'annonçait depuis le début sans que rien ne le
+produise : le fichier renvoyait 404 ». Le défaut a vécu jusqu'à ce qu'un humain le remarque, dans un
+dépôt qui attrape tout le reste par un contrôle bloquant. Ces fichiers-là ne sont lus QUE par des
+machines : personne ne les ouvre, personne ne voit qu'ils sont faux, et ils sont la première chose
+qu'un moteur demande.
+
+**Options :**
+
+- **A.** Corriger les quatre défauts, et adosser l'ensemble à un contrôle de build qui relit ce qui
+  est réellement produit : `robots.txt`, le plan du site, les canoniques, les `hreflang` croisés des
+  deux côtés, et le JSON-LD.
+- **B.** Ajouter ce qui manque et s'en tenir là. Écarté : c'est ce qui a été fait en V1.3, et c'est
+  exactement pour cela que le plan du site a pu renvoyer 404 sans que personne le sache.
+- **C.** Dater `lastmod` à l'heure de la build. Écarté sur la lettre de la documentation : une date
+  qui change à chaque déploiement sans qu'une ligne ait bougé n'est pas « verifiably accurate », et
+  serait écartée par le moteur. La date vient de l'historique, et **s'il ne peut pas répondre, la
+  balise n'est pas écrite.** Une absence est honnête ; une date inventée ne l'est pas.
+- **D.** Renommer `sitemap-index.xml`, dont la racine est un `urlset` et non un `sitemapindex`.
+  Écarté : cosmétiquement faux, fonctionnellement sans effet, et le renommer risquerait une
+  soumission Search Console déjà faite pour zéro gain.
+
+**Retenu : A.**
+
+**Ce qui a été refusé, et pourquoi c'est une décision et non un oubli :**
+
+- **`<meta name="robots" content="index, follow">`.** Google écrit que `all` « is the default value
+  and has no effect if explicitly listed ». C'est une balise-talisman ; la seule page du site qui
+  porte désormais une directive est la page 404, avec `noindex`.
+- **`rel="nofollow"` sur les liens sortants** vers OpenStreetMap, GitHub, MDN et ExifTool. « For
+  regular links that you expect Google to fetch and parse without any qualifications, you don't need
+  to add a `rel` attribute. » Les qualifier retirerait un signal normal et suggérerait la défiance
+  envers des sources qu'on cite justement pour se rendre vérifiable.
+- **`FAQPage` et `HowTo`.** « Mode d'emploi » et « Ce qu'est une donnée GPS » en ont exactement la
+  forme. `HowTo` est abandonné depuis 2023 et les questions-réponses ont été retirées de la
+  recherche : les baliser ne produirait rigoureusement rien. Écrire un balisage pour un affichage qui
+  n'existe plus, c'est se mentir dans un fichier que personne ne relit.
+- **`notranslate`.** On publie une vraie version française ; laisser un moteur proposer une
+  traduction aux autres langues est un gain, pas un risque.
+- **Un `preconnect` vers l'hôte des tuiles**, que l'audit suggère par défaut. Il émettrait une
+  requête tierce avant tout clic et détruirait la promesse que le §2 du contrôle de build et le
+  journal de requêtes du test de bout en bout existent pour tenir. **À ne jamais « corriger ».**
+
+**Ce que le plan du site vaut ici, écrit pour qu'on cesse d'y revenir.** D'après les propres critères
+de Google — « about 500 pages or fewer », « comprehensively linked internally » — ce site n'en a pas
+besoin. On le garde parce qu'il ne coûte rien et qu'il est déjà annoncé, pas parce qu'il rapporte
+quelque chose. Il en va de même des trois nœuds de données structurées ajoutés : aucun résultat
+enrichi, aucune vignette, rien de visible. Le seul gain est que les moteurs sachent relier
+l'application, le site et son éditeur au lieu de le deviner.
+
+**Une conséquence du format de sortie, à ne pas perdre.** La page 404 française sortait en
+`fr/404/index.html`, un nom que l'hébergeur ne va jamais chercher. `build.format` passe donc à
+`preserve` : les deux pages du site ne bougent pas — `index.astro` donnait déjà `index.html` — et la
+page d'erreur sort en `fr/404.html`, qui est le seul nom servi.
+
+**Ce que ce lot ne prouve pas.** Le test de bout en bout atteint les pages 404 par leur chemin : il
+ne peut pas provoquer un vrai 404, puisque c'est l'hébergeur qui remonte au fichier le plus proche et
+que le serveur du banc ne l'imite pas. Ce qui est jugé est la page ; le réglage qui la sert ne l'est
+que par relecture. De même, la validation du JSON-LD produit et la soumission du plan du site
+demandent des outils en ligne qu'aucun test local ne remplace.
+
+**Bloque :** non.

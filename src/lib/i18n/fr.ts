@@ -240,4 +240,12 @@ export const fr: Dictionnaire = {
   ],
 
   pied: 'Geotager — outil gratuit, sans compte et sans traceur. Code source sous licence MIT :',
+
+  introuvable: {
+    titre: "Cette page n'existe pas",
+    phrase:
+      "L'adresse que vous avez suivie ne mène nulle part — elle est peut-être ancienne, ou mal recopiée. Rien n'est cassé, et l'outil est à un clic d'ici.",
+    retour: "Aller à l'outil",
+    autreLangue: 'English version',
+  },
 };

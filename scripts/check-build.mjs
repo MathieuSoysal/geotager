@@ -225,6 +225,20 @@ const BLOCS_OBLIGATOIRES = {
   ],
 };
 
+/**
+ * Une page d'erreur n'est pas une page du site.
+ *
+ * Elle n'a ni les six blocs de prose de l'outil, ni de liens entre langues, et
+ * exiger d'elle les uns ou les autres ferait échouer la build pour une page
+ * dont le rôle est précisément de ne rien promettre. Elle porte en revanche un
+ * `noindex`, et le contrôle le vérifie plus bas — l'exclusion est nommée, elle
+ * n'est pas un trou.
+ */
+const estIntrouvable = (f) => /(^|[\\/])404\.html$/.test(f);
+
+/** Les pages qu'on demande à un moteur d'indexer, et elles seules. */
+const pagesIndexables = fichiers.filter((x) => extname(x) === '.html' && !estIntrouvable(x));
+
 for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   const html = readFileSync(f, 'utf8');
   const title = html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim();
@@ -254,6 +268,19 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   // « qu&#39;il ». Chercher le texte brut dans le HTML échappé ne trouverait
   // rien, et ferait passer une page pleine pour une page vide.
   const lisible = texteVisible(html);
+
+  if (estIntrouvable(f)) {
+    // Ce qu'on demande à une page d'erreur, et rien d'autre : dire qu'elle ne
+    // veut pas être indexée, et ramener quelque part.
+    if (!/<meta\s+name=["']robots["']\s+content=["'][^"']*noindex/i.test(html)) {
+      echecs.push(`${rel(f)} : une page d'erreur doit porter « noindex »`);
+    }
+    if (!/<a[^>]+href=["']\/(fr\/)?["']/i.test(html)) {
+      echecs.push(`${rel(f)} : aucun lien de retour vers l'outil`);
+    }
+    continue;
+  }
+
   const attendus = BLOCS_OBLIGATOIRES[lang];
   if (!attendus) {
     echecs.push(`${rel(f)} : langue « ${lang} » inconnue du contrôle de contenu`);
@@ -272,6 +299,13 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   }
   if (!/hreflang=["']x-default["']/i.test(html)) {
     echecs.push(`${rel(f)} : aucun lien alternatif « x-default »`);
+  }
+
+  // Une page indexable ne doit surtout PAS porter de noindex. L'inverse de la
+  // page d'erreur, et la panne la plus chère du lot : elle est invisible à
+  // l'écran et retire le site des résultats.
+  if (/<meta\s+name=["']robots["']\s+content=["'][^"']*noindex/i.test(html)) {
+    echecs.push(`${rel(f)} : une page du site porte « noindex »`);
   }
 }
 
@@ -609,6 +643,204 @@ for (const [fichierReadme, page] of [
     if (!apple) echecs.push(`${rel(f)} : aucun <link rel="apple-touch-icon">`);
     else if (!existsSync(join(DIR, apple.replace(/^\//, '')))) {
       echecs.push(`${rel(f)} : apple-touch-icon ${apple} est absent de ${DIR}/`);
+    }
+  }
+}
+
+/* --- 9. ce qu'on dit aux moteurs ----------------------------------- */
+
+/*
+ * Personne ne surveillait `robots.txt` ni le plan du site, et cela s'est vu :
+ * l'en-tête de `sitemap-index.xml.ts` raconte que « robots.txt l'annonçait
+ * depuis le début sans que rien ne le produise : le fichier renvoyait 404 ». Le
+ * défaut a vécu jusqu'à ce qu'un humain le remarque, alors que c'est
+ * exactement la classe de panne que ce fichier attrape partout ailleurs.
+ *
+ * Ces deux fichiers-là ne sont lus QUE par des machines. Personne ne les ouvre,
+ * personne ne voit qu'ils sont faux, et ils sont la première chose qu'un moteur
+ * demande. C'est ce qui justifie de les traiter comme le reste : un contrôle
+ * bloquant, et pas une relecture.
+ */
+{
+  const racine = 'https://geotager.app';
+  const robots = join(DIR, 'robots.txt');
+
+  if (!existsSync(robots)) {
+    echecs.push(`${DIR}/robots.txt est absent — un moteur le demande avant toute autre chose`);
+  } else {
+    const texte = readFileSync(robots, 'utf8');
+    const lignes = texte
+      .split('\n')
+      .map((l) => l.replace(/#.*$/, '').trim())
+      .filter(Boolean);
+
+    if (!lignes.some((l) => /^user-agent\s*:/i.test(l))) {
+      echecs.push(`${DIR}/robots.txt n'a aucun groupe « User-agent »`);
+    }
+
+    /*
+     * Aucun « Disallow » non vide. Ce n'est pas une préférence : les domaines
+     * techniques sont retirés de l'index par un `X-Robots-Tag: noindex`, que le
+     * moteur ne peut lire QUE s'il a le droit de venir chercher la page. Un
+     * « Disallow » ici retirerait ce droit et laisserait les adresses
+     * s'indexer quand même, sans même un extrait. C'est le contresens que le
+     * commentaire du fichier décrit, et que rien ne protégeait.
+     */
+    for (const l of lignes) {
+      const valeur = l.match(/^disallow\s*:\s*(.*)$/i)?.[1];
+      if (valeur) echecs.push(`${DIR}/robots.txt interdit « ${valeur} » — voir le commentaire du fichier`);
+    }
+
+    const annonces = lignes
+      .map((l) => l.match(/^sitemap\s*:\s*(\S+)$/i)?.[1])
+      .filter(Boolean);
+    if (!annonces.length) {
+      echecs.push(`${DIR}/robots.txt n'annonce aucun plan de site`);
+    }
+    for (const adresse of annonces) {
+      if (!adresse.startsWith(`${racine}/`)) {
+        echecs.push(`${DIR}/robots.txt annonce un plan de site hors de l'origine — ${adresse}`);
+        continue;
+      }
+      // LE contrôle qui aurait attrapé le 404 d'origine.
+      const cible = join(DIR, adresse.slice(racine.length + 1));
+      if (!existsSync(cible)) {
+        echecs.push(`${DIR}/robots.txt annonce ${adresse}, que la build ne produit pas`);
+      }
+    }
+  }
+
+  /* --- le plan du site --------------------------------------------- */
+
+  const plan = join(DIR, 'sitemap-index.xml');
+  if (!existsSync(plan)) {
+    echecs.push(`${DIR}/sitemap-index.xml est absent`);
+  } else {
+    const xml = readFileSync(plan, 'utf8');
+
+    if (!/<urlset[^>]+xmlns=["']http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9["']/.test(xml)) {
+      echecs.push(`${rel(plan)} : racine « urlset » ou espace de noms manquant`);
+    }
+
+    /*
+     * « Google ignores <priority> and <changefreq> values. » Les écrire
+     * laisserait croire à un signal de fraîcheur qui n'existe pas ; ce contrôle
+     * est là pour qu'ils ne reviennent pas s'installer un jour de distraction.
+     */
+    for (const mort of ['changefreq', 'priority']) {
+      if (new RegExp(`<${mort}>`).test(xml)) {
+        echecs.push(`${rel(plan)} porte « ${mort} », que les moteurs ignorent`);
+      }
+    }
+
+    /*
+     * `lastmod` est la seule des trois qui compte, et seulement si elle est
+     * vérifiable. Une date postérieure au jour de la build ne l'est par
+     * construction pas : c'est la signature d'un horodatage inventé.
+     */
+    const aujourdhui = new Date().toISOString().slice(0, 10);
+    for (const [, date] of xml.matchAll(/<lastmod>([^<]*)<\/lastmod>/g)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        echecs.push(`${rel(plan)} : « ${date} » n'est pas une date AAAA-MM-JJ`);
+      } else if (date > aujourdhui) {
+        echecs.push(`${rel(plan)} : « ${date} » est dans le futur`);
+      }
+    }
+
+    /*
+     * L'ensemble des adresses annoncées est exactement l'ensemble des pages
+     * indexables produites. En trop : on demande d'indexer ce qui n'existe pas.
+     * En moins : on cache une page à un moteur sans l'avoir décidé. Et les
+     * pages d'erreur n'y sont ni dans un sens ni dans l'autre.
+     */
+    const annoncees = [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map(([, u]) => u).sort();
+    const produites = pagesIndexables
+      .map((f) => `${racine}/${rel(f).replace(/index\.html$/, '')}`)
+      .sort();
+    if (annoncees.join('|') !== produites.join('|')) {
+      echecs.push(
+        `${rel(plan)} n'annonce pas les pages produites — annoncées ${annoncees.join(', ')} / produites ${produites.join(', ')}`,
+      );
+    }
+    for (const adresse of annoncees) {
+      if (!adresse.startsWith(`${racine}/`) || !adresse.endsWith('/')) {
+        echecs.push(`${rel(plan)} : « ${adresse} » doit être absolue et finir par « / »`);
+      }
+    }
+
+    /*
+     * Et les mêmes langues des deux côtés. Le plan du site et le `<head>` sont
+     * deux déclarations du même fait ; si elles se contredisent, un moteur ne
+     * tranche pas en notre faveur, il les ignore toutes les deux.
+     */
+    for (const f of pagesIndexables) {
+      const html = readFileSync(f, 'utf8');
+      const adresse = `${racine}/${rel(f).replace(/index\.html$/, '')}`;
+      const bloc = xml.match(new RegExp(`<url>\\s*<loc>${adresse}</loc>([\\s\\S]*?)</url>`))?.[1];
+      if (!bloc) continue;
+      const duPlan = [...bloc.matchAll(/hreflang="([^"]+)"/g)].map(([, l]) => l).sort();
+      const duHead = [...html.matchAll(/<link[^>]+rel=["']alternate["'][^>]+hreflang=["']([^"']+)["']/gi)]
+        .map(([, l]) => l)
+        .sort();
+      if (duPlan.join(',') !== duHead.join(',')) {
+        echecs.push(
+          `${rel(f)} : les langues du plan du site (${duPlan.join(', ')}) et de la page (${duHead.join(', ')}) diffèrent`,
+        );
+      }
+      if (!duPlan.includes('x-default')) {
+        echecs.push(`${rel(plan)} : « ${adresse} » n'a pas de « x-default »`);
+      }
+    }
+  }
+
+  /* --- le <head> des pages indexables -------------------------------- */
+
+  for (const f of pagesIndexables) {
+    const html = readFileSync(f, 'utf8');
+    const adresse = `${racine}/${rel(f).replace(/index\.html$/, '')}`;
+
+    // Un canonique auto-référent sur chaque page indexable. Seule la page
+    // française était vérifiée, et seulement par le test de bout en bout.
+    const canonique = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1];
+    if (canonique !== adresse) {
+      echecs.push(`${rel(f)} : canonique « ${canonique ?? '(absent)'} », attendu « ${adresse} »`);
+    }
+
+    const balise = (p) =>
+      html.match(new RegExp(`<meta[^>]+property=["']${p}["'][^>]+content=["']([^"']*)["']`, 'i'))?.[1];
+    for (const p of ['og:title', 'og:description', 'og:url', 'og:locale']) {
+      if (!balise(p)) echecs.push(`${rel(f)} : « ${p} » manque`);
+    }
+    if (!/<meta[^>]+name=["']twitter:card["']/i.test(html)) {
+      echecs.push(`${rel(f)} : « twitter:card » manque`);
+    }
+    // « canonique = liens internes = plan du site = og:url ». Des signaux qui
+    // se contredisent sont des signaux qu'un moteur écarte.
+    if (balise('og:url') && balise('og:url') !== canonique) {
+      echecs.push(`${rel(f)} : « og:url » et le canonique diffèrent`);
+    }
+
+    /*
+     * Le JSON-LD n'était parsé par personne. Une virgule de trop l'aurait
+     * cassé en silence : le bloc reste dans la page, il ne lève aucune erreur
+     * de console — un `type` inconnu rend l'élément inerte — et plus rien n'est
+     * compris. On le lit donc vraiment.
+     */
+    const ld = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
+    if (!ld) {
+      echecs.push(`${rel(f)} : aucun bloc « application/ld+json »`);
+    } else {
+      try {
+        const graphe = JSON.parse(ld);
+        const types = (graphe['@graph'] ?? [graphe]).map((n) => n['@type']);
+        for (const attendu of ['SoftwareApplication', 'WebSite', 'Organization']) {
+          if (!types.includes(attendu)) {
+            echecs.push(`${rel(f)} : le JSON-LD ne déclare pas « ${attendu} » — ${types.join(', ')}`);
+          }
+        }
+      } catch (e) {
+        echecs.push(`${rel(f)} : le JSON-LD n'est pas du JSON valide — ${e.message}`);
+      }
     }
   }
 }

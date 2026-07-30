@@ -17,7 +17,15 @@ interface Props {
 }
 const { dico: T } = Astro.props;
 
-const site = 'https://geotager.app';
+/*
+ * L'adresse vient de `astro.config.mjs`, et d'un seul endroit. Elle était
+ * recopiée ici et dans le plan du site : trois copies de la même chaîne, donc
+ * trois occasions qu'un canonique, un `og:url` et un plan de site finissent par
+ * se contredire. Un moteur qui reçoit des signaux contradictoires ne tranche
+ * pas en notre faveur : il les ignore et choisit lui-même.
+ */
+const site = Astro.site?.origin;
+if (!site) throw new Error('Page : « site » manque dans astro.config.mjs');
 const url = site + T.base;
 
 // Liens réciproques entre les deux langues, plus x-default sur la langue
@@ -25,19 +33,60 @@ const url = site + T.base;
 // elle-même comprise, sans quoi Google ignore la déclaration.
 const alternates = LANGUES.map((l) => ({ lang: l, href: site + DICOS[l].base }));
 
+/*
+ * Trois nœuds reliés, et pas un de plus.
+ *
+ * CE QUE CELA RAPPORTE, pour que personne n'en attende autre chose : aucun
+ * résultat enrichi. Aucune vignette, aucune étoile, rien de visible dans une
+ * page de résultats. Le seul gain est que les moteurs — classiques comme
+ * génératifs — sachent relier trois choses qu'ils devaient sinon deviner :
+ * quelle est l'application, à quel site elle appartient, et qui la publie.
+ *
+ * C'est aussi pourquoi il n'y a NI `FAQPage` NI `HowTo`. « Mode d'emploi » et
+ * « Ce qu'est une donnée GPS » en ont exactement la forme, et les baliser ne
+ * produirait rigoureusement rien : `HowTo` est abandonné depuis 2023, et les
+ * questions-réponses ont été retirées de la recherche. Écrire un balisage pour
+ * un affichage qui n'existe plus, c'est se mentir dans un fichier que personne
+ * ne relit.
+ */
 const jsonLd = {
   '@context': 'https://schema.org',
-  '@type': 'SoftwareApplication',
-  name: 'Geotager',
-  url,
-  applicationCategory: 'MultimediaApplication',
-  applicationSubCategory: T.meta.sousCategorie,
-  operatingSystem: T.meta.systeme,
-  inLanguage: T.htmlLang,
-  isAccessibleForFree: true,
-  offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
-  featureList: T.meta.fonctions,
-  description: T.meta.description,
+  '@graph': [
+    {
+      '@type': 'SoftwareApplication',
+      '@id': `${url}#application`,
+      name: 'Geotager',
+      url,
+      applicationCategory: 'MultimediaApplication',
+      applicationSubCategory: T.meta.sousCategorie,
+      operatingSystem: T.meta.systeme,
+      inLanguage: T.htmlLang,
+      isAccessibleForFree: true,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+      featureList: T.meta.fonctions,
+      description: T.meta.description,
+      isPartOf: { '@id': `${site}/#site` },
+      publisher: { '@id': `${site}/#editeur` },
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${site}/#site`,
+      name: 'Geotager',
+      url: `${site}/`,
+      inLanguage: LANGUES.map((l) => DICOS[l].htmlLang),
+      publisher: { '@id': `${site}/#editeur` },
+    },
+    {
+      '@type': 'Organization',
+      '@id': `${site}/#editeur`,
+      name: 'Geotager',
+      url: `${site}/`,
+      logo: `${site}/icons/icon-512.png`,
+      // Le dépôt est la seule autre adresse où ce projet existe sous son nom.
+      // `sameAs` sert à cela et à rien d'autre : dire « c'est la même entité ».
+      sameAs: ['https://github.com/MathieuSoysal/geotager'],
+    },
+  ],
 };
 ---
 

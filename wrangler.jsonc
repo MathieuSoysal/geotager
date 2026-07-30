@@ -11,7 +11,16 @@
   // Astro produit "./dist". La commande de build du tableau de bord doit être
   // "npm run build", qui enchaîne astro build puis les contrôles bloquants.
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+
+    // Sans ce réglage, une adresse qui ne mène nulle part reçoit un 404 nu de
+    // l'hébergeur, et la page 404 du site n'est JAMAIS servie — l'écrire sans
+    // l'activer ici ne produirait rien du tout.
+    //
+    // Le mode remonte au « 404.html » le plus proche : « /fr/n-importe-quoi »
+    // reçoit donc la page française, et le reste du site la page anglaise. Le
+    // statut reste 404, ce qui est ce qui compte pour un moteur.
+    "not_found_handling": "404-page"
   },
 
   // L'hôte technique reste ACTIF, et c'est un choix, pas un oubli.

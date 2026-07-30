@@ -242,4 +242,12 @@ export const en: Dictionnaire = {
   ],
 
   pied: 'Geotager — free, no account, no trackers. Source code under the MIT licence:',
+
+  introuvable: {
+    titre: 'This page does not exist',
+    phrase:
+      'The address you followed leads nowhere — it may be old, or mistyped. Nothing is broken, and the tool itself is one click away.',
+    retour: 'Go to the tool',
+    autreLangue: 'Version française',
+  },
 };

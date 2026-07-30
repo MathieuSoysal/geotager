@@ -201,4 +201,17 @@ export interface Dictionnaire {
   pitch: Array<{ titre: string; texte: string }>;
 
   pied: string;
+
+  /**
+   * La page servie quand l'adresse ne mène nulle part.
+   *
+   * Elle vit hors de la coquille de l'outil : y afficher le sélecteur de photo
+   * ferait croire que la page demandée existe et fonctionne.
+   */
+  introuvable: {
+    titre: string;
+    phrase: string;
+    retour: string;
+    autreLangue: string;
+  };
 }

@@ -436,6 +436,11 @@ for (const langue of LANGUES) {
     check(`${langue} / « ${cle} » : une phrase sans jargon`,
       Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
   }
+  for (const cle of Object.keys(T.introuvable)) {
+    const p = T.introuvable[cle];
+    check(`${langue} / « introuvable.${cle} » : une phrase sans jargon`,
+      Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+  }
   for (const cle of ['ouvertureIncomplete', 'ajoutees', 'lotPlafonne']) {
     for (const n of [1, 3]) {
       const p = T.app[cle](n);
@@ -469,6 +474,69 @@ check('les deux langues sont déclarées réciproquement',
   enHref?.endsWith('/') && frHref?.endsWith('/fr/'), `${enHref} | ${frHref}`);
 check('la page française est canonique sur elle-même',
   (await page.locator('link[rel="canonical"]').getAttribute('href')).endsWith('/fr/'));
+
+/*
+ * CE QU'ON DIT AUX MOTEURS, servi pour de vrai.
+ *
+ * `check-build.mjs` lit ces fichiers sur le disque ; ici on les DEMANDE, par le
+ * même serveur et les mêmes en-têtes que le reste. C'est la seule manière de
+ * savoir qu'ils répondent — le plan du site a passé longtemps à renvoyer 404
+ * pendant que `robots.txt` l'annonçait, et rien ne s'en apercevait.
+ */
+console.log('\nCe qu\'on dit aux moteurs');
+const robots = await page.evaluate(() =>
+  fetch('/robots.txt').then((r) => r.text().then((t) => ({ ok: r.ok, t }))));
+check('robots.txt répond', robots.ok);
+check('il laisse le site se faire parcourir',
+  /User-agent:\s*\*/i.test(robots.t) && !/^\s*Disallow:\s*\S/im.test(robots.t));
+
+const annonce = robots.t.match(/^\s*Sitemap:\s*(\S+)/im)?.[1];
+check('il annonce un plan du site', Boolean(annonce), String(annonce));
+const plan = await page.evaluate(
+  (u) => fetch(new URL(u).pathname).then((r) => r.text().then((t) => ({ ok: r.ok, t }))),
+  annonce);
+check('et ce plan répond vraiment', plan.ok);
+
+const locs = [...plan.t.matchAll(/<loc>([^<]*)<\/loc>/g)].map(([, u]) => u);
+check('il annonce les deux langues', locs.length === 2, locs.join(' '));
+const toutesLa = await page.evaluate(
+  (l) => Promise.all(l.map((u) => fetch(new URL(u).pathname).then((r) => r.ok))),
+  locs);
+check('chaque adresse annoncée répond', toutesLa.every(Boolean));
+check('aucune fréquence de mise à jour n\'est promise', !/<changefreq>/.test(plan.t));
+
+// Le canonique de la page ANGLAISE n'était vérifié nulle part.
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+const canonEn = await page.locator('link[rel="canonical"]').getAttribute('href');
+check('la page anglaise est canonique sur elle-même', canonEn.endsWith('geotager.app/'), canonEn);
+check('et son « og:url » dit la même chose',
+  (await page.locator('meta[property="og:url"]').getAttribute('content')) === canonEn);
+
+const graphe = JSON.parse(await page.locator('script[type="application/ld+json"]').textContent());
+const types = (graphe['@graph'] ?? [graphe]).map((n) => n['@type']);
+check('les données structurées relient l\'application, le site et son éditeur',
+  ['SoftwareApplication', 'WebSite', 'Organization'].every((t) => types.includes(t)),
+  types.join(', '));
+
+/*
+ * La page d'erreur, atteinte par son chemin. On ne peut pas provoquer un vrai
+ * 404 ici : c'est l'hébergeur qui remonte au « 404.html » le plus proche, et le
+ * serveur de ce banc ne l'imite pas. Ce qui est jugé est donc ce qui dépend de
+ * nous — la page elle-même — et non le réglage qui la sert.
+ */
+console.log('\nUne adresse qui ne mène nulle part');
+for (const [chemin, retour] of [['/404.html', '/'], ['/fr/404.html', '/fr/']]) {
+  await page.goto(`http://127.0.0.1:${PORT}${chemin}`, { waitUntil: 'load' });
+  check(`${chemin} refuse d'être indexée`,
+    (await page.locator('meta[name="robots"]').getAttribute('content')).includes('noindex'));
+  check(`${chemin} dit ce qui se passe`,
+    (await page.locator('h1').textContent()).trim().length > 5);
+  check(`${chemin} ramène à l'outil`,
+    (await page.locator(`a[href="${retour}"]`).count()) > 0);
+  check(`${chemin} n'affiche pas le sélecteur de photo`,
+    (await page.locator('#picker').count()) === 0);
+}
+await page.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
 
 // Le parcours doit fonctionner à l'identique dans les deux langues : c'est le
 // même moteur, et une traduction ne doit rien casser.
