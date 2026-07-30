@@ -90,6 +90,10 @@ absent inside the installed window, and absent in browsers that cannot install a
 browser's own menu remains the way in. Nothing is remembered if you dismiss the dialog: this site
 persists nothing, and the browser already decides how often to offer again.
 
+The app also *asks* rather than infers: the manifest lists its own two manifest URLs under
+`related_applications`, so `getInstalledRelatedApps()` can confirm the app is installed even from an
+ordinary tab — the one case where inferring from a missing install event could be wrong.
+
 A hand-written service worker (`scripts/sw-modele.js`, ~120 lines, no Workbox) precaches both pages,
 the stylesheet, the interface and the reading worker. Three rules govern it:
 

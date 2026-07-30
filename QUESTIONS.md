@@ -1730,3 +1730,71 @@ réel du système. Le parcours complet — installer, désinstaller, rouvrir —
 Chrome ou Edge de bureau.
 
 **Bloque :** non.
+
+---
+
+## [V1.5] Q-048 — Le bouton déduisait l'installation au lieu de la vérifier
+
+**Contexte :** le chapitre « Installation » de *Learn PWA* et les pages auxquelles il renvoie ont été
+lus après coup, sur le bouton déjà livré en Q-047. **L'essentiel était conforme** : le bouton
+n'apparaît qu'après l'invitation du navigateur — « Do not show the install button unless the
+`beforeinstallprompt` has been fired » —, il appelle `preventDefault()` pour supprimer la barrette
+que le navigateur poserait sinon, il écoute `appinstalled`, et un bouton fixe en tête de page est
+l'un des emplacements que la documentation catalogue elle-même. Restaient quatre écarts.
+
+1. **On ne savait pas reconnaître une application installée depuis un onglet ordinaire.** Le seul
+   qui compte. Le bouton restait caché parce que le navigateur n'émet pas d'invitation pour une
+   application déjà posée : c'est une déduction, pas une vérification.
+   `getInstalledRelatedApps()` répond pour de bon, et `related_applications` dans le manifeste est ce
+   qui le permet.
+2. **La liste des modes d'affichage était incomplète** : deux testés sur les cinq que l'assistant de
+   la documentation énumère, et le cas d'une application Android empaquetée — reconnaissable à
+   `document.referrer` — n'était pas traité du tout.
+3. **L'ordre du clic était inversé.** Le modèle est `prompt()`, puis `userChoice`, puis ranger. On
+   cachait le bouton AVANT de demander : s'il ne se passait rien, il avait déjà disparu pour rien.
+4. **`prefer_related_applications` devenait dangereux** dès qu'on ajoutait `related_applications` :
+   à vrai, le critère d'installabilité cesse d'être rempli, plus aucune invitation n'est émise, et
+   le bouton disparaît de toutes les pages sans que rien ne casse.
+
+**Retenu : les quatre corrections**, plus deux contrôles de build — `prefer_related_applications`
+refusé à vrai, et `related_applications` exigé bien formé et pointant sur des manifestes réels.
+
+**Une croyance corrigée, et elle mérite d'être écrite.** La liste publiée des critères
+d'installabilité **ne mentionne ni service worker, ni gestionnaire `fetch`, ni capacité hors ligne**.
+Elle tient en : application pas déjà installée, heuristiques d'engagement, HTTPS, et un manifeste
+portant `short_name` ou `name`, des icônes de 192 **et** 512, `start_url`, un `display` autonome, et
+`prefer_related_applications` absent ou faux. `display_override` n'y figure pas davantage : c'est
+`display` seul qui est jugé. Les contrôles ajoutés en Q-047 visaient donc les bons champs — mais
+écrits de mémoire, pas d'après la source. Le commentaire la cite désormais.
+
+**Ce qu'on continue de refuser, et l'argument a changé :**
+
+- **Mémoriser un refus.** La documentation le recommande : « If the user dismisses your banner,
+  don't show it again unless the user triggers a conversion event. » On maintient le refus, et il
+  faut être honnête sur pourquoi. Ce conseil vise les **bandeaux**, qui recouvrent le contenu et
+  reviennent à chaque page ; un bouton discret en tête de page ne harcèle personne, et le navigateur
+  limite déjà de lui-même la fréquence à laquelle il réémet ses invitations. À quoi s'ajoute la
+  raison de fond, inchangée : ce site ne persiste rien, et c'est une promesse affichée sur les deux
+  pages.
+- **Des consignes sous iOS.** La documentation recommande explicitement de rendre des instructions
+  manuelles là où aucune interface n'existe, et de ne les montrer qu'en mode navigateur : « You
+  should only render these instructions in browser mode ; other display options … mean the user has
+  already installed the app. » On maintient le refus, parce qu'il faudrait deviner le navigateur à
+  sa chaîne d'identification et que ce dépôt ne l'a jamais fait. **Mais la recommandation est
+  consignée ici pour que la décision puisse être rouverte en connaissance de cause** — c'est la
+  seule chose qu'un visiteur d'iPhone perd, et elle n'est pas nulle.
+
+**Ce qui n'est pas fait, et n'a pas à l'être.** Le fichier sous `/.well-known/` ne sert qu'à
+reconnaître une application **hors de sa portée**, ce dont on n'a pas besoin puisqu'on ne cherche que
+la nôtre. Les icônes de 384 et 1024 sont recommandées, pas exigées, et la 512 est celle qui compte.
+Et aucune mesure d'audience : `userChoice` est attendu pour l'ordre des opérations, jamais pour
+compter quoi que ce soit — la documentation propose de s'en servir en analytique, ce site n'en a pas
+et n'en aura pas.
+
+**Ce que ce lot ne prouve pas.** Le cinquième verrou est jugé sur une réponse truquée : le banc
+répond « installée » à la place du navigateur. Que le vrai `getInstalledRelatedApps()` reconnaisse
+notre `related_applications` ne se vérifie que sur une machine où l'application est réellement
+installée, en rouvrant le site dans un onglet ordinaire. C'est précisément le cas que ce lot ajoute,
+et c'est le seul qu'aucun test local ne remplace.
+
+**Bloque :** non.

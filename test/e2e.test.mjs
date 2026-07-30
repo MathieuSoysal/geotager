@@ -949,6 +949,10 @@ const POSER_INVITE = () => {
     window.dispatchEvent(e);
   };
   window.__installee = () => window.dispatchEvent(new Event('appinstalled'));
+  // Le navigateur du banc pourrait répondre ce qu'il veut à la question « cette
+  // application est-elle installée ? ». On répond à sa place, pour que le cas
+  // « pas installée » soit un fait du test et non une chance.
+  navigator.getInstalledRelatedApps = async () => [];
 };
 
 const pageInstall = await contexte.newPage();
@@ -1011,6 +1015,25 @@ await pageInstallee.evaluate(() => window.__inviterInstall());
 check("dans la fenêtre installée, le bouton reste absent malgré l'invitation",
   await pageInstallee.locator('#installer').isHidden());
 await pageInstallee.close();
+
+/*
+ * VERROU 5 — le navigateur RÉPOND que l'application est déjà installée.
+ *
+ * C'est le seul verrou qui ne déduit rien : les quatre autres reposent sur
+ * l'absence d'invitation ou sur le mode d'affichage, celui-ci pose la question.
+ * Il couvre le cas que les autres laissaient passer — l'application est
+ * installée, et on rouvre le site dans un onglet ordinaire.
+ */
+const pageDejaPosee = await contexte.newPage();
+await pageDejaPosee.addInitScript(POSER_INVITE);
+await pageDejaPosee.addInitScript(() => {
+  navigator.getInstalledRelatedApps = async () => [{ platform: 'webapp', url: '/manifest.webmanifest' }];
+});
+await pageDejaPosee.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await pageDejaPosee.evaluate(() => window.__inviterInstall());
+check("quand le navigateur confirme l'installation, le bouton reste absent",
+  await pageDejaPosee.locator('#installer').isHidden());
+await pageDejaPosee.close();
 
 const restantesInstall = erreursInstall.filter((e) => !/Failed to load resource|net::ERR_/.test(e));
 check("aucune exception sur le chemin de l'installation",

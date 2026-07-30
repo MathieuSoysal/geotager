@@ -85,6 +85,10 @@ où l'installation n'existe pas&nbsp;; le menu du navigateur y reste le chemin. 
 vous refermez la boîte&nbsp;: ce site ne persiste rien, et le navigateur décide déjà lui-même de la
 fréquence à laquelle il repropose.
 
+L'outil ne se contente d'ailleurs pas de déduire&nbsp;: le manifeste se désigne lui-même, dans les
+deux langues, ce qui permet de DEMANDER au navigateur si l'application est déjà installée — le seul
+cas où déduire de l'absence d'invitation pouvait se tromper.
+
 Un service worker écrit à la main (`scripts/sw-modele.js`, ~120 lignes, sans Workbox) précharge les
 deux pages, la feuille de style, l'interface et le worker de lecture. Trois règles le gouvernent&nbsp;:
 

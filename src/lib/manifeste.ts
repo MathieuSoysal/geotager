@@ -17,7 +17,7 @@
  * passerait inaperçue.
  */
 import type { Langue } from './i18n/types.ts';
-import { DICOS } from './i18n/index.ts';
+import { DICOS, LANGUES } from './i18n/index.ts';
 
 /** Le fond de l'application : écran de démarrage à froid et barre de titre. */
 export const FOND = '#17161b';
@@ -42,6 +42,26 @@ export function manifeste(langue: Langue): string {
       background_color: FOND,
       theme_color: FOND,
       categories: ['photo', 'utilities', 'productivity'],
+
+      /*
+       * Se désigner soi-même, pour que la page puisse DEMANDER au navigateur si
+       * l'application est déjà installée au lieu de le déduire de son silence.
+       * Voir `getInstalledRelatedApps` dans `ui/app.ts`.
+       *
+       * Les DEUX manifestes sont listés, et ce n'est pas de la symétrie
+       * décorative : une installation retient l'adresse du manifeste par lequel
+       * elle s'est faite. Installée depuis « /fr/ », elle ne serait pas reconnue
+       * par une page anglaise qui n'annoncerait que le sien.
+       *
+       * `prefer_related_applications` reste ABSENT, et doit le rester : à
+       * « true », le critère d'installabilité cesse d'être rempli, plus aucune
+       * invitation n'est émise, et le bouton d'installation disparaît partout
+       * sans un mot. Le contrôle de build refuse son retour.
+       */
+      related_applications: LANGUES.map((l) => ({
+        platform: 'webapp',
+        url: `${DICOS[l].base}manifest.webmanifest`,
+      })),
 
       /*
        * Recevoir une photo depuis le partage du système.

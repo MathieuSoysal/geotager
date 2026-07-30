@@ -998,17 +998,26 @@ interface InviteInstall extends Event {
 }
 
 let invite: InviteInstall | null = null;
+/** Le navigateur a CONFIRMÉ que l'application est installée. Voir plus bas. */
+let installationConfirmee = false;
+
+/** Les modes qui signifient « on tourne dans une fenêtre à soi, pas dans un onglet ». */
+const MODES_INSTALLES = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
 
 /** L'application tourne dans sa propre fenêtre : il n'y a plus rien à installer. */
 function dejaInstallee(): boolean {
-  const enFenetre =
-    matchMedia('(display-mode: standalone)').matches ||
-    matchMedia('(display-mode: minimal-ui)').matches;
+  // Les quatre modes, et pas seulement les deux qu'on demande aujourd'hui : le
+  // jour où `display_override` en réclame un autre, cette garde continue de
+  // valoir sans qu'on ait à y repenser.
+  if (MODES_INSTALLES.some((m) => matchMedia(`(display-mode: ${m})`).matches)) return true;
+  // Une application Android empaquetée ouvre le site sans qu'aucun mode
+  // d'affichage ne le dise : elle se reconnaît à la provenance.
+  if (document.referrer.startsWith('android-app://')) return true;
   // iOS ne connaît pas `display-mode` et répond par cette propriété non
-  // normalisée. La lire ne coûte rien ; l'ignorer laisserait le bouton
-  // apparaître dans une application déjà posée sur l'écran d'accueil.
-  const iOS = (navigator as Navigator & { standalone?: boolean }).standalone === true;
-  return enFenetre || iOS;
+  // normalisée — que la documentation ne mentionne pas, mais qui ne coûte rien.
+  // L'ignorer laisserait le bouton apparaître dans une application déjà posée
+  // sur l'écran d'accueil.
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
 }
 
 function cacherInstallation(): void {
@@ -1016,11 +1025,41 @@ function cacherInstallation(): void {
   el.installer.hidden = true;
 }
 
+/*
+ * DEMANDER au navigateur, au lieu de déduire.
+ *
+ * Les quatre verrous ci-dessus reposent sur une déduction : pas d'invitation,
+ * donc probablement déjà installée. C'est vrai, et ce n'est pas une
+ * vérification — depuis un onglet ordinaire, rien ne la confirme. Cette
+ * interface-ci répond pour de bon : un tableau vide veut dire « pas installée »,
+ * et c'est le seul cas où la déduction pouvait se tromper.
+ *
+ * Elle n'existe pas partout. Là où elle manque, on retombe exactement sur la
+ * déduction d'avant, qui n'était pas fausse — d'où le silence en cas d'échec.
+ */
+async function verifierInstallation(): Promise<void> {
+  const nav = navigator as Navigator & {
+    getInstalledRelatedApps?: () => Promise<unknown[]>;
+  };
+  if (typeof nav.getInstalledRelatedApps !== 'function') return;
+  try {
+    const posees = await nav.getInstalledRelatedApps();
+    if (!posees.length) return;
+    installationConfirmee = true;
+    // La réponse peut arriver APRÈS que l'invitation a découvert le bouton :
+    // dans ce sens-là aussi, il doit disparaître.
+    cacherInstallation();
+  } catch {
+    /* Pas de réponse, et c'est tout : les autres verrous tiennent. */
+  }
+}
+void verifierInstallation();
+
 window.addEventListener('beforeinstallprompt', (e) => {
   // Sans cela, le navigateur pose EN PLUS sa propre barrette en bas de l'écran :
   // deux propositions concurrentes pour un seul geste.
   e.preventDefault();
-  if (dejaInstallee()) return;
+  if (dejaInstallee() || installationConfirmee) return;
   invite = e as InviteInstall;
   el.installer.hidden = false;
 });
@@ -1029,16 +1068,28 @@ el.installer.addEventListener('click', () => {
   const invitee = invite;
   if (!invitee) return;
   /*
-   * Le bouton s'en va tout de suite : une invitation ne se rejoue pas, et un
-   * second appel sur le même événement lève. Si la boîte est refermée sans
-   * rien choisir, le navigateur en émettra une nouvelle à la visite suivante et
-   * le bouton reparaîtra alors.
+   * L'invitation est retirée tout de suite — elle ne sert qu'une fois, et un
+   * second appel sur le même événement ne rejoue rien — mais LE BOUTON RESTE
+   * tant que la boîte du navigateur est ouverte. C'est l'ordre que la
+   * documentation retient : demander, attendre la décision, et seulement
+   * ensuite ranger. L'inverse faisait disparaître le bouton avant même de
+   * savoir si la demande avait abouti.
    *
-   * Un refus n'est PAS une panne — c'est le même raisonnement que pour le
-   * partage sortant : on n'insiste pas, et on ne dit rien.
+   * Un refus n'est PAS une panne — le même raisonnement que pour le partage
+   * sortant : on n'insiste pas, et on n'en dit rien. Le navigateur réémettra
+   * une invitation à la visite suivante, et le bouton reparaîtra de lui-même.
    */
-  cacherInstallation();
-  void invitee.prompt().catch(() => {});
+  invite = null;
+  void (async () => {
+    try {
+      await invitee.prompt();
+      await invitee.userChoice;
+    } catch {
+      /* Rien à ajouter : le bouton s'en va dans tous les cas. */
+    } finally {
+      el.installer.hidden = true;
+    }
+  })();
 });
 
 window.addEventListener('appinstalled', () => {
