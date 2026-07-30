@@ -154,6 +154,14 @@ export interface Dictionnaire {
     ajoutees: (n: number) => string;
     /** The batch is full: the excess is not added, and that is said. */
     lotPlafonne: (n: number) => string;
+    /**
+     * The install button, and what is said once installation succeeds.
+     *
+     * The button only exists if the browser offers to install, which it never
+     * does when the app already is.
+     */
+    installer: string;
+    installee: string;
     /** Update banner, never automatic. See `sw-modele.js`. */
     majDispo: string;
     majTravaux: string;

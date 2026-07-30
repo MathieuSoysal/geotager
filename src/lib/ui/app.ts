@@ -56,6 +56,7 @@ const el = {
   majTexte: $('maj-texte'),
   majRecharger: $<HTMLButtonElement>('maj-recharger'),
   majPlusTard: $<HTMLButtonElement>('maj-plus-tard'),
+  installer: $<HTMLButtonElement>('installer'),
   titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
@@ -960,6 +961,88 @@ if (filePeutEtreLancee.launchQueue) {
     void ouvrir(poignees).catch(() => signalerArriveeVide(T.app.ouverturePerdue));
   });
 }
+
+// Installation
+
+/*
+ * Offering installation, and only when it is possible.
+ *
+ * The app has been installable for two releases (the manifest has everything
+ * required and the service worker answers requests) but nothing ever offered
+ * it. It could only be installed from the browser menu, which almost nobody
+ * opens.
+ *
+ * The button only appears if the app is not already installed, and that rests
+ * on four things rather than one:
+ *
+ *  1. it is born hidden in the served HTML, so the default state, for
+ *     everybody, is absent. An event is needed to reveal it, never the reverse,
+ *     so a regression cannot make it appear by accident;
+ *  2. only the browser's prompt reveals it, and the browser fires none when the
+ *     app is already installed. That is the main lock, and the platform holds
+ *     it, not us;
+ *  3. `dejaInstallee()` refuses to show it if the page is running inside the
+ *     installed window, even if a prompt arrived anyway;
+ *  4. `appinstalled` removes it immediately, without waiting for a reload.
+ *
+ * Nothing is remembered. Dismissing the browser's dialog leaves no trace: this
+ * site persists nothing, and making an exception to remember a refusal would
+ * cost more than it earns.
+ */
+interface InviteInstall extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+let invite: InviteInstall | null = null;
+
+/** The app runs in its own window: there is nothing left to install. */
+function dejaInstallee(): boolean {
+  const enFenetre =
+    matchMedia('(display-mode: standalone)').matches ||
+    matchMedia('(display-mode: minimal-ui)').matches;
+  // iOS does not know `display-mode` and answers through this non-standard
+  // property. Reading it costs nothing; ignoring it would let the button appear
+  // in an app already on the home screen.
+  const iOS = (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return enFenetre || iOS;
+}
+
+function cacherInstallation(): void {
+  invite = null;
+  el.installer.hidden = true;
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Without this the browser additionally puts its own bar at the bottom of the
+  // screen: two competing offers for one gesture.
+  e.preventDefault();
+  if (dejaInstallee()) return;
+  invite = e as InviteInstall;
+  el.installer.hidden = false;
+});
+
+el.installer.addEventListener('click', () => {
+  const invitee = invite;
+  if (!invitee) return;
+  /*
+   * The button goes immediately: a prompt is not replayed, and a second call on
+   * the same event throws. If the dialog is dismissed without choosing, the
+   * browser will fire a new one on the next visit and the button will reappear.
+   *
+   * A refusal is not a failure, the same reasoning as for outgoing shares: we
+   * do not insist, and we say nothing.
+   */
+  cacherInstallation();
+  void invitee.prompt().catch(() => {});
+});
+
+window.addEventListener('appinstalled', () => {
+  cacherInstallation();
+  // The button disappearing is the visual feedback. The announcement is the
+  // feedback for whoever is not looking at the screen.
+  annoncer(T.app.installee);
+});
 
 // Service worker
 

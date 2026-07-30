@@ -277,6 +277,22 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
     continue;
   }
 
+  /*
+   * The install button, present and hidden.
+   *
+   * The `hidden` is the whole mechanism: the button is revealed only by the
+   * browser's prompt, which never arrives if the app is already installed.
+   * Losing it, one attribute, one line, would show it to everybody, including
+   * where it can do nothing. Removing it outright would mean no longer offering
+   * installation at all, with nothing to say so.
+   */
+  const bouton = html.match(/<button[^>]*\bid=["']installer["'][^>]*>/i)?.[0];
+  if (!bouton) {
+    echecs.push(`${rel(f)} : le bouton d'installation est absent`);
+  } else if (!/\shidden(?=[\s>=])/i.test(bouton)) {
+    echecs.push(`${rel(f)} : le bouton d'installation doit être « hidden » dans le HTML servi`);
+  }
+
   const attendus = BLOCS_OBLIGATOIRES[lang];
   if (!attendus) {
     echecs.push(`${rel(f)} : langue « ${lang} » inconnue du contrôle de contenu`);
@@ -526,6 +542,36 @@ for (const [fichierReadme, page] of [
     // white square, which is always ugly and often illegible.
     if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
       echecs.push(`${rel(cible)} : aucune icône « maskable »`);
+    }
+
+    /*
+     * What makes the application installable, and what nothing was checking.
+     *
+     * A browser only fires its install prompt if the manifest carries a name, a
+     * description, a standalone display mode and icons of at least 192 and 512
+     * pixels. While installation was only offered from the browser menu, losing
+     * one went unnoticed. Now that a button depends on it, the same loss makes
+     * it disappear from the page for everybody, with no message, no error,
+     * nothing.
+     */
+    for (const [cle, valeur] of [
+      ['name', m.name],
+      ['short_name', m.short_name],
+      ['description', m.description],
+    ]) {
+      if (typeof valeur !== 'string' || !valeur.trim()) {
+        echecs.push(`${rel(cible)} : « ${cle} » est vide — le navigateur ne proposera pas d'installer`);
+      }
+    }
+    if (!['standalone', 'fullscreen', 'minimal-ui'].includes(String(m.display))) {
+      echecs.push(
+        `${rel(cible)} : « display » vaut « ${m.display} » — seul un mode autonome rend installable`,
+      );
+    }
+    for (const taille of ['192x192', '512x512']) {
+      if (!(m.icons ?? []).some((i) => String(i.sizes ?? '').split(/\s+/).includes(taille))) {
+        echecs.push(`${rel(cible)} : aucune icône « ${taille} », exigée pour l'installation`);
+      }
     }
 
     /*
