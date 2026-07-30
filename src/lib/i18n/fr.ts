@@ -107,6 +107,17 @@ export const fr: Dictionnaire = {
     pretsAvecEchecs: (n, e) =>
       `${n} fichier(s) prêt(s), ${e} en échec. Les originaux concernés sont intacts.`,
     partagePerdu: 'La photo partagée n\'est pas arrivée jusqu\'ici — rien n\'ayant été gardé, rien n\'est perdu. Repartagez-la, ou déposez-la ci-dessous.',
+    ouverturePerdue: 'La photo n\'est pas arrivée jusqu\'ici — elle a peut-être été déplacée ou effacée depuis, ou elle n\'est pas encore descendue sur cette machine. Rien n\'a été gardé, rien n\'est perdu : l\'original n\'a pas bougé. Ouvrez-la de nouveau, ou déposez-la ci-dessous.',
+    ouvertureIncomplete: (n) =>
+      n > 1
+        ? `${n} photos ne sont pas arrivées ; les autres sont chargées.`
+        : 'Une photo n\'est pas arrivée ; les autres sont chargées.',
+    ajoutees: (n) =>
+      n > 1 ? `${n} photos ajoutées au lot.` : 'Une photo ajoutée au lot.',
+    lotPlafonne: (n) =>
+      n > 1
+        ? `${n} photos de plus que la limite : elles n'ont pas été ajoutées.`
+        : 'Une photo de plus que la limite : elle n\'a pas été ajoutée.',
     majDispo: 'Une nouvelle version de Geotager est disponible.',
     majTravaux: 'Une nouvelle version est disponible. Récupérez vos photos avant de recharger : celles qui sont ouvertes seraient abandonnées.',
     majRecharger: 'Recharger',

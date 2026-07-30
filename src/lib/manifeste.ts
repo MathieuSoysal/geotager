@@ -80,12 +80,31 @@ export function manifeste(langue: Langue): string {
       },
 
       /*
-       * "Open with". Simpler and cleaner than sharing: the system hands over a
-       * file handle directly, with no request and no form body, so there is
-       * nothing to keep between two moments.
+       * Which window receives an "Open with".
        *
-       * `single-client`: one window receives the whole batch, instead of
-       * opening one per photo.
+       * `launch_handler.client_mode` is the standardised member, and it decides.
+       * The early File Handling `launch_type`, written here until V1.4, meant
+       * the same thing in only one browser and nothing read it elsewhere, so
+       * the promise that one window receives the whole batch was written
+       * without being kept. Two declarations that can contradict each other are
+       * no better than one, so only this one is kept.
+       *
+       * `focus-existing`: the already-open window receives the batch without
+       * being renavigated. That is what leaves it the photos it already held; a
+       * reload would erase them, and nobody asked for that.
+       */
+      launch_handler: { client_mode: 'focus-existing' },
+
+      /*
+       * "Open with". Simpler than sharing: the system hands over a file handle
+       * directly, with no request and no form body, so there is nothing to keep
+       * between two moments. The batch is added to whatever the window already
+       * held; see `charger` in `ui/app.ts`.
+       *
+       * The same formats as sharing, minus two, and for the same reason videos
+       * are missing there. A GIF has nowhere to put a location, so the engine
+       * files it under "no location possible", and a camera raw file, DNG, NEF
+       * or CR2, must receive nothing at all.
        */
       file_handlers: [
         {
@@ -99,7 +118,6 @@ export function manifeste(langue: Langue): string {
             'image/avif': ['.avif'],
             'image/tiff': ['.tif', '.tiff'],
           },
-          launch_type: 'single-client',
         },
       ],
       icons: [

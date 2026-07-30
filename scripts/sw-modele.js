@@ -45,6 +45,18 @@ const CACHE = `geotager-${VERSION}`;
 const PRECACHE = __PRECACHE__;
 
 /*
+ * The share targets declared by the manifests, spelled out rather than hidden
+ * in a regular expression.
+ *
+ * `/partager` exists in no file: it has existence only in this handler. If the
+ * worker stopped recognising the path, sharing would fall to a 404 while the
+ * manifest went on promising it to the system, and the build check could not
+ * see it, for want of being able to interrogate a regular expression. This list
+ * it can read.
+ */
+const PARTAGE = ["/partager", "/fr/partager"];
+
+/*
  * The map code is not precached. It is loaded on demand, and that is the
  * site's whole bargain: while nobody opens the map, not a byte of what talks to
  * tiles is requested. Precaching it would mean downloading it for everybody and
@@ -159,10 +171,9 @@ self.addEventListener('fetch', (event) => {
 
   /*
    * The share target. It is the only `POST` this site knows, and it reaches no
-   * server: `/partager` does not exist in `dist/`, it has existence only in
-   * this handler.
+   * server. See `PARTAGE` at the head of the file.
    */
-  if (requete.method === 'POST' && /^\/(fr\/)?partager$/.test(url.pathname)) {
+  if (requete.method === 'POST' && PARTAGE.includes(url.pathname)) {
     event.respondWith(recevoirPartage(event, url));
     return;
   }
@@ -184,10 +195,41 @@ self.addEventListener('fetch', (event) => {
         try {
           return await fetch(requete);
         } catch {
-          // Last resort: the root, which is always precached.
-          const racine = await cache.match('/');
-          if (racine) return racine;
+          /*
+           * Last resort: the home page of the same language. Serving "/" for an
+           * address under "/fr/" rendered the whole interface in English at a
+           * French address, since the island reads `lang` from the served
+           * document and does not infer the language from the address. The root
+           * remains only the fallback's fallback, since it is always precached.
+           */
+          const langue = url.pathname.startsWith('/fr/') ? '/fr/' : '/';
+          const page = (await cache.match(langue)) ?? (await cache.match('/'));
+          if (page) return page;
           throw new Error('hors ligne');
+        }
+      }
+
+      /*
+       * The manifest is fetched from the network first, cache behind.
+       *
+       * It is the only file in the set the system reads for itself rather than
+       * the page: it is where it gets the formats entrusted to us and the window
+       * an arrival is placed in. Served from cache without revalidation, a fix
+       * to "Open with" only reached an installed application after a manually
+       * accepted update, for a file its owner never sees and has no idea about.
+       * The browser checks the manifest itself; it still has to be allowed to
+       * read something other than yesterday's copy.
+       *
+       * It stays in the precache list: that is what makes its content count
+       * towards the worker's hash, so a fix does produce a new worker, and it is
+       * what answers offline.
+       */
+      if (url.pathname.endsWith('.webmanifest')) {
+        try {
+          const frais = await fetch(requete);
+          if (frais.ok) return frais;
+        } catch {
+        /* Offline: the cache answers, as it does for everything else. */
         }
       }
 

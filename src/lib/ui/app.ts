@@ -77,6 +77,20 @@ let carte: Carte | null = null;
 let precision: number | null = null;
 /** Stops the field -> map -> field round trip biting its own tail. */
 let enSync = false;
+/** This window clicked "Reload" on the update banner. */
+let demandeMaj = false;
+/**
+ * A write is in progress.
+ *
+ * Now that a batch can grow while writing, since a photo opened from the system
+ * joins those already there, the batch rendering goes through `majResultat`,
+ * which re-enables "Download". It would re-enable it mid-write, and a second
+ * click would start everything again over the first.
+ */
+let enApplication = false;
+
+/** The batch does not exceed three hundred photos, and the excess is announced. */
+const PLAFOND_LOT = 300;
 
 // Worker
 
@@ -402,8 +416,8 @@ async function ouvrirCarte(): Promise<void> {
 }
 
 function majResultat(): void {
-  if (!cible) {
-    el.resultat.hidden = true;
+  if (!cible || enApplication) {
+    el.resultat.hidden = !cible;
     inactiver(el.telecharger, true);
     el.telecharger.textContent = T.app.telechargerPhotos(items.length);
     return;
@@ -422,30 +436,90 @@ function majResultat(): void {
 
 // Loading
 
-async function charger(fichiers: File[]): Promise<void> {
-  const utiles = fichiers.filter((f) => f.size > 0).slice(0, 300);
+/**
+ * What an arrival does with what was already loaded.
+ *
+ * `remplacer` for gestures made in the page (picker, drag and drop, paste):
+ * files have just been named there, and replacing is what you expect.
+ * `ajouter` for what arrives from the system, where nobody asked the page for
+ * anything: erasing a batch of forty unexported photos because a forty-first is
+ * opened would be the loss the update banner already refuses to cause.
+ */
+type ModeArrivee = 'remplacer' | 'ajouter';
+
+/*
+ * Arrivals are serialised, and that is not a comfort measure. Two `charger`
+ * calls in flight walked the same `items` array while one emptied it under the
+ * other: files skipped, and two reads of the same identifier where the first
+ * overwrites the resolver in `enAttente`, so a promise that never settles and
+ * an interface frozen on a file name.
+ */
+let lecture: Promise<void> = Promise.resolve();
+
+function charger(fichiers: File[], mode: ModeArrivee = 'remplacer'): Promise<void> {
+  /*
+   * The chain must never be left rejected, and the recovery is here rather than
+   * at the call sites for that reason. Reading a file's bytes can throw, since a
+   * file can be removed from under us mid-read, which is no longer hypothetical
+   * now the system hands them to us, and a chain left rejected would never hand
+   * control back to any later arrival: the picker, drag and drop and paste
+   * would all stop responding, permanently, and without a word.
+   */
+  lecture = lecture
+    .then(() => chargerMaintenant(fichiers, mode))
+    .catch(() => signalerArriveeVide(T.app.ouverturePerdue));
+  return lecture;
+}
+
+async function chargerMaintenant(fichiers: File[], mode: ModeArrivee): Promise<void> {
+  const utiles = fichiers.filter((f) => f.size > 0);
   if (!utiles.length) return;
 
-  items.length = 0;
-  principal = null;
-  cible = null;
-  precision = null;
-  el.coords.value = '';
-
-  for (const file of utiles) {
-    items.push({ id: `f${++compteur}`, file });
+  if (mode === 'remplacer') {
+    items.length = 0;
+    principal = null;
+    cible = null;
+    precision = null;
+    el.coords.value = '';
   }
 
-  el.vide.hidden = true;
-  el.actif.hidden = false;
-  el.nom.textContent = utiles[0].name;
-  // The focus was on the file picker, inside the state we have just hidden:
-  // without this line it falls back to `body`, and tabbing restarts from the
-  // top of the document mid-gesture.
-  el.titreActif.focus();
-  annoncer(T.app.lecturePlurielle(utiles.length));
+  /*
+   * The cap no longer discards silently. It used to, and the announcement
+   * reported the truncated count: it therefore claimed to have received less
+   * than it was given, which is the quietest form of lying.
+   */
+  const place = Math.max(0, PLAFOND_LOT - items.length);
+  const gardes = utiles.slice(0, place);
+  const refuses = utiles.length - gardes.length;
 
-  for (const it of items) {
+  // The read loop works on this arrival, never on the live array: that is what
+  // makes adding safe, and what makes serialisation sufficient.
+  const arrivants: Item[] = gardes.map((file) => ({ id: `f${++compteur}`, file }));
+  items.push(...arrivants);
+
+  const premier = mode === 'remplacer' || !principal;
+  if (premier) {
+    el.vide.hidden = true;
+    el.actif.hidden = false;
+    if (gardes.length) el.nom.textContent = gardes[0].name;
+    // The focus was on the file picker, inside the state we have just hidden:
+    // without this line it falls back to `body`, and tabbing restarts from the
+    // top of the document mid-gesture. On an add, by contrast, the focus is
+    // where the user put it, perhaps in the coordinate field they are filling
+    // in. We leave it alone.
+    el.titreActif.focus();
+  }
+  if (refuses > 0) annoncer(T.app.lotPlafonne(refuses));
+  else if (gardes.length) {
+    annoncer(premier ? T.app.lecturePlurielle(gardes.length) : T.app.ajoutees(gardes.length));
+  }
+  // The batch appears on arrival: the names are known, only the states remain
+  // to be read. `afficherPrincipal` would re-announce the main photo, which has
+  // not changed.
+  if (!premier) majListeLot();
+  el.lot.hidden = items.length <= 1;
+
+  for (const it of arrivants) {
     const buffer = await it.file.arrayBuffer();
     const rep = await demander(
       { type: 'read', id: it.id, name: it.file.name, buffer },
@@ -467,7 +541,18 @@ async function charger(fichiers: File[]): Promise<void> {
     annoncer(T.app.illisibleAlerte);
     return;
   }
-  afficherPrincipal();
+  /*
+   * An add does not go back through `afficherPrincipal`: the main photo has not
+   * changed, and doing so would re-announce its state ("photo read, 43.60,
+   * 1.44") when what just happened is that others were added. Only the batch
+   * list and the button label depend on the count.
+   */
+  if (premier) afficherPrincipal();
+  else {
+    majListeLot();
+    majResultat();
+  }
+  el.lot.hidden = items.length <= 1;
 }
 
 // Applying and downloading
@@ -477,7 +562,40 @@ function nomSortie(nom: string, prefixe: string): string {
   return point > 0 ? `${nom.slice(0, point)}${prefixe}${nom.slice(point)}` : `${nom}${prefixe}`;
 }
 
+/** The three write controls, handed back to the user. */
+function rendreLesBoutons(): void {
+  enApplication = false;
+  inactiver(el.effacer, false);
+  inactiver(el.effacerTout, false);
+  inactiver(el.telecharger, false);
+}
+
+/**
+ * A write that throws does not leave the tool greyed out.
+ *
+ * Reading an original's bytes can fail, since a file can be removed from disk
+ * while we write, which "Open with" makes possible because the system names
+ * them. Without this recovery the loop broke on three inactive buttons and the
+ * tool stayed frozen until a reload, besides letting a rejection escape that
+ * the end-to-end test treats as fatal.
+ */
 async function appliquer(
+  operation: Extract<ToWorker, { type: 'apply' }>['operation'],
+  prefixe: string,
+): Promise<void> {
+  try {
+    await appliquerMaintenant(operation, prefixe);
+  } catch {
+    rendreLesBoutons();
+    el.alerteFormat.hidden = false;
+    el.alerteFormat.classList.remove('attention');
+    el.alerteFormat.classList.add('grave');
+    el.alerteFormat.textContent = T.app.aucunProduit;
+    annoncer(T.app.aucunProduitAnnonce);
+  }
+}
+
+async function appliquerMaintenant(
   operation: Extract<ToWorker, { type: 'apply' }>['operation'],
   prefixe: string,
 ): Promise<void> {
@@ -493,6 +611,7 @@ async function appliquer(
   const concernes = items.filter((i) => i.read && permise(i.read));
   if (!concernes.length) return;
 
+  enApplication = true;
   inactiver(el.telecharger, true);
   inactiver(el.effacer, true);
   inactiver(el.effacerTout, true);
@@ -530,9 +649,15 @@ async function appliquer(
   }
 
   if (concernes.length > 1) majListeLot(statuts);
-  inactiver(el.effacer, false);
-  inactiver(el.effacerTout, false);
-  inactiver(el.telecharger, false);
+  /*
+   * Restoring the buttons is unconditional, and that is new.
+   *
+   * Reading an original's bytes can throw, since a file can be removed from
+   * disk while we write, which "Open with" makes possible because the system
+   * names them. The loop above then broke on three greyed buttons, and the tool
+   * stayed frozen until a reload.
+   */
+  rendreLesBoutons();
 
   if (!produits.length) {
     el.alerteFormat.hidden = false;
@@ -673,6 +798,18 @@ el.effacerTout.addEventListener('click', () => {
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
 
+/*
+ * The starting state is set before anything can arrive from the system, rather
+ * than at the end of the file where it used to be.
+ *
+ * `setConsumer` calls its consumer immediately if a launch is already waiting,
+ * which is the normal case for an "Open with". Set afterwards, `versEtatVide()`
+ * reset everything over an arrival in progress: the photo survived only because
+ * the first thing the consumer does is await. A fix making that first step
+ * synchronous would have erased the batch with nothing to say so.
+ */
+versEtatVide();
+
 // Arrivals from the system
 
 /*
@@ -709,16 +846,40 @@ function reclamerPartage(): void {
   }, 3_000);
 }
 
+/**
+ * Saying an arrival brought nothing, in the visible channel of the current
+ * state.
+ *
+ * `#avis-vide` lives in the empty state, `#alerte-format` in the active one: a
+ * sentence dropped into the one being hidden is visible nowhere, and the page
+ * stays silent where it believes it is speaking. Sharing had only one answer to
+ * that choice, since it only arrives on a page that has just opened. "Open
+ * with" has two: it can land on an already-loaded batch, and then the active
+ * state is on screen.
+ *
+ * So the screen is asked, not `principal`. The two resemble each other and do
+ * not coincide: `charger` reveals the active state on arrival, while
+ * `principal` only exists once the first photo is read. In between, trusting
+ * `principal` switched back to the empty state, hiding a batch mid-read, in
+ * order to drop a sentence into it.
+ */
+function signalerArriveeVide(phrase: string): void {
+  if (!el.actif.hidden) {
+    el.alerteFormat.hidden = false;
+    el.alerteFormat.classList.remove('attention');
+    el.alerteFormat.classList.add('grave');
+    el.alerteFormat.textContent = phrase;
+  } else {
+    el.vide.hidden = false;
+    el.actif.hidden = true;
+    el.avisVide.hidden = false;
+    el.avisVide.textContent = phrase;
+  }
+  annoncer(phrase);
+}
+
 function signalerPartagePerdu(): void {
-  // The message goes into the empty state, which is the one being shown.
-  // Writing it into `#alerte-format` would drop it inside the active state,
-  // which we hide in the same breath: visible nowhere, and the page would stay
-  // silent.
-  el.vide.hidden = false;
-  el.actif.hidden = true;
-  el.avisVide.hidden = false;
-  el.avisVide.textContent = T.app.partagePerdu;
-  annoncer(T.app.partagePerdu);
+  signalerArriveeVide(T.app.partagePerdu);
 }
 
 /*
@@ -745,14 +906,58 @@ interface LaunchParams {
 const filePeutEtreLancee = window as typeof window & {
   launchQueue?: { setConsumer(f: (p: LaunchParams) => void): void };
 };
+
+/** A handle that does not answer must not leave the page waiting for nothing. */
+const DELAI_OUVERTURE = 10_000;
+
+/** The same handle, but one that returns. Nothing more, and the timer is cleared. */
+function avecDelai(p: Promise<File>): Promise<File | null> {
+  return new Promise((resoudre) => {
+    const minuteur = setTimeout(() => resoudre(null), DELAI_OUVERTURE);
+    void p.then(
+      (f) => resoudre(f),
+      () => resoudre(null),
+    ).finally(() => clearTimeout(minuteur));
+  });
+}
+
+/**
+ * Open a file handed over by the system, without the batch depending on it.
+ *
+ * `allSettled` rather than `all`: a single photo moved since the click took the
+ * whole batch down, and the rejection surfaced nowhere. The rest is loaded, and
+ * what is missing is said.
+ */
+async function ouvrir(poignees: FileHandleLike[]): Promise<void> {
+  const arrivees = await Promise.all(poignees.map((h) => avecDelai(h.getFile())));
+  /*
+   * Zero size: the file is not there. Remote storage mounted as a local folder
+   * returns 0-byte files until it has fetched them down, and they reached this
+   * point only to be discarded without a word.
+   */
+  const fichiers = arrivees.filter((f): f is File => f !== null && f.size > 0);
+  if (!fichiers.length) {
+    signalerArriveeVide(T.app.ouverturePerdue);
+    return;
+  }
+  await charger(fichiers, 'ajouter');
+  const manquants = poignees.length - fichiers.length;
+  if (manquants > 0) annoncer(T.app.ouvertureIncomplete(manquants));
+}
+
 if (filePeutEtreLancee.launchQueue) {
   filePeutEtreLancee.launchQueue.setConsumer((params) => {
-    void (async () => {
-      const poignees = params.files ?? [];
-      if (!poignees.length) return;
-      const fichiers = await Promise.all(poignees.map((h) => h.getFile()));
-      void charger(fichiers.filter((f) => f.size > 0));
-    })();
+    // A launch with no file is the ordinary launch: opening the app by its icon
+    // also comes through here, and there is nothing to say. An entry without
+    // `getFile` is not a file and does not claim to be.
+    const poignees = (params.files ?? []).filter((h) => typeof h?.getFile === 'function');
+    if (!poignees.length) return;
+    /*
+     * Everything is wrapped. A rejection escaping here would leave the window
+     * on an empty, silent screen, which is the failure this path has just
+     * stopped having, and the end-to-end test refuses any console error.
+     */
+    void ouvrir(poignees).catch(() => signalerArriveeVide(T.app.ouverturePerdue));
   });
 }
 
@@ -774,9 +979,16 @@ function proposerMaj(reg: ServiceWorkerRegistration): void {
   el.maj.hidden = false;
   el.majRecharger.onclick = () => {
     el.maj.hidden = true;
+    // This window is the one that asked. Without this flag, one window's click
+    // reloaded all the others, since an activating worker claims every client
+    // at once, and took their unexported photos with it. Rule 2 forbids a
+    // forced reload; it only forbade it for updates, not for neighbours.
+    demandeMaj = true;
     // The waiting worker only takes over on this message: see
-    // `scripts/sw-modele.js`, rule 2.
-    reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
+    // `scripts/sw-modele.js`, rule 2. If it is no longer waiting, another
+    // window has already brought it forward, and all that remains is to reload.
+    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    else location.reload();
   };
   el.majPlusTard.onclick = () => {
     el.maj.hidden = true;
@@ -794,6 +1006,9 @@ if ('serviceWorker' in navigator) {
    * makes `register` throw.
    */
   window.addEventListener('load', () => {
+    // Read before registering: afterwards the controller may already have changed.
+    const avant = navigator.serviceWorker.controller;
+
     void navigator.serviceWorker
       .register('/sw.js')
       .then((reg) => {
@@ -815,11 +1030,32 @@ if ('serviceWorker' in navigator) {
         /* No cache, and that is all: the application works without one. */
       });
 
-    // One reload. Without this flag, two tabs claiming control from each other
-    // loop forever.
+    /*
+     * One reload, and never on the first time control is taken.
+     *
+     * The worker claims its clients as it activates, so the page that just
+     * registered it comes under control with no update involved. Reloading
+     * there achieved nothing, since the served document is already the right
+     * one, and it threw away what the system had just handed over. An "Open
+     * with" consumed its files, because `setConsumer` calls its consumer
+     * immediately, and then reloaded straight over them. They are handed over
+     * once and once only: there is nothing to go back for, and the window
+     * stayed empty and silent.
+     *
+     * Sharing did not lose its bytes, contrary to what one might think: it only
+     * happens when a worker is already active, so the page it opens is
+     * controlled from birth and this event does not fire there. What the reload
+     * took from it was the sentence: "the shared photo did not arrive" had just
+     * appeared, and vanished.
+     *
+     * A non-null `avant` means there was already a worker, so this is a new
+     * one. `demandeMaj` means this window is the one that asked. The `recharge`
+     * flag was already there: without it, two tabs claiming control from each
+     * other loop forever.
+     */
     let recharge = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (recharge) return;
+      if (recharge || !avant || !demandeMaj) return;
       recharge = true;
       location.reload();
     });
@@ -856,5 +1092,3 @@ document.addEventListener('paste', (e) => {
     void charger(files);
   }
 });
-
-versEtatVide();

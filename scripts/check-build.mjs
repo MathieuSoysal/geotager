@@ -89,6 +89,27 @@ function texteVisible(s) {
 
 const longueurVisible = (s) => texteVisible(s).length;
 
+/**
+ * A literal list from the built service worker, read back as it stands.
+ *
+ * `gen-sw.mjs` writes `PRECACHE` as JSON, and `sw-modele.js` writes `PARTAGE`
+ * by hand with double quotes: both therefore read back through `JSON.parse`,
+ * without a check having to guess what the worker recognises. An unreadable
+ * list returns an empty array, and the caller decides whether to complain,
+ * which is the only way not to turn an absence into a false success.
+ */
+function listeDuWorker(chemin, nom) {
+  const trouve = readFileSync(chemin, 'utf8').match(
+    new RegExp(String.raw`const ${nom} = (\[[\s\S]*?\]);`),
+  );
+  if (!trouve) return [];
+  try {
+    return JSON.parse(trouve[1]);
+  } catch {
+    return [];
+  }
+}
+
 // 1. Structure and caps
 
 if (!fichiers.includes(join(DIR, 'index.html'))) echecs.push("dist/index.html est absent");
@@ -431,6 +452,13 @@ for (const [fichierReadme, page] of [
     if (m.id !== '/') echecs.push(`${rel(cible)} : « id » vaut « ${m.id} », il doit valoir « / »`);
     if (m.scope !== '/') echecs.push(`${rel(cible)} : « scope » doit valoir « / »`);
 
+    // `start_url` is the address the system opens when the icon is clicked. It
+    // was only checked as a string: a missing page passed green.
+    const depart = String(m.start_url ?? '');
+    if (!depart.endsWith('/') || !existsSync(join(DIR, depart.replace(/^\//, ''), 'index.html'))) {
+      echecs.push(`${rel(cible)} : « start_url » ne désigne aucune page — ${depart}`);
+    }
+
     /*
      * `share_target.action` and `file_handlers[].action` are addresses the
      * system will send the user's files to. One of them pointing anywhere but
@@ -478,11 +506,91 @@ for (const [fichierReadme, page] of [
       const chemin = String(m.share_target.action ?? '');
       if (!existsSync(sw)) {
         echecs.push(`${rel(cible)} annonce un partage, mais ${rel(sw)} n'existe pas`);
-      } else if (!new RegExp(String.raw`\$\{?\w*\}?|partager`).test(readFileSync(sw, 'utf8'))) {
+      } else if (!listeDuWorker(sw, 'PARTAGE').includes(chemin)) {
+        /*
+         * This check was hollow for a long time. It looked for
+         * `\$\{?\w*\}?|partager`, whose first branch accepts a bare "$", and
+         * `sw.js` always contains one. It therefore passed whatever the worker
+         * did, and the 404 the paragraph above says it prevents would have gone
+         * to production without a word. It now reads the list the worker
+         * actually consults.
+         */
         echecs.push(`${rel(sw)} ne reconnaît pas la cible de partage « ${chemin} »`);
       }
       if (m.share_target.method !== 'POST' || m.share_target.enctype !== 'multipart/form-data') {
         echecs.push(`${rel(cible)} : un partage de FICHIERS exige POST + multipart/form-data`);
+      }
+    }
+
+    /*
+     * "Open with" is the other door through which the system sends files, and
+     * the only one whose address names a real document. If it pointed slightly
+     * wrong, a language that does not exist, a forgotten trailing slash, the
+     * system would open a redirect or a 404, and nobody would know before a
+     * user complained. It happened: launch handling shipped with no check
+     * looking at it.
+     */
+    const sw = join(DIR, 'sw.js');
+    const precache = existsSync(sw) ? listeDuWorker(sw, 'PRECACHE') : [];
+    for (const [n, h] of (m.file_handlers ?? []).entries()) {
+      const nom = `file_handlers[${n}]`;
+      const action = String(h.action ?? '');
+
+      /*
+       * The trailing slash is not an affectation. `/fr` answers 307 at the host,
+       * and a precached entry that redirects is stored as such: the worker would
+       * return it to a navigation whose redirect mode is `manual`, which the
+       * browser turns into a network error. It would not be "Open with" failing
+       * then, it would be the whole application, offline.
+       */
+      if (!action.endsWith('/')) {
+        echecs.push(`${rel(cible)} : « ${nom}.action » doit finir par « / » — ${action}`);
+      } else if (!existsSync(join(DIR, action.replace(/^\//, ''), 'index.html'))) {
+        echecs.push(`${rel(cible)} : « ${nom}.action » ne désigne aucune page — ${action}`);
+      }
+      if (!action.startsWith(String(m.scope ?? '/'))) {
+        echecs.push(`${rel(cible)} : « ${nom}.action » sort de la portée — ${action}`);
+      }
+      /*
+       * And it equals `start_url`. This is the check that really bites: the two
+       * manifests differ only in language, and the French one pointing at the
+       * English page would land a photo in a language its owner did not
+       * install. The scope is "/" for both and could catch nothing.
+       */
+      if (action !== m.start_url) {
+        echecs.push(
+          `${rel(cible)} : « ${nom}.action » vaut ${action} et « start_url » ${m.start_url} — une arrivée n'atterrirait pas dans la langue installée`,
+        );
+      }
+      if (precache.length && !precache.includes(action)) {
+        echecs.push(`${rel(sw)} ne précharge pas « ${action} », que ${nom} annonce`);
+      }
+
+      const types = Object.entries(h.accept ?? {});
+      if (!types.length) echecs.push(`${rel(cible)} : « ${nom}.accept » est vide`);
+      for (const [type, exts] of types) {
+        if (!/^[a-z]+\/[a-z0-9.+-]+$/.test(type)) {
+          echecs.push(`${rel(cible)} : « ${nom}.accept » a une clé douteuse — ${type}`);
+        }
+        if (!Array.isArray(exts) || !exts.length || !exts.every((e) => /^\.[a-z0-9]+$/.test(e))) {
+          echecs.push(`${rel(cible)} : « ${nom}.accept[${type}] » n'est pas une liste d'extensions`);
+        }
+      }
+
+      /*
+       * `launch_type` is the early File Handling field, never standardised: it
+       * declared here that one window receives the whole batch with nothing
+       * upholding it. Its return is refused, so it cannot reappear beside the
+       * member that actually decides.
+       */
+      if ('launch_type' in h) {
+        echecs.push(`${rel(cible)} : « ${nom}.launch_type » n'est pas normalisé, voir launch_handler`);
+      }
+    }
+    if (m.file_handlers?.length) {
+      const mode = m.launch_handler?.client_mode;
+      if (!['auto', 'focus-existing', 'navigate-existing', 'navigate-new'].includes(mode)) {
+        echecs.push(`${rel(cible)} : « launch_handler.client_mode » est absent ou inconnu — ${mode}`);
       }
     }
   }

@@ -141,9 +141,20 @@ export interface Dictionnaire {
     nouvellePosition: string;
     pretsVerifies: (n: number) => string;
     pretsAvecEchecs: (n: number, e: number) => string;
-    /** Update banner, never automatic. See `sw-modele.js`. */
     /** The share arrived but the bytes did not survive the trip. */
     partagePerdu: string;
+    /**
+     * "Open with" produced nothing usable: file moved, deleted, or not yet
+     * fetched from remote storage.
+     */
+    ouverturePerdue: string;
+    /** Only part of the batch arrived; the rest is loaded. */
+    ouvertureIncomplete: (n: number) => string;
+    /** Photos join an already-loaded batch, replacing nothing. */
+    ajoutees: (n: number) => string;
+    /** The batch is full: the excess is not added, and that is said. */
+    lotPlafonne: (n: number) => string;
+    /** Update banner, never automatic. See `sw-modele.js`. */
     majDispo: string;
     majTravaux: string;
     majRecharger: string;
