@@ -6,6 +6,15 @@
  * choisit les mots. C'est ce qui rend une seconde langue possible sans toucher
  * une ligne de chirurgie binaire — et ce qui garantit qu'une phrase oubliée est
  * une erreur de compilation, pas un mot français dans une page anglaise.
+ *
+ * Cette garantie tient parce que `npm run build` commence par `astro check`.
+ * Pendant longtemps elle ne tenait pas : rien ne lisait ces types. `astro build`
+ * transpile via esbuild, qui efface les annotations sans les vérifier, et les
+ * tests tournent sous `--experimental-strip-types`, qui fait de même — le
+ * contrat était donc écrit, jamais appliqué. Une clé ajoutée au mauvais objet a
+ * livré une chaîne vide dans un élément lu par les seuls lecteurs d'écran ; le
+ * paragraphe ci-dessus décrivait déjà exactement le contrôle qui l'aurait
+ * arrêtée. Un type que personne ne vérifie est un commentaire.
  */
 
 import type { Motif } from '../exif/capacites.ts';
@@ -51,7 +60,15 @@ export interface Dictionnaire {
     fonctions: string[];
   };
 
-  nav: { viePrivee: string; modeEmploi: string; verifier: string; sections: string; aller: string };
+  nav: {
+    viePrivee: string;
+    modeEmploi: string;
+    verifier: string;
+    sections: string;
+    aller: string;
+    /** Nom accessible du repère qui porte les cartes et l'article. */
+    enSavoirPlus: string;
+  };
 
   etapes: { titre: string; deposer: string; choisir: string; telecharger: string };
 
@@ -90,6 +107,10 @@ export interface Dictionnaire {
     repereOrigine: string;
     positionChoisie: (p: string) => string;
     telecharger: string;
+    /** Pourquoi « Télécharger » est inactif tant qu'aucun lieu n'est choisi. */
+    telechargerPourquoi: string;
+    /** Partager la photo PRODUITE — jamais l'originale. */
+    partagerSortie: string;
     effacer: string;
     effacerTout: string;
     autres: string;

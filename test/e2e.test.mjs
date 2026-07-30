@@ -40,7 +40,6 @@ const EN_TETES = (() => {
   }
   return entetes;
 })();
-const CSP = EN_TETES['Content-Security-Policy'];
 
 const MIME = {
   // Sans ces deux-là, le serveur de test renvoie `application/octet-stream` :
@@ -190,7 +189,8 @@ check(
   `affiché ${latAff},${lonAff} / réel ${attendueOrigine.join(',')}`,
 );
 check('les étapes ont avancé', (await page.locator('.step.on').textContent()).includes('place'));
-check('le bouton principal est encore désactivé', await page.locator('#telecharger').isDisabled());
+check('le bouton principal est encore inactif',
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'true');
 
 console.log('\nSaisie de nouvelles coordonnées');
 await page.fill('#coords', '43.9493, 4.8055');
@@ -198,7 +198,8 @@ await page.waitForSelector('#resultat:not([hidden])');
 check('le récapitulatif apparaît', (await page.locator('#resultat-coords').textContent()).includes('43,94949') === false);
 check('la distance à l\'origine est annoncée',
   /km|m$/.test((await page.locator('#resultat-detail').textContent()).trim()));
-check('le bouton principal est activé', !(await page.locator('#telecharger').isDisabled()));
+check('le bouton principal est actif',
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
 
 console.log('\nTéléchargement et relecture par ExifTool');
 const [download] = await Promise.all([
@@ -275,7 +276,7 @@ check('la position de la photo iPhone est affichée',
 
 // L'interface annonce la voie AVANT l'action : ici, corriger et effacer sont
 // possibles, ajouter non — et c'est exactement ce qu'il faut dire.
-const alerte = await page.locator('#alerte-format');
+const alerte = page.locator('#alerte-format');
 check('la voie retenue est annoncée avant toute action',
   await alerte.isVisible() && (await alerte.textContent()).trim().length > 0,
   (await alerte.textContent()).trim().slice(0, 80));
@@ -283,7 +284,7 @@ check('la phrase affichée ne contient aucun jargon de format',
   !MOTS_INTERDITS.en.test(await alerte.textContent()),
   (await alerte.textContent()).trim().slice(0, 80));
 check('« Tout effacer » est désactivé là où l\'opération n\'existe pas',
-  await page.locator('#effacer-tout').isDisabled());
+  (await page.locator('#effacer-tout').getAttribute('aria-disabled')) === 'true');
 
 const [dlHeic] = await Promise.all([
   page.waitForEvent('download', { timeout: 30_000 }),
@@ -310,8 +311,8 @@ await page.waitForFunction(() => {
   const p = document.getElementById('pill-position');
   return p && !p.hidden && p.textContent.trim().length > 0;
 }, null, { timeout: 20_000 });
-check('le champ de saisie est actif sur un PNG',
-  !(await page.locator('#coords').isDisabled()));
+check('le champ de saisie est modifiable sur un PNG',
+  (await page.locator('#coords').getAttribute('readonly')) === null);
 
 await page.fill('#coords', '43.9493, 4.8055');
 await page.waitForSelector('#resultat:not([hidden])');
@@ -391,7 +392,10 @@ await page.waitForSelector('#alerte-format:not([hidden])', { timeout: 20_000 });
 const phrase = (await page.locator('#alerte-format').textContent()).trim();
 check('la limite est annoncée avant toute action', phrase.length > 0, phrase.slice(0, 80));
 check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phrase), phrase.slice(0, 80));
-check('le champ de saisie est désactivé', await page.locator('#coords').isDisabled());
+// Un champ texte inactif est `readonly`, pas `disabled` : il reste focalisable,
+// annoncé en lecture seule, et son contenu reste sélectionnable.
+check('le champ de saisie est en lecture seule',
+  (await page.locator('#coords').getAttribute('readonly')) !== null);
 
 // Les deux contrôles ci-dessus ne voient que les deux phrases que ces deux
 // fichiers déclenchent. Le parcours en compte onze, et c'est celle qu'on n'a
@@ -489,7 +493,9 @@ const FRONTIERE = requetes.length;
 console.log('\nAccessibilité du chemin principal');
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
 const focusable = await page.evaluate(() => {
-  const sel = 'a[href],button:not([disabled]),input:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
+  // `aria-disabled` ne retire rien de l'ordre de tabulation — c'est tout son
+  // objet. Le sélecteur ne doit donc plus exclure les contrôles inactifs.
+  const sel = 'a[href],button,input:not([type="hidden"]),summary,[tabindex]:not([tabindex="-1"])';
   return [...document.querySelectorAll(sel)].filter((e) => e.offsetParent !== null).length;
 });
 check('des éléments focalisables existent dès le HTML', focusable > 3, String(focusable));
@@ -536,6 +542,56 @@ check("un titre de niveau 1 subsiste une fois la photo chargée",
 check("le focus n'est pas retombé sur le corps du document",
   await page.evaluate(() => document.activeElement !== document.body));
 
+/*
+ * L'objet même du passage à `aria-disabled` : un contrôle inactif reste
+ * ATTEIGNABLE. Avec `disabled`, il quittait l'ordre de tabulation et personne ne
+ * pouvait s'y poser pour apprendre pourquoi il ne faisait rien.
+ *
+ * Et il reste inoffensif : `aria-disabled` n'empêche pas le clic, c'est la garde
+ * du gestionnaire qui s'en charge. Le contrôle vaut donc pour les deux moitiés —
+ * on l'atteint, et l'atteindre ne déclenche rien.
+ */
+const inactifAtteignable = await page.evaluate(() => {
+  const b = document.getElementById('telecharger');
+  b.focus();
+  return {
+    inactif: b.getAttribute('aria-disabled') === 'true',
+    focalise: document.activeElement === b,
+    explique: !!document.getElementById(b.getAttribute('aria-describedby') ?? '')
+      ?.textContent?.trim(),
+  };
+});
+check('un bouton inactif reçoit tout de même le focus',
+  inactifAtteignable.inactif && inactifAtteignable.focalise);
+check("et il dit pourquoi il est inactif", inactifAtteignable.explique);
+
+/*
+ * Cliquer dessus ne doit RIEN faire. L'événement est DISPATCHÉ et non cliqué :
+ * Playwright refuse d'actionner un élément portant `aria-disabled="true"` — ce
+ * qui est en soi la meilleure confirmation que l'attribut porte — mais cette
+ * prudence-là est celle de l'outil de test, pas celle de l'application. Ce qu'on
+ * veut éprouver ici est la garde du gestionnaire, seule chose qui protège un
+ * vrai navigateur, où le clic passe.
+ */
+await page.locator('#telecharger').dispatchEvent('click');
+await page.waitForTimeout(500);
+check("cliquer un bouton inactif ne déclenche rien",
+  await page.locator('#resultat').isHidden());
+
+// Et la même chose pour le bouton qui efface tout, sur un fichier où
+// l'opération n'existe pas : c'est celui dont la garde compte vraiment.
+const effacerToutInactif = await page.evaluate(async () => {
+  const b = document.getElementById('effacer-tout');
+  if (b.getAttribute('aria-disabled') !== 'true') return 'actif ici';
+  const avant = document.getElementById('lot-liste').children.length;
+  b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 400));
+  return document.getElementById('lot-liste').children.length === avant ? 'inerte' : 'a agi';
+});
+check("« Tout effacer » inactif reste inerte au clic",
+  effacerToutInactif !== 'a agi', effacerToutInactif);
+
+
 // Une saisie refusée ne disait rien : le bouton se grisait, et c'était tout.
 await page.fill('#coords', 'nulle part');
 await page.locator('#coords').blur();
@@ -560,6 +616,154 @@ check("elle cesse de l'être dès que la saisie redevient lisible",
  * On les lit dans `public/_headers`, donc ce contrôle juge le FICHIER LIVRÉ et
  * non une copie — mais il exige que chacun soit présent et dise la bonne chose.
  */
+/*
+ * LE PARTAGE SORTANT.
+ *
+ * Chromium sans intégration système n'a pas le partage de fichiers : `canShare`
+ * y répond non, le bouton reste caché, et c'est le comportement correct — c'est
+ * la première chose vérifiée. Le reste est éprouvé sur une page à part, où
+ * l'API est simulée, parce que ce qui compte n'est pas que la feuille s'ouvre
+ * mais CE QU'ON Y MET : le fichier produit, jamais l'original.
+ */
+/*
+ * AXE — le filet automatique.
+ *
+ * Les contrôles d'accessibilité de ce fichier sont écrits à la main : ils
+ * disent précisément ce qui est attendu, et échouent avec une phrase qu'on
+ * comprend. Ils ne trouvent en revanche que ce à quoi on a pensé. Axe couvre
+ * des familles entières de règles auxquelles personne n'a pensé.
+ *
+ * Il est injecté par `addInitScript` : `addScriptTag` créerait un script EN
+ * LIGNE, que `script-src 'self'` refuse. Celui-ci passe par le protocole de
+ * débogage, hors de portée de la politique de la page — laquelle est bien
+ * servie par ce serveur de test, donc la contrainte est réelle.
+ */
+const AXE = readFileSync('node_modules/axe-core/axe.min.js', 'utf8');
+
+/*
+ * Deux règles sont écartées, nommément, et chacune pour une raison écrite.
+ * Une liste de dispenses en bloc rendrait tout le contrôle décoratif.
+ *
+ * `color-contrast` : axe lit les couleurs DÉCLARÉES et ne sait pas composer. Le
+ * décor est un calque `fixed` en `mix-blend-mode: screen` sous du texte, et les
+ * ratios réels ont été mesurés puis inscrits dans `global.css` — axe les
+ * recalcule à l'aveugle et se trompe dans les deux sens. C'est le contraste qui
+ * gouverne les opacités du décor, pas l'inverse ; la mesure reste manuelle.
+ *
+ * `aria-allowed-role` sur la vue de carte : `role="application"` y est un choix
+ * assumé — la carte consomme les flèches du clavier, ce qu'un lecteur d'écran
+ * en mode navigation lui prendrait — et il vient avec ses instructions et une
+ * voie de repli entièrement au clavier, le champ de coordonnées.
+ */
+const REGLES_ECARTEES = { 'color-contrast': { enabled: false } };
+
+async function auditer(cible, nom) {
+  await cible.evaluate(AXE);
+  const resultat = await cible.evaluate(
+    (regles) => window.axe.run(document, {
+      rules: regles,
+      resultTypes: ['violations'],
+    }),
+    REGLES_ECARTEES,
+  );
+  const graves = resultat.violations.filter((v) => ['serious', 'critical'].includes(v.impact));
+  check(`axe : ${nom} — aucune violation grave`, graves.length === 0,
+    graves.map((v) => `${v.id} (${v.nodes.length})`).join(', '));
+  const mineures = resultat.violations.filter((v) => !['serious', 'critical'].includes(v.impact));
+  if (mineures.length) {
+    console.log(`       ${nom} — mineures : ${mineures.map((v) => v.id).join(', ')}`);
+  }
+  return resultat.violations;
+}
+
+console.log('\nAudit automatique (axe-core)');
+/*
+ * Un CONTEXTE À PART, avec son propre routage de tuiles.
+ *
+ * L'audit ouvre la carte, donc il demande des tuiles. Dans le contexte
+ * principal, celles-ci incrémentaient `tuilesDemandees` — le compteur sur
+ * lequel repose la preuve « déposer une photo ne demande aucune tuile ». Le
+ * contrôle tombait, et pour la pire raison qui soit : non pas parce que
+ * l'application avait fauté, mais parce que son propre audit avait sali le
+ * témoin. Une preuve qu'un test voisin peut fausser ne prouve plus rien.
+ */
+const ctxAxe = await navigateur.newContext({ serviceWorkers: 'block' });
+await ctxAxe.route(`https://${HOTE_TUILES}/**`, (route) =>
+  route.fulfill({ status: 200, contentType: 'image/png', body: TUILE_PNG }));
+const pageAxe = await ctxAxe.newPage();
+await pageAxe.addInitScript({ content: AXE });
+
+await pageAxe.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await auditer(pageAxe, 'accueil, état vide');
+
+await pageAxe.setInputFiles('#picker', source);
+await pageAxe.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+await auditer(pageAxe, 'photo chargée');
+
+await pageAxe.click('#carte-bascule');
+await pageAxe.waitForSelector('#carte:not([hidden])');
+await pageAxe.waitForTimeout(500);
+await auditer(pageAxe, 'carte ouverte');
+
+await pageAxe.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
+await auditer(pageAxe, 'version française');
+await ctxAxe.close();
+
+console.log('\nPartager la photo nettoyée');
+check("sans partage de fichiers, le bouton reste caché",
+  await page.locator('#partager-sortie').isHidden());
+
+const pagePartage = await contexte.newPage();
+await pagePartage.addInitScript(() => {
+  // `addInitScript` et non `addScriptTag` : le second injecte un script EN LIGNE,
+  // que `script-src 'self'` refuse. Celui-ci passe par le protocole de débogage,
+  // hors de portée de la politique de la page.
+  window.__partages = [];
+  navigator.canShare = () => true;
+  navigator.share = async (donnees) => {
+    window.__partages.push(
+      (donnees.files ?? []).map((f) => ({ nom: f.name, taille: f.size })),
+    );
+  };
+});
+await pagePartage.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await pagePartage.setInputFiles('#picker', source);
+await pagePartage.waitForSelector('#etat-actif:not([hidden])', { timeout: 15_000 });
+await pagePartage.fill('#coords', '43.9493, 4.8055');
+await pagePartage.waitForSelector('#resultat:not([hidden])');
+const [dlPartage] = await Promise.all([
+  pagePartage.waitForEvent('download'),
+  pagePartage.click('#telecharger'),
+]);
+const produitPartage = join('/tmp', dlPartage.suggestedFilename());
+await dlPartage.saveAs(produitPartage);
+
+check("le bouton apparaît une fois un fichier produit",
+  await pagePartage.locator('#partager-sortie').isVisible());
+await pagePartage.click('#partager-sortie');
+await pagePartage.waitForFunction(() => window.__partages.length > 0, null, { timeout: 5_000 });
+const partages = await pagePartage.evaluate(() => window.__partages);
+
+check("un seul fichier est partagé", partages[0].length === 1, JSON.stringify(partages[0]));
+// LE contrôle : c'est la photo PRODUITE qui part, pas celle qu'on a déposée.
+check("c'est le fichier produit qui est partagé, pas l'original",
+  partages[0][0].nom === dlPartage.suggestedFilename()
+  && partages[0][0].nom !== 'DSCN0010.jpg',
+  `${partages[0][0].nom} vs ${dlPartage.suggestedFilename()}`);
+check("et ce sont bien ses octets",
+  partages[0][0].taille === statSync(produitPartage).size,
+  `${partages[0][0].taille} vs ${statSync(produitPartage).size}`);
+// Le fichier partagé est celui qu'ExifTool relit sans position.
+const [latPartage, lonPartage] = execFileSync(
+  'exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', produitPartage],
+  { encoding: 'utf8' },
+).trim().split('\n').map(Number);
+check("le lieu qu'il porte est le nouveau, pas celui de l'origine",
+  Math.abs(latPartage - 43.9493) < 0.0001 && Math.abs(lonPartage - 4.8055) < 0.0001,
+  `${latPartage}, ${lonPartage}`);
+await pagePartage.close();
+
 console.log('\nLes en-têtes promis sont bien là');
 for (const [nom, motif] of [
   ['Referrer-Policy', /^no-referrer$/],
@@ -723,7 +927,8 @@ const saisi = await page.locator('#coords').inputValue();
 check('un clic sur la carte remplit le champ de coordonnées',
   /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(saisi), saisi);
 check('le récapitulatif est apparu', !(await page.locator('#resultat').isHidden()));
-check('le bouton de téléchargement est activé', !(await page.locator('#telecharger').isDisabled()));
+check('le bouton de téléchargement est actif',
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
 
 // La carte est opérable sans souris : c'est la condition pour qu'elle soit
 // autre chose qu'un ornement.
@@ -863,7 +1068,7 @@ check("saisir des coordonnées marche toujours",
     c.value = '48.8584, 2.2945';
     c.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 200));
-    return !document.getElementById('telecharger').disabled;
+    return document.getElementById('telecharger').getAttribute('aria-disabled') === 'false';
   }));
 const nouvelles = erreursConsole.slice(avantEchecCarte)
   .filter((e) => !/Failed to load resource|net::ERR_/.test(e));
@@ -890,7 +1095,7 @@ await page.fill('#coords', '48.8584, 2.2945');
 await page.waitForFunction(() => !document.getElementById('resultat').hidden, null,
   { timeout: 5_000 });
 check('sans tuile, la saisie au clavier fonctionne toujours',
-  !(await page.locator('#telecharger').isDisabled()));
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
 
 /*
  * Le navigateur journalise chaque image qui n'arrive pas : `net::ERR_FAILED`.

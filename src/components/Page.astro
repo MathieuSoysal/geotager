@@ -321,10 +321,30 @@ const jsonLd = {
                 <span class="l" id="resultat-detail"></span>
               </div>
 
-              <button class="btn primary" type="button" id="telecharger" disabled>
+              <!-- `aria-disabled` et non `disabled` : le bouton reste atteignable
+                   au clavier, donc on peut s'y poser pour entendre POURQUOI il
+                   ne fait rien. La garde est dans le gestionnaire. -->
+              <button
+                class="btn primary"
+                type="button"
+                id="telecharger"
+                aria-disabled="true"
+                aria-describedby="telecharger-pourquoi">
                 {T.app.telecharger}
               </button>
+              <!-- Les trois autres contrôles inactifs sont déjà expliqués : la
+                   phrase de capacité dit ce que le fichier permet, et elle est
+                   annoncée. Celui-ci ne l'était pas — il est gris parce qu'aucun
+                   lieu n'a encore été choisi, et rien ne le disait. -->
+              <p class="visually-hidden" id="telecharger-pourquoi">{T.app.telechargerPourquoi}</p>
 
+              <!-- Le partage sortant. Masqué tant qu'aucun fichier n'a été
+                   produit, et tant que le navigateur ne sait pas partager CES
+                   fichiers-là. La photo nettoyée devait jusqu'ici passer par le
+                   dossier de téléchargement pour aller ailleurs. -->
+              <button class="btn ghost" type="button" id="partager-sortie" hidden>
+                {T.app.partagerSortie}
+              </button>
               <div class="minor">
                 <button class="btn ghost" type="button" id="effacer">{T.app.effacer}</button>
                 <button class="btn ghost" type="button" id="effacer-tout">{T.app.effacerTout}</button>
@@ -336,13 +356,18 @@ const jsonLd = {
               </details>
             </div>
           </div>
-        </main>
-
         <!-- Celui-ci vise bien l'article : c'est une invitation à lire la
-             suite, pas un évitement. -->
+             suite, pas un évitement.
+
+             Il vit DANS le repère principal, et pas après : hors de `main` il
+             était le dernier morceau de page à n'appartenir à aucun repère.
+             Une troisième rangée est déclarée sur la grille pour l'accueillir,
+             faute de quoi elle serait implicite et mangerait la hauteur
+             verrouillée de la scène. -->
         <div class="scrollcue">
           <a href="#contenu">{T.hero.defiler}</a>
         </div>
+        </main>
       </div>
     </div>
 
@@ -362,6 +387,13 @@ const jsonLd = {
 
     <!-- ============ SOUS LA LIGNE DE FLOTTAISON ============ -->
     <div class="wrap" id="contenu">
+      <!-- La prose et les cartes vivaient hors de tout repère : la liste des
+           repères d'un lecteur d'écran menait à l'outil, à la navigation et au
+           pied de page, mais pas ici. Une `section` NOMMÉE est un repère ; sans
+           nom accessible, elle n'en serait pas un. On ne peut pas étendre
+           `main` jusque-là : le pied de page est un frère à l'intérieur de
+           `#contenu`, et l'y enfermer lui ferait perdre son propre rôle. -->
+      <section aria-label={T.nav.enSavoirPlus}>
       <div class="pitch">
         {
           T.pitch.map((c, i) => (
@@ -374,6 +406,7 @@ const jsonLd = {
       </div>
 
       <article class="contenu"><slot /></article>
+      </section>
 
       <footer>
         <!-- La navigation vit ici plutôt qu'en tête : ces liens mènent à des

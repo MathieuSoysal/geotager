@@ -30,6 +30,7 @@ export const en: Dictionnaire = {
   },
 
   nav: {
+    enSavoirPlus: 'How Geotager works',
     viePrivee: 'Privacy',
     modeEmploi: 'How to use it',
     verifier: 'Check for yourself',
@@ -76,6 +77,8 @@ export const en: Dictionnaire = {
     repereOrigine: 'Where the photo says it was taken',
     positionChoisie: (p) => `Picked on the map: ${p}`,
     telecharger: 'Download the photo',
+    telechargerPourquoi: 'Unavailable until you enter a location above.',
+    partagerSortie: 'Share the cleaned photo',
     effacer: 'Remove the location',
     effacerTout: 'Remove everything',
     autres: 'Show the other information',

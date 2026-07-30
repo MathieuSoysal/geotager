@@ -34,8 +34,10 @@ import {
   ZOOM_MAX,
   ZOOM_MIN,
   depuisPixels,
+  formatDecimal,
   metresParPixel,
   normaliserLon,
+  validerPosition,
   versPixels,
 } from '../src/lib/exif/coords.ts';
 import type { Format } from '../src/lib/exif/types.ts';
@@ -483,7 +485,7 @@ function conteneurOuEchec(src: Uint8Array) {
   return c;
 }
 
-for (const [nom, etiquette] of [
+for (const [nom] of [
   ['iphone.heic', 'photo iPhone'],
   ['photo.avif', 'photo AVIF'],
 ] as const) {
@@ -1240,6 +1242,47 @@ scenario('Un TIFF large est refusé plutôt que lu de travers', () => {
   check('la variante large est reconnue et refusée', code === 'FORMAT_NON_PRIS_EN_CHARGE', code);
 });
 
+
+scenario('« NaN, NaN » — une position illisible est absente, pas repliée', () => {
+  // Le défaut vécu : un rationnel GPS dégénéré fait rendre `NaN` au second
+  // lecteur, `typeof NaN === 'number'` laisse passer la garde naïve, et
+  // l'interface affiche « NaN, NaN » avant de vider la carte.
+  check('la garde naïve accepterait NaN — c’est bien elle qui manquait',
+    typeof NaN === 'number');
+  check('et « NaN, NaN » est exactement ce que l’affichage en tire',
+    formatDecimal({ lat: NaN, lon: NaN }) === 'NaN, NaN');
+
+  // Pourquoi la carte disparaît et non se contente d'être décentrée : la
+  // projection propage NaN, donc ni tuile ni repère n'ont de position.
+  const pixels = versPixels({ lat: NaN, lon: NaN }, 13);
+  check('la projection propage NaN jusqu’aux pixels, ce qui vide la vue',
+    Number.isNaN(pixels.x) && Number.isNaN(pixels.y));
+
+  // Le correctif. Une seule règle, et elle refuse.
+  check('deux NaN sont refusés', validerPosition({ lat: NaN, lon: NaN }) === null);
+  check('un seul NaN suffit à refuser', validerPosition({ lat: 48.8566, lon: NaN }) === null);
+  check('l’infini est refusé aussi', validerPosition({ lat: Infinity, lon: 2.3522 }) === null);
+
+  // Même source, même remède : un lecteur tiers sans garantie peut aussi rendre
+  // une valeur hors plage, aussi inutilisable qu'une valeur absente.
+  check('une latitude hors plage est refusée', validerPosition({ lat: 500, lon: 2.3522 }) === null);
+  check('une longitude hors plage est refusée', validerPosition({ lat: 48.8566, lon: -400 }) === null);
+
+  // Et ce qui est lisible passe sans être touché — y compris les bornes exactes.
+  const paris = validerPosition({ lat: 48.8566, lon: 2.3522 });
+  check('une position lisible traverse inchangée',
+    paris !== null && paris.lat === 48.8566 && paris.lon === 2.3522);
+  check('les bornes exactes sont valables, ce sont des lieux réels',
+    validerPosition({ lat: -90, lon: 180 }) !== null);
+
+  // La règle du zéro exact n'est PAS ici, et c'est voulu : `validerPosition`
+  // sert aussi la saisie manuelle, où « 0, 0 » est un choix de l'utilisateur.
+  // C'est `readPosition` qui écarte ce point pour un FICHIER, parce qu'il y est
+  // la trace d'une purge incomplète et non un relevé — et la relecture croisée
+  // ne l'applique pas non plus, pour rester un témoin indépendant.
+  check('le zéro exact reste une saisie valable, la politique vit ailleurs',
+    validerPosition({ lat: 0, lon: 0 }) !== null);
+});
 
 scenario('Projection de la carte — aller et retour', () => {
   // Les ancres. Au zoom 0 le monde tient dans une tuile de 256 px : le point

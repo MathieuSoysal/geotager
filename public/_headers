@@ -16,6 +16,13 @@
 # publicitaires du bac à sable de confidentialité : une fonction qu'on ne
 # désigne pas est une fonction autorisée.
 #
+# `web-share` est ABSENT de la liste ci-dessous, et c'est délibéré : c'est une
+# fonction régie par cette politique, et ne pas la nommer la laisse à `self`,
+# donc active. Le bouton « Partager la photo nettoyée » en dépend entièrement.
+# Un futur balayage « refusons tout ce qu'on n'emploie pas » le tuerait sans
+# qu'aucun test ne bronche — la feuille de partage ne s'ouvrirait simplement
+# plus, sur les appareils que l'intégration continue n'a pas.
+#
 # `img-src` nomme un hôte tiers, et un seul : les tuiles de la carte de choix du
 # lieu. Rien ne les demande tant que l'utilisateur n'a pas ouvert la carte. Aucun
 # autre axe n'est ouvert — `connect-src` reste fermé (les tuiles sont des <img>,

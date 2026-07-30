@@ -35,8 +35,8 @@ export function parseCoordinates(input: string): LatLon | null {
     });
     const lat = valeurs.find((x) => x.ref === 'N' || x.ref === 'S');
     const lon = valeurs.find((x) => x.ref === 'E' || x.ref === 'W' || x.ref === 'O');
-    if (lat && lon) return valider({ lat: lat.v, lon: lon.v });
-    return valider({ lat: valeurs[0].v, lon: valeurs[1].v });
+    if (lat && lon) return validerPosition({ lat: lat.v, lon: lon.v });
+    return validerPosition({ lat: valeurs[0].v, lon: valeurs[1].v });
   }
 
   // 2) Forme décimale. On isole deux nombres signés, en tolérant la virgule
@@ -44,12 +44,32 @@ export function parseCoordinates(input: string): LatLon | null {
   const normalise = texte.replace(/(\d),(\d)/g, '$1.$2');
   const nombres = normalise.match(/-?\d+(?:\.\d+)?/g);
   if (nombres && nombres.length >= 2) {
-    return valider({ lat: Number(nombres[0]), lon: Number(nombres[1]) });
+    return validerPosition({ lat: Number(nombres[0]), lon: Number(nombres[1]) });
   }
   return null;
 }
 
-function valider(p: LatLon): LatLon | null {
+/**
+ * La seule définition d'une position utilisable — et le seul endroit où elle
+ * vit.
+ *
+ * `NaN` est un nombre pour `typeof`, ce qui rend la garde naïve inopérante :
+ * `typeof NaN === 'number'` est vrai. Une position `NaN` traverse alors toute
+ * l'interface sans rien déclencher, s'affiche « NaN, NaN » à travers
+ * `toFixed`, et projette la carte sur des pixels `NaN` — le repère et les
+ * tuiles disparaissent d'un coup. Il n'y a aucun message d'erreur au bout de ce
+ * chemin, juste une vue vide.
+ *
+ * La borne de plage est ici pour la même raison : une latitude de 500 est aussi
+ * inutilisable qu'une latitude absente, et vient de la même source — un lecteur
+ * tiers à qui l'on n'a pas demandé de garantie.
+ *
+ * Renvoyer `null` est le comportement voulu, jamais une position de repli. Voir
+ * `dmsToDegrees` dans `tiff.ts` : substituer une valeur ferait annoncer un lieu
+ * à un fichier qui n'en porte aucun, ce qui est le seul mensonge que cet outil
+ * ne peut pas se permettre.
+ */
+export function validerPosition(p: LatLon): LatLon | null {
   if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return null;
   if (Math.abs(p.lat) > 90 || Math.abs(p.lon) > 180) return null;
   return p;

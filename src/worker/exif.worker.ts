@@ -24,7 +24,7 @@ import {
 import { type Capacites, type Motif, capacitesDe } from '../lib/exif/capacites.ts';
 import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
-import { distanceMetres } from '../lib/exif/coords.ts';
+import { distanceMetres, validerPosition } from '../lib/exif/coords.ts';
 import type {
   Format,
   FromWorker,
@@ -35,6 +35,42 @@ import type {
 } from '../lib/exif/types.ts';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
+
+/**
+ * Les options passées à `exifr`, et pourquoi elles ont besoin d'un cast.
+ *
+ * `exifr` accepte `ifd0: true` — son propre README le documente — et son
+ * `index.d.ts` déclare pourtant `ifd0?: FormatOptions` là où les onze blocs
+ * voisins acceptent `FormatOptions | boolean`. Le commentaire de l'auteur sur
+ * cette ligne, « cannot be disabled », explique l'oubli : il a écarté le
+ * booléen en pensant à `false`, ce qui écarte aussi `true`. La déclaration
+ * contredit la documentation de la bibliothèque, pas notre appel.
+ *
+ * On rectifie donc le type, sans toucher à la valeur transmise. Remplacer
+ * `true` par `{}` ferait taire le vérificateur en changeant ce qu'on demande au
+ * lecteur de métadonnées : ce fichier n'est pas l'endroit où l'on modifie un
+ * comportement pour faire plaisir à un type.
+ *
+ * Le double cast est l'outil le plus étroit disponible : `exifr` n'exporte pas
+ * son interface `Options`, qu'on ne peut donc ni augmenter ni corriger champ par
+ * champ depuis ici. Le cast est concentré sur ces deux constantes, et non
+ * dispersé sur les appels — si la bibliothèque corrige sa déclaration, il y a
+ * deux lignes à supprimer et le vérificateur dira lesquelles.
+ */
+type OptionsExifr = NonNullable<Parameters<typeof exifr.parse>[1]>;
+
+/** Lecture complète : position, date, appareil, et les détails affichés. */
+const OPTIONS_COMPLETES = {
+  tiff: true,
+  exif: true,
+  gps: true,
+  ifd0: true,
+  translateValues: true,
+  reviveValues: true,
+} as unknown as OptionsExifr;
+
+/** Simple question d'ouverture : le second lecteur sait-il lire ce fichier ? */
+const OPTIONS_OUVERTURE = { tiff: true, ifd0: true } as unknown as OptionsExifr;
 
 /* ---------------------------------------------------------------- */
 
@@ -154,6 +190,35 @@ function projeter(s: Sonde): PhotoRead['can'] {
   };
 }
 
+/**
+ * La position rapportée par le second lecteur, soumise aux mêmes règles que la
+ * nôtre.
+ *
+ * Cette voie de repli ne s'ouvre que si notre moteur n'a rien trouvé, et c'est
+ * précisément ce qui la rendait dangereuse : elle pouvait rapporter d'un fichier
+ * exactement ce que le moteur venait d'en écarter, sans rien appliquer de ses
+ * règles.
+ *
+ * Deux valeurs passaient. `NaN` d'abord, que `typeof` tient pour un nombre : un
+ * rationnel GPS au dénominateur nul — ce qu'écrit un Galaxy S10 sans relevé —
+ * ressortait en « NaN, NaN » à l'affichage, puis vidait la carte, la projection
+ * propageant `NaN` jusqu'aux pixels des tuiles. Le zéro exact ensuite : notre
+ * `readPosition` l'écarte nommément parce que c'est la trace d'un logiciel qui a
+ * purgé les coordonnées sans retirer les entrées, et annoncer le golfe de Guinée
+ * pour un fichier sans lieu est le mensonge que cet outil ne peut pas se
+ * permettre. Les deux règles valent maintenant pour les deux lecteurs.
+ *
+ * Le refus est une absence, jamais un lieu de repli : l'interface a déjà un état
+ * « sans position », dit avec des mots, et la carte s'ouvre alors sur une vue
+ * d'ensemble.
+ */
+function positionDuSecondLecteur(lat: unknown, lon: unknown): LatLon | null {
+  if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+  const p = validerPosition({ lat, lon });
+  if (!p || (p.lat === 0 && p.lon === 0)) return null;
+  return p;
+}
+
 function texteDate(v: unknown): string | null {
   if (v instanceof Date && !Number.isNaN(v.valueOf())) return v.toISOString();
   if (typeof v === 'string' && v.trim()) return v;
@@ -173,20 +238,15 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   const details: Array<{ cle: string; value: string }> = [];
 
   try {
-    const tags = (await exifr.parse(buffer, {
-      tiff: true,
-      exif: true,
-      gps: true,
-      ifd0: true,
-      translateValues: true,
-      reviveValues: true,
-    })) as Record<string, unknown> | undefined;
+    const tags = (await exifr.parse(buffer, OPTIONS_COMPLETES)) as
+      | Record<string, unknown>
+      | undefined;
 
     if (tags) {
-      if (!position && typeof tags.latitude === 'number' && typeof tags.longitude === 'number') {
-        position = { lat: tags.latitude, lon: tags.longitude };
+      if (!position) position = positionDuSecondLecteur(tags.latitude, tags.longitude);
+      if (typeof tags.GPSAltitude === 'number' && Number.isFinite(tags.GPSAltitude)) {
+        altitude = tags.GPSAltitude;
       }
-      if (typeof tags.GPSAltitude === 'number') altitude = tags.GPSAltitude;
       takenAt = texteDate(tags.DateTimeOriginal ?? tags.CreateDate ?? tags.ModifyDate);
       const make = typeof tags.Make === 'string' ? tags.Make.trim() : '';
       const model = typeof tags.Model === 'string' ? tags.Model.trim() : '';
@@ -257,9 +317,14 @@ async function gpsParExifr(octets: Uint8Array): Promise<LatLon | null> {
     const t = (await exifr.gps(octets.slice().buffer)) as
       | { latitude: number; longitude: number }
       | undefined;
-    if (t && Number.isFinite(t.latitude) && Number.isFinite(t.longitude)) {
-      return { lat: t.latitude, lon: t.longitude };
-    }
+    // Finitude et plage seulement, PAS la règle du zéro exact.
+    //
+    // Cette fonction sert la relecture croisée, dont toute la valeur tient à
+    // son indépendance : lui faire appliquer nos politiques la ferait acquiescer
+    // à nos propres erreurs. `NaN` et une latitude de 500 ne sont une position
+    // pour personne, et les écarter n'entame pas ce témoignage — décider qu'un
+    // zéro exact n'est pas un lieu, si.
+    if (t) return validerPosition({ lat: t.latitude, lon: t.longitude });
   } catch {
     /* le second lecteur ne sait pas ouvrir ce fichier */
   }
@@ -269,7 +334,7 @@ async function gpsParExifr(octets: Uint8Array): Promise<LatLon | null> {
 /** Vrai si le second lecteur sait ouvrir ce fichier, position ou non. */
 async function exifrSaitOuvrir(octets: Uint8Array): Promise<boolean> {
   try {
-    const t = await exifr.parse(octets.slice().buffer, { tiff: true, ifd0: true });
+    const t = await exifr.parse(octets.slice().buffer, OPTIONS_OUVERTURE);
     return t != null;
   } catch {
     return false;
