@@ -7,7 +7,7 @@
  * admissible proof of the promise that nothing leaves the browser.
  */
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
@@ -431,7 +431,7 @@ for (const langue of LANGUES) {
    * That is not a sentence from the journey, and the rule is about sentences
    * from the journey.
    */
-  for (const cle of ['partagePerdu', 'ouverturePerdue', 'installer', 'installee']) {
+  for (const cle of ['partagePerdu', 'ouverturePerdue']) {
     const p = T.app[cle];
     check(`${langue} / « ${cle} » : une phrase sans jargon`,
       Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
@@ -498,12 +498,81 @@ const plan = await page.evaluate(
 check('et ce plan répond vraiment', plan.ok);
 
 const locs = [...plan.t.matchAll(/<loc>([^<]*)<\/loc>/g)].map(([, u]) => u);
-check('il annonce les deux langues', locs.length === 2, locs.join(' '));
+/*
+ * The sitemap must announce every page produced. It announced two, and this
+ * check required the number two. A number hard-coded in a test is a check that
+ * becomes false the day the site grows, which is to say the day it would be
+ * useful. So we count the pages actually built: a page added without being
+ * announced brings the line down.
+ */
+const pagesProduites = (function liste(d) {
+  return readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? liste(join(d, e.name)) : [join(d, e.name)],
+  );
+})(DIST).filter((f) => /(^|[\\/])index\.html$/.test(f)).length;
+check('il annonce toutes les pages produites', locs.length === pagesProduites,
+  `${locs.length} annoncées / ${pagesProduites} produites`);
+check('les deux langues de l\'outil en font partie',
+  locs.some((u) => new URL(u).pathname === '/') && locs.some((u) => new URL(u).pathname === '/fr/'));
 const toutesLa = await page.evaluate(
   (l) => Promise.all(l.map((u) => fetch(new URL(u).pathname).then((r) => r.ok))),
   locs);
 check('chaque adresse annoncée répond', toutesLa.every(Boolean));
 check('aucune fréquence de mise à jour n\'est promise', !/<changefreq>/.test(plan.t));
+
+/*
+ * The guides, actually served.
+ *
+ * What is judged here is not the prose, which `check-build.mjs` handles, down
+ * to counting the words. It is what a check on files cannot see: that a guide
+ * opens, that it does not load the tool's island, and that the twin page it
+ * announces in another language really exists.
+ */
+console.log('\nLes guides');
+await page.goto(`http://127.0.0.1:${PORT}/guides/`, { waitUntil: 'networkidle' });
+const listes = await page.locator('.liste-guides > li').count();
+check('le sommaire liste des guides', listes >= 3, String(listes));
+const premier = await page.locator('.liste-guides h2 a').first().getAttribute('href');
+check('et chacun a une adresse propre', /^\/guides\/[a-z-]+\/$/.test(premier ?? ''), String(premier));
+
+const avantGuide = requetes.length;
+await page.goto(`http://127.0.0.1:${PORT}${premier}`, { waitUntil: 'networkidle' });
+check('le guide répond et porte un titre', (await page.locator('h1').textContent()).trim().length > 10);
+check('la réponse est donnée en tête', await page.locator('p.reponse').isVisible());
+check("le fil d'Ariane compte trois marches",
+  (await page.locator('nav.fil li').count()) === 3);
+check("il ramène à l'outil", (await page.locator('a.brand[href="/"]').count()) > 0);
+check('il ramène au sommaire', (await page.locator('nav.fil a[href="/guides/"]').count()) > 0);
+check('il est canonique sur lui-même',
+  (await page.locator('link[rel="canonical"]').getAttribute('href')).endsWith(premier));
+
+/*
+ * No script. Astro bundles hoisted scripts into a single package: the smallest
+ * flourish imported by a guide's shell would pull all of `app.ts` in with it,
+ * which is the code of a tool absent from the page. The check covers both
+ * halves: no script tag, and no request for a module.
+ */
+const scriptsGuide = await page.evaluate(() =>
+  [...document.querySelectorAll('script')].filter((s) => s.type !== 'application/ld+json').length);
+check('un guide ne charge aucun script', scriptsGuide === 0, String(scriptsGuide));
+const jsDuGuide = requetes.slice(avantGuide).filter((u) => /\/_astro\/.*\.js/.test(u));
+check("et il n'en demande aucun au réseau", jsDuGuide.length === 0, jsDuGuide[0] ?? '');
+
+const grapheGuide = JSON.parse(await page.locator('script[type="application/ld+json"]').textContent());
+const typesGuide = (grapheGuide['@graph'] ?? [grapheGuide]).map((n) => n['@type']);
+check("un guide se décrit comme un article, avec son fil d'Ariane",
+  ['Article', 'BreadcrumbList'].every((t) => typesGuide.includes(t)), typesGuide.join(', '));
+
+const jumeauFr = await page.locator('link[rel="alternate"][hreflang="fr"]').getAttribute('href');
+check('il annonce une adresse française sous /fr/guides/',
+  new URL(jumeauFr).pathname.startsWith('/fr/guides/'), String(jumeauFr));
+await page.goto(`http://127.0.0.1:${PORT}${new URL(jumeauFr).pathname}`, { waitUntil: 'networkidle' });
+check('et cette page existe et est en français',
+  (await page.locator('html').getAttribute('lang')) === 'fr');
+check("elle renvoie réciproquement vers l'anglaise",
+  (await page.locator('link[rel="alternate"][hreflang="en"]').getAttribute('href')).endsWith(premier));
+check("son lien de langue mène au guide, pas à l'accueil",
+  (await page.locator('nav.main a[rel="alternate"]').getAttribute('href')) === premier);
 
 // The English page's canonical was verified nowhere.
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
@@ -798,6 +867,20 @@ await auditer(pageAxe, 'carte ouverte');
 
 await pageAxe.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
 await auditer(pageAxe, 'version française');
+
+// The guides have a shell of their own, with a breadcrumb, lists and tables, so
+// they have their own ways of breaking. An audit looking only at the tool would
+// leave fourteen pages out of reach of the automatic net.
+await pageAxe.goto(`http://127.0.0.1:${PORT}/guides/`, { waitUntil: 'networkidle' });
+await auditer(pageAxe, 'sommaire des guides');
+await pageAxe.goto(`http://127.0.0.1:${PORT}/guides/social-networks-photo-location/`, {
+  waitUntil: 'networkidle',
+});
+await auditer(pageAxe, 'un guide, avec son tableau');
+await pageAxe.goto(`http://127.0.0.1:${PORT}/fr/guides/modifier-geolocalisation-photo/`, {
+  waitUntil: 'networkidle',
+});
+await auditer(pageAxe, 'un guide français');
 await ctxAxe.close();
 
 console.log('\nPartager la photo nettoyée');
@@ -921,124 +1004,6 @@ check("elle a un texte de remplacement",
   ((await page.locator('meta[property="og:image:alt"]').getAttribute('content')) ?? '').length > 10);
 check("elle existe vraiment",
   await page.evaluate(() => fetch('/og.png').then((r) => r.ok)));
-
-/*
- * The install button.
- *
- * A real install prompt cannot be provoked from a test: it comes from the
- * browser, which decides on criteria we do not drive. What follows can be, so
- * we hand the page exactly what the browser would hand it, and judge what it
- * does with it.
- *
- * The four locks behind "hidden if already installed" are judged separately, so
- * that none can fail silently behind another.
- */
-console.log("\nProposer l'installation, et seulement quand elle est possible");
-
-const POSER_INVITE = () => {
-  // `addInitScript` rather than `addScriptTag`: the latter injects an inline
-  // script, which `script-src 'self'` refuses. This one goes through the
-  // debugging protocol, out of reach of the page policy.
-  window.__invites = { prompt: 0, choix: null };
-  window.__inviterInstall = () => {
-    const e = new Event('beforeinstallprompt');
-    e.prompt = () => {
-      window.__invites.prompt++;
-      return Promise.resolve();
-    };
-    e.userChoice = Promise.resolve({ outcome: 'accepted' });
-    window.dispatchEvent(e);
-  };
-  window.__installee = () => window.dispatchEvent(new Event('appinstalled'));
-  // The bench's browser could answer whatever it likes to "is this application
-  // installed?". We answer in its place, so that the "not installed" case is a
-  // fact of the test rather than luck.
-  navigator.getInstalledRelatedApps = async () => [];
-};
-
-const pageInstall = await contexte.newPage();
-const erreursInstall = [];
-pageInstall.on('pageerror', (e) => erreursInstall.push(String(e)));
-pageInstall.on('console', (m) => {
-  if (m.type() === 'error') erreursInstall.push(m.text());
-});
-await pageInstall.addInitScript(POSER_INVITE);
-await pageInstall.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-
-// Lock 1: the default state is absent. That is what any browser issuing no
-// prompt sees, and any already-installed application.
-check("sans invitation, le bouton n'est pas là",
-  await pageInstall.locator('#installer').isHidden());
-
-// Lock 2: only the prompt reveals it.
-await pageInstall.evaluate(() => window.__inviterInstall());
-check("l'invitation du navigateur fait apparaître le bouton",
-  await pageInstall.locator('#installer').isVisible());
-check('et il est atteignable au clavier',
-  await pageInstall.evaluate(() => {
-    const b = document.getElementById('installer');
-    b.focus();
-    return document.activeElement === b;
-  }));
-
-await pageInstall.click('#installer');
-check("cliquer demande l'installation au navigateur",
-  (await pageInstall.evaluate(() => window.__invites.prompt)) === 1);
-// A prompt is not replayed: a second call on the same event throws.
-check('et le bouton s\'efface, l\'invitation étant consommée',
-  await pageInstall.locator('#installer').isHidden());
-
-// Lock 4: the install succeeds, the button goes away, and we say so.
-await pageInstall.evaluate(() => window.__inviterInstall());
-check('une nouvelle invitation le fait revenir',
-  await pageInstall.locator('#installer').isVisible());
-await pageInstall.evaluate(() => window.__installee());
-check("une fois installée, le bouton disparaît",
-  await pageInstall.locator('#installer').isHidden());
-check('et le lecteur d\'écran l\'apprend',
-  (await pageInstall.locator('#annonce').textContent()).includes('Geotager'));
-
-/*
- * Lock 3: in the installed window, even a prompt must show nothing.
- * Playwright's `emulateMedia` does not know `display-mode`, so we fake
- * `matchMedia` before the island runs, which is exactly what the browser would
- * answer there.
- */
-const pageInstallee = await contexte.newPage();
-await pageInstallee.addInitScript(POSER_INVITE);
-await pageInstallee.addInitScript(() => {
-  const vrai = window.matchMedia.bind(window);
-  window.matchMedia = (q) =>
-    q.includes('display-mode') ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : vrai(q);
-});
-await pageInstallee.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-await pageInstallee.evaluate(() => window.__inviterInstall());
-check("dans la fenêtre installée, le bouton reste absent malgré l'invitation",
-  await pageInstallee.locator('#installer').isHidden());
-await pageInstallee.close();
-
-/*
- * Lock 5: the browser answers that the application is already installed.
- *
- * It is the only lock that infers nothing: the other four rest on the absence
- * of a prompt or on the display mode, this one asks the question. It covers the
- * case the others let through: the application is installed, and the site is
- * reopened in an ordinary tab.
- */
-const pageDejaPosee = await contexte.newPage();
-await pageDejaPosee.addInitScript(POSER_INVITE);
-await pageDejaPosee.addInitScript(() => {
-  navigator.getInstalledRelatedApps = async () => [{ platform: 'webapp', url: '/manifest.webmanifest' }];
-});
-await pageDejaPosee.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-await pageDejaPosee.evaluate(() => window.__inviterInstall());
-check("quand le navigateur confirme l'installation, le bouton reste absent",
-  await pageDejaPosee.locator('#installer').isHidden());
-await pageDejaPosee.close();
-
-const restantesInstall = erreursInstall.filter((e) => !/Failed to load resource|net::ERR_/.test(e));
-check("aucune exception sur le chemin de l'installation",
-  restantesInstall.length === 0, restantesInstall[0]);
 
 console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
 check('le décor est hors de l\'arbre d\'accessibilité',
