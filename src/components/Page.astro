@@ -8,9 +8,12 @@
  * découper en clés la rendrait illisible à écrire comme à relire.
  */
 import '../styles/global.css';
-import type { Dictionnaire } from '../lib/i18n/types.ts';
+import Tete from './Tete.astro';
+import Pied from './Pied.astro';
+import type { Dictionnaire, Langue } from '../lib/i18n/types.ts';
 import { DICOS, LANGUES, LANGUE_PAR_DEFAUT } from '../lib/i18n/index.ts';
 import { COUCHES, cheminBlob } from '../lib/ui/blob-path.ts';
+import { noeudApplication, noeudEditeur, noeudSite, urlOutil } from '../lib/jsonld.ts';
 
 interface Props {
   dico: Dictionnaire;
@@ -26,116 +29,39 @@ const { dico: T } = Astro.props;
  */
 const site = Astro.site?.origin;
 if (!site) throw new Error('Page : « site » manque dans astro.config.mjs');
-const url = site + T.base;
+const url = urlOutil(site, T);
 
 // Liens réciproques entre les deux langues, plus x-default sur la langue
 // servie à la racine. Réciproques : chaque page annonce TOUTES les langues,
 // elle-même comprise, sans quoi Google ignore la déclaration.
 const alternates = LANGUES.map((l) => ({ lang: l, href: site + DICOS[l].base }));
+const jumeaux = Object.fromEntries(LANGUES.map((l) => [l, DICOS[l].base])) as Record<
+  Langue,
+  string
+>;
 
 /*
- * Trois nœuds reliés, et pas un de plus.
- *
- * CE QUE CELA RAPPORTE, pour que personne n'en attende autre chose : aucun
- * résultat enrichi. Aucune vignette, aucune étoile, rien de visible dans une
- * page de résultats. Le seul gain est que les moteurs — classiques comme
- * génératifs — sachent relier trois choses qu'ils devaient sinon deviner :
- * quelle est l'application, à quel site elle appartient, et qui la publie.
- *
- * C'est aussi pourquoi il n'y a NI `FAQPage` NI `HowTo`. « Mode d'emploi » et
- * « Ce qu'est une donnée GPS » en ont exactement la forme, et les baliser ne
- * produirait rigoureusement rien : `HowTo` est abandonné depuis 2023, et les
- * questions-réponses ont été retirées de la recherche. Écrire un balisage pour
- * un affichage qui n'existe plus, c'est se mentir dans un fichier que personne
- * ne relit.
+ * Trois nœuds reliés, et pas un de plus. Ils sont décrits dans `lib/jsonld.ts`,
+ * qui explique ce qu'ils rapportent — et ce qu'ils ne rapportent pas.
  */
 const jsonLd = {
   '@context': 'https://schema.org',
-  '@graph': [
-    {
-      '@type': 'SoftwareApplication',
-      '@id': `${url}#application`,
-      name: 'Geotager',
-      url,
-      applicationCategory: 'MultimediaApplication',
-      applicationSubCategory: T.meta.sousCategorie,
-      operatingSystem: T.meta.systeme,
-      inLanguage: T.htmlLang,
-      isAccessibleForFree: true,
-      offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
-      featureList: T.meta.fonctions,
-      description: T.meta.description,
-      isPartOf: { '@id': `${site}/#site` },
-      publisher: { '@id': `${site}/#editeur` },
-    },
-    {
-      '@type': 'WebSite',
-      '@id': `${site}/#site`,
-      name: 'Geotager',
-      url: `${site}/`,
-      inLanguage: LANGUES.map((l) => DICOS[l].htmlLang),
-      publisher: { '@id': `${site}/#editeur` },
-    },
-    {
-      '@type': 'Organization',
-      '@id': `${site}/#editeur`,
-      name: 'Geotager',
-      url: `${site}/`,
-      logo: `${site}/icons/icon-512.png`,
-      // Le dépôt est la seule autre adresse où ce projet existe sous son nom.
-      // `sameAs` sert à cela et à rien d'autre : dire « c'est la même entité ».
-      sameAs: ['https://github.com/MathieuSoysal/geotager'],
-    },
-  ],
+  '@graph': [noeudApplication(site, T), noeudSite(site), noeudEditeur(site)],
 };
 ---
 
 <!doctype html>
 <html lang={T.htmlLang}>
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- La couleur du fond de page, et non le rose de la marque. Le rose
-         peignait la barre du navigateur d'une teinte qui n'existe nulle part
-         comme surface : la fenêtre annonçait une application claire au-dessus
-         d'une page sombre. C'est aussi cette valeur que prend la barre de titre
-         une fois l'application installée, et l'écran de démarrage à froid. -->
-    <meta name="theme-color" content="#17161b" />
-    <title>{T.meta.titre}</title>
-    <meta name="description" content={T.meta.description} />
-    <link rel="canonical" href={url} />
-    {alternates.map((a) => <link rel="alternate" hreflang={a.lang} href={a.href} />)}
-    <link rel="alternate" hreflang="x-default" href={site + DICOS[LANGUE_PAR_DEFAUT].base} />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Geotager" />
-    <meta property="og:title" content={T.meta.titre} />
-    <meta property="og:description" content={T.meta.description} />
-    <meta property="og:url" content={url} />
-    <meta property="og:locale" content={T.ogLocale} />
-    <!-- `summary_large_image` était déclaré depuis toujours SANS aucune image :
-         la carte annoncée n'existait pas, et tout partage du site s'affichait
-         vide. L'image est unique pour les deux langues — un fichier de cette
-         taille ne se double pas pour deux phrases. -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta property="og:image" content={`${site}/og.png`} />
-    <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content={T.meta.imageAlt} />
-    <meta name="twitter:image" content={`${site}/og.png`} />
-
-    <!-- Le manifeste de CETTE langue. Les deux partagent un `id`, donc une
-         seule application installée, sous le nom de la page d'où on l'installe. -->
-    <link rel="manifest" href={`${T.base}manifest.webmanifest`} />
-    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <!-- L'URL de données reste : elle est le secours des navigateurs qui ne
-         savent pas d'un favicon SVG, et elle ne coûte pas une requête. -->
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z' fill='%23FF3385'/%3E%3Ccircle cx='20' cy='17.4' r='5.7' fill='%2317161B'/%3E%3C/svg%3E"
+    <Tete
+      dico={T}
+      titre={T.meta.titre}
+      description={T.meta.description}
+      url={url}
+      alternates={alternates}
+      xDefault={site + DICOS[LANGUE_PAR_DEFAUT].base}
+      jsonLd={jsonLd}
     />
-    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </head>
   <body>
     <!-- Le lien d'évitement pointe sur l'OUTIL, pas sur l'article. Il visait
@@ -457,35 +383,7 @@ const jsonLd = {
       <article class="contenu"><slot /></article>
       </section>
 
-      <footer>
-        <!-- La navigation vit ici plutôt qu'en tête : ces liens mènent à des
-             sections de lecture, pas à l'outil. Les remonter au-dessus du
-             titre disputerait l'attention au seul geste qui compte — déposer
-             une photo. Le choix de langue les accompagne. -->
-        <nav class="main" aria-label={T.nav.sections}>
-          <a href="#vie-privee">{T.nav.viePrivee}</a>
-          <a href="#mode-emploi">{T.nav.modeEmploi}</a>
-          <a href="#verifier">{T.nav.verifier}</a>
-          {
-            LANGUES.filter((l) => l !== T.langue).map((l) => (
-              <a
-                href={DICOS[l].base}
-                lang={DICOS[l].htmlLang}
-                hreflang={DICOS[l].htmlLang}
-                rel="alternate">
-                {DICOS[l].meta.nomLangue}
-              </a>
-            ))
-          }
-        </nav>
-        <!-- L'espace est explicite : entre une expression et la balise qui la
-             suit, celui de la mise en forme est supprimé au rendu, et la ligne
-             se lisait « licence MIT :github.com/… ». -->
-        <p>
-          {T.pied}{' '}
-          <a href="https://github.com/MathieuSoysal/geotager">github.com/MathieuSoysal/geotager</a>.
-        </p>
-      </footer>
+      <Pied dico={T} alternatives={jumeaux} />
     </div>
 
     <!-- L'outil d'abord, la décoration ensuite : cet ordre est le seul moyen

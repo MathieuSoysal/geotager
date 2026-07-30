@@ -26,9 +26,16 @@
  *    que sur un message explicite envoyé par la page — c'est-à-dire après que
  *    l'utilisateur a dit oui.
  *
- * 3. PAS DE PAGE « HORS LIGNE ». Les deux vraies pages sont préchargées : il ne
- *    reste aucune navigation qu'un secours pourrait rattraper. Mieux vaut
- *    l'application elle-même que son faire-part de décès.
+ * 3. PAS DE PAGE « HORS LIGNE ». TOUTES les vraies pages sont préchargées —
+ *    l'outil dans ses deux langues, et les guides : il ne reste aucune
+ *    navigation qu'un secours pourrait rattraper. Mieux vaut l'application
+ *    elle-même que son faire-part de décès.
+ *
+ *    Cette règle est ce qui force l'inventaire de `gen-sw.mjs` à être DÉRIVÉ.
+ *    Une page oubliée dans la liste ne provoquerait rien de visible : le
+ *    secours ci-dessous servirait la page d'accueil de la bonne langue, et une
+ *    adresse de guide répondrait tranquillement autre chose que le guide. Une
+ *    panne qui se déguise en page valide est la seule qui ne se signale jamais.
  *
  * ARRÊT D'URGENCE. Pour retirer le service worker du parc, remplacer le contenu
  * de `dist/sw.js` par :
@@ -46,7 +53,7 @@
 const VERSION = '__VERSION__';
 const CACHE = `geotager-${VERSION}`;
 
-/** La coquille : les deux pages, la feuille, l'îlot, le worker de lecture. */
+/** La coquille : toutes les pages, la feuille, l'îlot, le worker de lecture. */
 const PRECACHE = __PRECACHE__;
 
 /*

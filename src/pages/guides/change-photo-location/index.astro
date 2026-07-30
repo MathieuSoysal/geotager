@@ -1,0 +1,164 @@
+---
+/** English — changing the location a photo already carries. */
+import Guide from '../../../components/Guide.astro';
+import { en } from '../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../lib/guides/index.ts';
+---
+
+<Guide dico={en} id="modifier">
+  <p class="reponse">
+    To change the GPS location of a photo you have to rewrite the coordinates stored inside the
+    file. Drop the photo on <a href="/">Geotager</a>, type or paste a new latitude and longitude,
+    and download it. The image is never re-encoded, and the file comes back the exact size it went
+    in.
+  </p>
+
+  <h2 id="etapes">Change a photo’s location in four steps</h2>
+  <ol>
+    <li>
+      Open the tool and drop the photo on the pink circle — or paste it with
+      <kbd>Ctrl</kbd>+<kbd>V</kbd>, or click to pick it from your files.
+    </li>
+    <li>
+      The location already stored in the file appears straight away, next to the file name. If
+      nothing appears, the photo carries none, and what you want is
+      <a href={cheminGuide('en', 'ajouter')}>adding one</a> rather than changing one.
+    </li>
+    <li>
+      Type or paste the new coordinates. Decimal degrees (<code>43.9493, 4.8055</code>) and
+      degrees-minutes-seconds (<code>43° 56′ 57.5″ N, 4° 48′ 19.8″ E</code>) are both accepted. In
+      Google Maps, right-clicking a spot and clicking the numbers copies them in the first form.
+      There is also a map you can click, folded away until you ask for it.
+    </li>
+    <li>
+      Download. The original name is kept, with <code>-geotagged</code> added, so the new file never
+      silently overwrites the old one.
+    </li>
+  </ol>
+
+  <h2 id="dans-le-fichier">What actually changes inside the file</h2>
+  <p>
+    Cameras and phones store a block of information in the file, called EXIF. The position lives
+    there in a slightly odd shape: not as the decimal number you typed, but as degrees, minutes and
+    seconds, plus two separate fields saying which hemisphere —
+    <code>GPSLatitudeRef</code> is “N” or “S”, <code>GPSLongitudeRef</code> is “E” or “W”. Getting
+    the numbers right and those two letters wrong puts your photo in the wrong quarter of the world,
+    which is the single most common defect in tools that write this block.
+  </p>
+  <p>
+    Changing a location that is already there replaces those values <strong>in place</strong>: the
+    file produced is byte-for-byte the size of the original, and nothing moves. That matters more
+    than it sounds. A camera’s MakerNote — the manufacturer’s own block, holding lens corrections
+    and shooting data — is full of addresses pointing at absolute positions in the file. A tool that
+    rewrites the whole block shifts those positions and silently breaks it. Geotager writes only
+    the bytes of the location and then compares the produced file to the original
+    <em>everywhere else</em>.
+  </p>
+  <p>
+    The pixels are never touched at all. Many browser-based tools decode the image into a canvas and
+    re-encode it, which loses quality on every pass and throws away everything they did not think to
+    copy. Nothing here decodes the image; a 40-megapixel photo is edited without ever being drawn.
+  </p>
+  <div class="note">
+    <p>
+      A photo can hold the location <strong>twice</strong> — once in EXIF, once in a descriptive
+      text packet called XMP. Change one and forget the other, and a viewer that reads the second
+      one still shows the old place. Both are handled together, which is also why removal is checked
+      twice over.
+    </p>
+  </div>
+
+  <h2 id="photos-apps">Changing it in Google Photos or Apple Photos is not the same thing</h2>
+  <p>
+    Both let you edit the location of a picture, and both are editing <em>their own record</em> of
+    it. The library shows the new place immediately; the file on disk may still say the old one. If
+    you then download or export the original and send it to someone, the coordinates that travel are
+    whatever the file holds — which is why people are surprised to find a location they thought they
+    had corrected months ago.
+  </p>
+  <p>
+    The way to settle it takes ten seconds: export the photo, then
+    <a href={cheminGuide('en', 'verifier')}>read the location back out of the exported file</a>. If
+    the old coordinates are still in there, the edit lived in the app, not in the photo.
+  </p>
+
+  <h2 id="formats">Which files accept a change, and which do not</h2>
+  <p>
+    JPEG, HEIC and AVIF (what iPhones produce), PNG, WebP in its extended form, and TIFF can all
+    have their location read, changed, added and removed. Three limits are worth knowing
+    <em>before</em> you act rather than after:
+  </p>
+  <ul>
+    <li>
+      <strong>Camera raw files</strong> — DNG, NEF, CR2 — accept having a location removed, never
+      having one added. A raw file is an irreplaceable original, and a raw file is a TIFF: damaging
+      one would be irreversible.
+    </li>
+    <li>
+      <strong>A simple-form WebP</strong> has nowhere in it to put a location. It can be read, not
+      given one.
+    </li>
+    <li>
+      <strong>Videos</strong> are out of reach for now, reading included. A video keeps the location
+      in several places at once, sometimes spelled out in words, and half a removal is worse than
+      none.
+    </li>
+  </ul>
+  <p>
+    The tool says which of these applies to <em>your</em> file the moment you drop it, before you
+    have done anything. The full table is on the <a href="/#limites">home page</a>, and it is
+    rendered from the same code the engine reads, so it cannot drift from what the tool can
+    actually do.
+  </p>
+
+  <h2 id="lot">Changing several photos at once</h2>
+  <p>
+    Drop the whole batch. Each file is read, the location you give is written into every one that
+    accepts it, and the results come back as a single ZIP. Files that cannot take the change are
+    named and handed back untouched rather than quietly skipped — a batch that reports success for
+    forty photos and silently dropped three is the worst possible outcome for this kind of tool.
+  </p>
+
+  <h2 id="verifier">Check that the change landed</h2>
+  <p>
+    Every file produced here is read back before it reaches you, by our reader and by a second one
+    written by other people. If the location read back does not match the one you asked for, or if
+    the two readers disagree, the operation is declared failed and your original is handed back
+    intact. That is the check we can run; the one you can run is better, because it does not depend
+    on us at all:
+  </p>
+  <pre><code>exiftool -gps:all -n photo-geotagged.jpg</code></pre>
+  <p>
+    <a href="https://exiftool.org/">ExifTool</a> is the reference in this field, free and offline.
+    The <code>-n</code> asks for plain decimal numbers instead of degrees and minutes, which makes
+    them easy to paste straight back into a map.
+  </p>
+
+  <h2 id="questions">Questions that come up</h2>
+  <h3>Does changing the location also change the date?</h3>
+  <p>
+    No. Only the bytes of the position are written. The date, the camera, the exposure settings and
+    the lens are left exactly as they were — and the tool proves it, by comparing every other byte
+    of the file to the original.
+  </p>
+  <h3>Will the new location survive being uploaded somewhere?</h3>
+  <p>
+    Often not. Most social networks re-encode your photo on upload and lose the whole EXIF block in
+    the process, the location with it. That is a side effect of their pipeline, not a promise, and
+    it is not consistent —
+    <a href={cheminGuide('en', 'reseaux')}>which apps keep a photo’s location and which drop it</a>
+    goes through what actually happens.
+  </p>
+  <h3>Can I change the location of a screenshot or a scan?</h3>
+  <p>
+    Those files usually have no location at all, so there is nothing to change. Giving them one is a
+    different operation, with different limits:
+    <a href={cheminGuide('en', 'ajouter')}>adding a location to a photo that has none</a>.
+  </p>
+  <h3>What if I want the location gone rather than moved?</h3>
+  <p>
+    Then do not put a decoy coordinate in — remove it.
+    <a href={cheminGuide('en', 'supprimer')}>Removing the location</a> takes it out of both places it
+    can hide, and checks afterwards that no trace survived.
+  </p>
+</Guide>

@@ -1,0 +1,150 @@
+---
+/** Français — « de toute façon ils l'enlèvent », et où cela cesse d'être vrai. */
+import Guide from '../../../../components/Guide.astro';
+import { fr } from '../../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../../lib/guides/index.ts';
+---
+
+<Guide dico={fr} id="reseaux">
+  <p class="reponse">
+    La plupart des réseaux sociaux font bien disparaître les coordonnées GPS d'une photo — parce
+    qu'ils recompressent chaque image publiée, et que le bloc d'informations ne survit pas à cela.
+    C'est un effet de bord de leur chaîne de traitement, pas une promesse, et cela cesse d'être vrai
+    dès qu'une photo voyage comme <em>fichier</em> plutôt que comme publication.
+  </p>
+
+  <h2 id="mecanisme">Pourquoi il disparaît d'habitude, et pourquoi ce n'est pas rassurant</h2>
+  <p>
+    Quand vous publiez une image, la plate-forme ne conserve pas votre fichier. Elle décode l'image,
+    la redimensionne, la recompresse pour son propre réseau de distribution, et range le résultat.
+    Le bloc EXIF — date, appareil, exposition, coordonnées — ne fait pas partie de l'image : il est
+    transporté à côté, et une recompression qui ne le recopie pas délibérément le perd, tout
+    simplement.
+  </p>
+  <p>
+    C'est vraiment pour cela que le lieu s'évapore de la copie que les autres peuvent télécharger.
+    Cela veut aussi dire trois choses qu'on a tendance à sauter :
+  </p>
+  <ul>
+    <li>
+      <strong>Personne ne l'a promis.</strong> C'est la conséquence d'une chaîne de traitement
+      d'images, et une chaîne de traitement d'images change sans qu'on prévienne les photographes.
+    </li>
+    <li>
+      <strong>Ce n'est pas uniforme à l'intérieur d'un même produit.</strong> Le site, l'application
+      mobile, les messages privés et le mode « envoyer en fichier » sont du code différent, et ils
+      ne recompressent pas tous.
+    </li>
+    <li>
+      <strong>Retiré ne veut pas dire jamais transmis.</strong> La plate-forme a reçu votre
+      original, coordonnées comprises. Ce qui a été retiré, c'est ce que les <em>autres
+      utilisateurs</em> peuvent lire.
+    </li>
+  </ul>
+
+  <h2 id="tableau">Ce que fait chaque type de canal</h2>
+  <div
+    class="tableau-defilant"
+    role="region"
+    aria-label="Ce que chaque type de canal fait du lieu d'une photo"
+    tabindex="0">
+    <table>
+      <caption>Ce que chaque type de canal fait du lieu d'une photo</caption>
+      <thead>
+        <tr>
+          <th scope="col">Comment la photo voyage</th>
+          <th scope="col">Le lieu, en général…</th>
+          <th scope="col">Parce que</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Publiée dans un fil public</th>
+          <td>disparaît</td>
+          <td>l'image est redimensionnée et recompressée pour la diffusion</td>
+        </tr>
+        <tr>
+          <th scope="row">Envoyée dans une conversation en « photo »</th>
+          <td>disparaît</td>
+          <td>la même compression, pour économiser de la bande passante</td>
+        </tr>
+        <tr>
+          <th scope="row">Envoyée en « document » ou en « fichier »</th>
+          <td>survit intact</td>
+          <td>tout l'objet de ce mode est de livrer les octets inchangés</td>
+        </tr>
+        <tr>
+          <th scope="row">Jointe à un courriel</th>
+          <td>survit intact</td>
+          <td>une pièce jointe est une copie de fichier, pas une mise en ligne</td>
+        </tr>
+        <tr>
+          <th scope="row">Partagée depuis un espace de stockage par un lien</th>
+          <td>survit intact</td>
+          <td>le destinataire télécharge votre fichier d'origine</td>
+        </tr>
+        <tr>
+          <th scope="row">Transmise d'appareil à appareil (AirDrop)</th>
+          <td>survit intact</td>
+          <td>rien ne la recompresse en chemin</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Le schéma vaut mieux que n'importe quelle liste de marques, parce qu'il tient quand les marques
+    changent leurs applications : <strong>tout ce qui compresse votre photo tend à perdre le lieu,
+    et tout ce qui livre votre fichier le conserve.</strong> L'option « envoyer en document » existe
+    précisément pour empêcher la compression — c'est donc exactement ce qui empêche aussi le
+    nettoyage accidentel.
+  </p>
+
+  <h2 id="pas-tout">Ce qu'aucune mise en ligne ne retire</h2>
+  <p>
+    Retirer des coordonnées retire des coordonnées. La photographie, elle, reste intacte, et une
+    photographie est souvent un meilleur indice de lieu que ses métadonnées : une plaque de rue, un
+    numéro de porte, une devanture, une vue depuis une fenêtre, un uniforme d'école. Une chaîne de
+    traitement qui supprime l'EXIF n'y change rien.
+  </p>
+  <p>
+    Il y a aussi une seconde copie à laquelle penser. Un lieu peut être rangé deux fois dans un
+    fichier — dans le bloc EXIF et dans un paquet de texte descriptif — et un outil qui ne nettoie
+    que le premier rend un fichier qui livre toujours l'adresse à tout ce qui lit le second.
+    <a href={cheminGuide('fr', 'supprimer')}>Supprimer correctement la géolocalisation</a> traite
+    les deux, et vérifie ensuite.
+  </p>
+
+  <h2 id="tester">Le vérifier soi-même, en deux minutes</h2>
+  <p>C'est la seule méthode qui survit à une refonte, et elle ne coûte rien :</p>
+  <ol>
+    <li>
+      Prenez une photo localisation activée, et confirmez qu'elle porte des coordonnées —
+      <a href={cheminGuide('fr', 'verifier')}>vérifier la géolocalisation d'une photo</a> montre
+      comment.
+    </li>
+    <li>
+      Envoyez-la-vous par le canal que vous utilisez vraiment, de la façon dont vous l'utilisez
+      vraiment.
+    </li>
+    <li>Téléchargez ce qui arrive — le fichier, pas l'aperçu.</li>
+    <li>Lisez ce fichier :</li>
+  </ol>
+  <pre><code>exiftool -gps:all -n recue.jpg</code></pre>
+  <p>
+    Le silence signifie que le canal l'a retiré. Des chiffres signifient qu'il ne l'a pas fait. Dans
+    les deux cas vous savez désormais quelque chose sur votre propre usage plutôt que sur le billet
+    de blog de quelqu'un, et la réponse reste vraie tant que vous empruntez le même chemin.
+  </p>
+
+  <h2 id="regle">La règle qui n'a pas besoin d'être mise à jour</h2>
+  <p>
+    Nettoyer avant d'envoyer, plutôt que de compter sur le logiciel du destinataire. Cela coûte une
+    étape, cela ne dépend d'aucune application à la mode, et c'est la seule version de ce conseil qui
+    soit encore juste après la prochaine refonte.
+  </p>
+  <p>
+    Si vous préférez déplacer le lieu plutôt que le retirer — pour une photo que vous voulez sur une
+    carte, au bon endroit — <a href={cheminGuide('fr', 'modifier')}>le modifier</a> écrit les
+    coordonnées de votre choix dans le fichier, sans recompresser l'image.
+  </p>
+</Guide>

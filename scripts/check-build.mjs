@@ -201,10 +201,14 @@ for (const f of fichiers.filter((x) => ['.js', '.mjs'].includes(extname(x)))) {
 /* --- 3. titles, metas et contenu servi sans JS -------------------- */
 
 /*
- * Les blocs de contenu attendus, par langue. Le §7 les impose ; ils doivent
- * exister dans le HTML SERVI, donc sans JavaScript. Une langue absente de cette
- * table fait échouer la build : ajouter une page sans ajouter ses contrôles
- * reviendrait à publier une page que rien ne vérifie.
+ * Les blocs de contenu attendus SUR LA PAGE DE L'OUTIL, par langue. Le §7 les
+ * impose ; ils doivent exister dans le HTML SERVI, donc sans JavaScript. Une
+ * langue absente de cette table fait échouer la build : ajouter une page sans
+ * ajouter ses contrôles reviendrait à publier une page que rien ne vérifie.
+ *
+ * Les guides ne les portent pas, et n'ont aucune raison de les porter : ce ne
+ * sont pas des copies de la page d'accueil. Ils sont contrôlés plus bas, sur
+ * ce qui fait qu'un guide est un guide — voir `controlerGuide`.
  */
 const BLOCS_OBLIGATOIRES = {
   fr: [
@@ -238,6 +242,92 @@ const estIntrouvable = (f) => /(^|[\\/])404\.html$/.test(f);
 
 /** Les pages qu'on demande à un moteur d'indexer, et elles seules. */
 const pagesIndexables = fichiers.filter((x) => extname(x) === '.html' && !estIntrouvable(x));
+
+/** Le chemin d'URL d'une page produite : « », « fr/ », « guides/change-x/ ». */
+const cheminDe = (f) => rel(f).split(/[\\/]/).join('/').replace(/index\.html$/, '');
+
+/*
+ * La FAMILLE d'une page, déduite de son adresse et de la langue qu'elle
+ * déclare — jamais d'une liste écrite à la main.
+ *
+ * Le site compte désormais trois sortes de documents, et ils n'ont pas les
+ * mêmes obligations : l'outil porte six blocs de prose et se décrit comme une
+ * application, le sommaire est une liste, un guide est un article. Les
+ * confondre reviendrait soit à exiger d'un guide qu'il recopie la page
+ * d'accueil, soit — bien pire — à n'exiger de lui rien du tout et à laisser
+ * quatorze pages sortir sans qu'un seul contrôle les regarde.
+ *
+ * La langue est lue sur la page elle-même : la racine sert l'anglais, et une
+ * langue ajoutée demain apportera son propre répertoire sans qu'on touche ici.
+ */
+function famille(chemin, lang) {
+  const sansLangue = chemin.startsWith(`${lang}/`) ? chemin.slice(lang.length + 1) : chemin;
+  const morceaux = sansLangue.split('/').filter(Boolean);
+  if (morceaux.length === 0) return 'outil';
+  if (morceaux[0] !== 'guides') return 'inconnue';
+  return morceaux.length === 1 ? 'sommaire' : morceaux.length === 2 ? 'guide' : 'inconnue';
+}
+
+/**
+ * Ce qui fait qu'un guide est un guide, vérifié sur le HTML servi.
+ *
+ * Ces règles sont éditoriales autant que techniques, et c'est voulu. Un guide
+ * qui n'annonce pas sa réponse dans son premier paragraphe est un guide que
+ * personne ne cite ; un guide de trois cents mots est une page mince, c'est-à-
+ * dire exactement ce qu'un moteur a appris à écarter. Écrites ici, ces règles
+ * s'appliquent au quinzième guide comme au premier — et elles s'appliquent
+ * aussi le jour où quelqu'un est pressé.
+ */
+const MOTS_MINIMUM_GUIDE = 700;
+
+function controlerGuide(nom, html, chemin, lang) {
+  const corps = html.match(/<article class="contenu guide">([\s\S]*?)<\/article>/i)?.[1];
+  if (!corps) {
+    echecs.push(`${nom} : aucun article de guide dans la page servie`);
+    return;
+  }
+
+  // La réponse d'abord. Le style la met en évidence ; le contrôle la rend
+  // obligatoire, faute de quoi elle finira par manquer là où elle compte.
+  if (!/<p class="reponse">/.test(corps)) {
+    echecs.push(`${nom} : pas de paragraphe de réponse en tête de guide`);
+  }
+
+  /*
+   * Le compte de mots porte sur l'article ENTIER, coquille comprise : l'appel
+   * à l'outil et la liste des autres guides en apportent environ cent trente à
+   * eux deux. Le plancher en tient compte — il ne s'agit pas de mesurer la
+   * prose au mot près, mais d'attraper une page qui n'en aurait pas.
+   */
+  const mots = texteVisible(corps.replace(/<[^>]+>/g, ' ')).split(/\s+/).filter(Boolean).length;
+  if (mots < MOTS_MINIMUM_GUIDE) {
+    echecs.push(`${nom} : ${mots} mots, plancher ${MOTS_MINIMUM_GUIDE} — page trop mince`);
+  } else {
+    // Affiché, et pas seulement comparé : un plancher qu'on ne voit qu'en
+    // l'atteignant ne dit jamais de combien on s'en approche.
+    infos.push(`guide ${String(mots).padStart(4)} mots — ${nom}`);
+  }
+
+  // Le fil d'Ariane doit exister DANS la page : c'est ce que le balisage
+  // `BreadcrumbList` déclare, et un balisage qui décrit une navigation absente
+  // décrit une page qu'on ne sert pas.
+  if (!/<nav class="fil"/.test(html)) echecs.push(`${nom} : aucun fil d'Ariane`);
+
+  /*
+   * La racine de la langue est déduite du CHEMIN, comme dans `famille` — pas
+   * d'un « si c'est l'anglais alors la racine ». Le jour où la langue servie à
+   * la racine change, ce contrôle suit tout seul au lieu d'accuser à tort les
+   * quatorze pages d'un coup.
+   */
+  const racine = chemin.startsWith(`${lang}/`) ? `/${lang}/` : '/';
+  if (!new RegExp(`href="${racine}"`).test(html)) {
+    echecs.push(`${nom} : aucun lien vers l'outil dans sa langue (${racine})`);
+  }
+  const sommaire = `${racine}guides/`;
+  if (!html.includes(`href="${sommaire}"`)) {
+    echecs.push(`${nom} : aucun lien vers le sommaire des guides (${sommaire})`);
+  }
+}
 
 for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   const html = readFileSync(f, 'utf8');
@@ -281,13 +371,31 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
     continue;
   }
 
-  const attendus = BLOCS_OBLIGATOIRES[lang];
-  if (!attendus) {
+  if (!BLOCS_OBLIGATOIRES[lang]) {
     echecs.push(`${rel(f)} : langue « ${lang} » inconnue du contrôle de contenu`);
-  } else {
-    for (const [nom, re] of attendus) {
+  }
+
+  const genre = famille(cheminDe(f), lang);
+  if (genre === 'outil') {
+    for (const [nom, re] of BLOCS_OBLIGATOIRES[lang] ?? []) {
       if (!re.test(lisible)) echecs.push(`${rel(f)} : le bloc « ${nom} » est absent du HTML servi`);
     }
+  } else if (genre === 'guide') {
+    controlerGuide(rel(f), html, cheminDe(f), lang);
+  } else if (genre === 'sommaire') {
+    // Un sommaire qui n'énumère rien n'est pas un sommaire. Le contrôle
+    // croisé — chaque guide produit y figure — est fait plus bas, quand la
+    // liste des pages produites est connue.
+    if (!/<ul class="liste-guides">/.test(html)) {
+      echecs.push(`${rel(f)} : le sommaire n'affiche aucune liste de guides`);
+    }
+  } else {
+    /*
+     * Une page d'une forme qu'aucun contrôle ne connaît. Elle sortirait sinon
+     * sans que rien ne regarde autre chose que son titre — et c'est très
+     * exactement la panne que ce fichier existe pour empêcher.
+     */
+    echecs.push(`${rel(f)} : forme de page inconnue du contrôle de contenu`);
   }
 
   // Les liens réciproques entre langues : chaque page doit annoncer TOUTES les
@@ -306,6 +414,44 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   // l'écran et retire le site des résultats.
   if (/<meta\s+name=["']robots["']\s+content=["'][^"']*noindex/i.test(html)) {
     echecs.push(`${rel(f)} : une page du site porte « noindex »`);
+  }
+}
+
+/* --- 3 bis. aucun mot collé à sa balise --------------------------- */
+
+/*
+ * « collez-la avec<kbd>Ctrl</kbd> », « transmis à un<a>Web Worker</a> »,
+ * « <code>GPSLatitudeRef</code>vaut ».
+ *
+ * Ces trois-là ont été servis pour de vrai, les deux derniers sur la page
+ * d'accueil et pendant des mois. La cause était `compressHTML`, qui ne réduit
+ * pas l'espace en fin de ligne mais le supprime — voir `astro.config.mjs`, où
+ * elle est désormais coupée. Ce contrôle est ce qui empêche la panne de
+ * revenir par un autre chemin : un espace oublié à la main produirait
+ * exactement la même page, et ne se verrait pas davantage.
+ *
+ * Le motif est étroit exprès. Une LETTRE immédiatement accolée à l'ouverture
+ * ou à la fermeture d'une balise en ligne n'a aucune raison d'exister dans de
+ * la prose ; une parenthèse, une virgule, un guillemet ou un tiret en ont
+ * une, et ne sont donc pas cherchés. Les balises structurantes non plus : un
+ * `</p><p>` colle par construction.
+ */
+const COLLE = [
+  /[A-Za-zÀ-ÖØ-öø-ÿ]<(?:a|code|kbd|em|strong|b|i)[\s>]/g,
+  /<\/(?:a|code|kbd|em|strong|b|i)>[A-Za-zÀ-ÖØ-öø-ÿ]/g,
+];
+for (const f of fichiers.filter((x) => extname(x) === '.html')) {
+  const html = readFileSync(f, 'utf8');
+  // La prose, et rien qu'elle : l'interface est faite d'éléments accolés à
+  // dessein, et les juger ici noierait le contrôle sous des faux positifs.
+  for (const [, corps] of html.matchAll(/<article class="contenu[^"]*">([\s\S]*?)<\/article>/gi)) {
+    for (const re of COLLE) {
+      re.lastIndex = 0;
+      for (const m of corps.matchAll(re)) {
+        const autour = texteVisible(corps.slice(Math.max(0, m.index - 40), m.index + 40));
+        echecs.push(`${rel(f)} : un mot est collé à sa balise — …${autour}…`);
+      }
+    }
   }
 }
 
@@ -795,31 +941,43 @@ for (const [fichierReadme, page] of [
 
   /* --- le <head> des pages indexables -------------------------------- */
 
-  for (const f of pagesIndexables) {
+  /*
+   * Un premier passage LIT, un second CONTRÔLE — et cet ordre est imposé par
+   * le graphe de données structurées. Un guide DÉSIGNE l'application par son
+   * `@id` sans la redéfinir : c'est l'usage même d'un `@id`, et c'est ce qui
+   * évite de recopier douze fois un nœud décrivant une application qui n'est
+   * pas sur la page. Une référence ne peut donc être jugée qu'une fois connus
+   * tous les identifiants que le site définit, page par page.
+   *
+   * Ce qu'on cherche est la panne la plus discrète du lot : un `@id` qui ne
+   * correspond à rien ne relie rien. Pas d'erreur de console, pas de page
+   * cassée, rien à l'écran — seulement un graphe qui a cessé de dire ce qu'on
+   * croit qu'il dit.
+   */
+  const TYPES_ATTENDUS = {
+    outil: ['SoftwareApplication', 'WebSite', 'Organization'],
+    sommaire: ['CollectionPage', 'BreadcrumbList', 'WebSite', 'Organization'],
+    guide: ['Article', 'BreadcrumbList', 'WebSite', 'Organization'],
+  };
+
+  /** Les nœuds de premier rang d'un graphe. */
+  const noeuds = (g) => (g ? (Array.isArray(g['@graph']) ? g['@graph'] : [g]) : []);
+
+  /** Tout `{"@id": …}` employé comme RENVOI, c'est-à-dire sans « @type ». */
+  function renvois(valeur, trouves = []) {
+    if (Array.isArray(valeur)) {
+      for (const v of valeur) renvois(v, trouves);
+    } else if (valeur && typeof valeur === 'object') {
+      if (typeof valeur['@id'] === 'string' && !valeur['@type']) trouves.push(valeur['@id']);
+      for (const v of Object.values(valeur)) renvois(v, trouves);
+    }
+    return trouves;
+  }
+
+  const lues = pagesIndexables.map((f) => {
     const html = readFileSync(f, 'utf8');
-    const adresse = `${racine}/${rel(f).replace(/index\.html$/, '')}`;
-
-    // Un canonique auto-référent sur chaque page indexable. Seule la page
-    // française était vérifiée, et seulement par le test de bout en bout.
-    const canonique = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1];
-    if (canonique !== adresse) {
-      echecs.push(`${rel(f)} : canonique « ${canonique ?? '(absent)'} », attendu « ${adresse} »`);
-    }
-
-    const balise = (p) =>
-      html.match(new RegExp(`<meta[^>]+property=["']${p}["'][^>]+content=["']([^"']*)["']`, 'i'))?.[1];
-    for (const p of ['og:title', 'og:description', 'og:url', 'og:locale']) {
-      if (!balise(p)) echecs.push(`${rel(f)} : « ${p} » manque`);
-    }
-    if (!/<meta[^>]+name=["']twitter:card["']/i.test(html)) {
-      echecs.push(`${rel(f)} : « twitter:card » manque`);
-    }
-    // « canonique = liens internes = plan du site = og:url ». Des signaux qui
-    // se contredisent sont des signaux qu'un moteur écarte.
-    if (balise('og:url') && balise('og:url') !== canonique) {
-      echecs.push(`${rel(f)} : « og:url » et le canonique diffèrent`);
-    }
-
+    const lang = html.match(/<html[^>]+lang=["']([a-z-]+)["']/i)?.[1] ?? '';
+    const chemin = cheminDe(f);
     /*
      * Le JSON-LD n'était parsé par personne. Une virgule de trop l'aurait
      * cassé en silence : le bloc reste dans la page, il ne lève aucune erreur
@@ -827,19 +985,116 @@ for (const [fichierReadme, page] of [
      * compris. On le lit donc vraiment.
      */
     const ld = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
-    if (!ld) {
-      echecs.push(`${rel(f)} : aucun bloc « application/ld+json »`);
-    } else {
+    let graphe = null;
+    let erreurLd = null;
+    if (ld) {
       try {
-        const graphe = JSON.parse(ld);
-        const types = (graphe['@graph'] ?? [graphe]).map((n) => n['@type']);
-        for (const attendu of ['SoftwareApplication', 'WebSite', 'Organization']) {
-          if (!types.includes(attendu)) {
-            echecs.push(`${rel(f)} : le JSON-LD ne déclare pas « ${attendu} » — ${types.join(', ')}`);
-          }
-        }
+        graphe = JSON.parse(ld);
       } catch (e) {
-        echecs.push(`${rel(f)} : le JSON-LD n'est pas du JSON valide — ${e.message}`);
+        erreurLd = e.message;
+      }
+    }
+    return {
+      f,
+      html,
+      lang,
+      chemin,
+      genre: famille(chemin, lang),
+      adresse: `${racine}/${chemin}`,
+      ld,
+      graphe,
+      erreurLd,
+    };
+  });
+
+  /** Les identifiants que le site DÉFINIT — un nœud, avec son type. */
+  const identifiants = new Set();
+  for (const p of lues) {
+    for (const n of noeuds(p.graphe)) {
+      if (n && typeof n['@id'] === 'string' && n['@type']) identifiants.add(n['@id']);
+    }
+  }
+
+  for (const p of lues) {
+    const nom = rel(p.f);
+
+    // Un canonique auto-référent sur chaque page indexable. Seule la page
+    // française était vérifiée, et seulement par le test de bout en bout.
+    const canonique = p.html.match(
+      /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i,
+    )?.[1];
+    if (canonique !== p.adresse) {
+      echecs.push(`${nom} : canonique « ${canonique ?? '(absent)'} », attendu « ${p.adresse} »`);
+    }
+
+    const balise = (b) =>
+      p.html.match(
+        new RegExp(`<meta[^>]+property=["']${b}["'][^>]+content=["']([^"']*)["']`, 'i'),
+      )?.[1];
+    for (const b of ['og:title', 'og:description', 'og:url', 'og:locale']) {
+      if (!balise(b)) echecs.push(`${nom} : « ${b} » manque`);
+    }
+    if (!/<meta[^>]+name=["']twitter:card["']/i.test(p.html)) {
+      echecs.push(`${nom} : « twitter:card » manque`);
+    }
+    // « canonique = liens internes = plan du site = og:url ». Des signaux qui
+    // se contredisent sont des signaux qu'un moteur écarte.
+    if (balise('og:url') && balise('og:url') !== canonique) {
+      echecs.push(`${nom} : « og:url » et le canonique diffèrent`);
+    }
+
+    /*
+     * Un lien alternatif qui ne mène nulle part est pire qu'absent : la page
+     * jure qu'une version existe dans une autre langue, un moteur va la
+     * chercher, et il trouve un 404. Le contrôle des `hreflang` ne regardait
+     * jusqu'ici que les LANGUES déclarées, jamais les adresses — avec deux
+     * pages c'était sans conséquence, avec seize cela ne l'est plus.
+     */
+    for (const [, cible] of p.html.matchAll(
+      /<link[^>]+rel=["']alternate["'][^>]+href=["']([^"']+)["']/gi,
+    )) {
+      if (!cible.startsWith(`${racine}/`)) {
+        echecs.push(`${nom} : lien alternatif hors de l'origine — ${cible}`);
+      } else if (!existsSync(join(DIR, cible.slice(racine.length + 1), 'index.html'))) {
+        echecs.push(`${nom} : le lien alternatif ${cible} ne désigne aucune page produite`);
+      }
+    }
+
+    if (!p.ld) {
+      echecs.push(`${nom} : aucun bloc « application/ld+json »`);
+      continue;
+    }
+    if (p.erreurLd) {
+      echecs.push(`${nom} : le JSON-LD n'est pas du JSON valide — ${p.erreurLd}`);
+      continue;
+    }
+
+    const types = noeuds(p.graphe).map((n) => n?.['@type']);
+    for (const attendu of TYPES_ATTENDUS[p.genre] ?? []) {
+      if (!types.includes(attendu)) {
+        echecs.push(`${nom} : le JSON-LD ne déclare pas « ${attendu} » — ${types.join(', ')}`);
+      }
+    }
+    for (const renvoi of renvois(p.graphe)) {
+      if (!identifiants.has(renvoi)) {
+        echecs.push(`${nom} : le JSON-LD renvoie à « ${renvoi} », que rien ne définit`);
+      }
+    }
+  }
+
+  /*
+   * Aucun guide orphelin.
+   *
+   * Le sommaire est la seule page qui les rassemble, et un guide qui n'y
+   * figure pas n'est atteignable que par les liens croisés des autres guides
+   * — c'est-à-dire par personne, le jour où il est ajouté sans être relié. Le
+   * plan du site l'annoncerait quand même, ce qui est précisément le genre de
+   * page qu'un moteur classe comme isolée.
+   */
+  for (const s of lues.filter((p) => p.genre === 'sommaire')) {
+    for (const g of lues.filter((p) => p.genre === 'guide' && p.lang === s.lang)) {
+      if (!s.html.includes(`href="/${g.chemin}"`)) {
+        echecs.push(`${rel(s.f)} : le guide /${g.chemin} n'est listé nulle part`);
       }
     }
   }

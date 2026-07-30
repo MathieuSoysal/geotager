@@ -3,6 +3,7 @@
 import Page from '../../components/Page.astro';
 import Matrice from '../../components/Matrice.astro';
 import { fr } from '../../lib/i18n/index.ts';
+import { cheminGuide, cheminSommaire } from '../../lib/guides/index.ts';
 ---
 
 <Page dico={fr}>
@@ -89,6 +90,15 @@ import { fr } from '../../lib/i18n/index.ts';
     modifier une photo de plusieurs mégaoctets sans jamais la décoder&nbsp;: nous ne
     promettons pas qu'elle est restée intacte, nous le montrons.
   </p>
+  <p>
+    Des explications plus longues, y compris ce qu'il faut faire depuis un téléphone et comment
+    vérifier le résultat avec un autre outil, vivent dans les
+    <a href={cheminSommaire('fr')}>guides</a>&nbsp;:
+    <a href={cheminGuide('fr', 'modifier')}>modifier la géolocalisation d'une photo</a>,
+    <a href={cheminGuide('fr', 'verifier')}>vérifier où une photo a été prise</a>,
+    <a href={cheminGuide('fr', 'supprimer')}>supprimer la position</a>, et
+    <a href={cheminGuide('fr', 'ajouter')}>en ajouter une à une photo qui n'en a pas</a>.
+  </p>
 
   <h2 id="limites">{fr.titres.limites}</h2>
   <Matrice dico={fr} />
@@ -155,7 +165,10 @@ import { fr } from '../../lib/i18n/index.ts';
     contractuel, ni uniforme selon que vous passez par l'application ou par le site. Les
     services de messagerie qui envoient un fichier «&nbsp;en tant que document&nbsp;»
     transmettent en général l'original tel quel, métadonnées comprises. La règle sûre est de
-    nettoyer avant d'envoyer, plutôt que de compter sur le destinataire.
+    nettoyer avant d'envoyer, plutôt que de compter sur le destinataire —
+    <a href={cheminGuide('fr', 'reseaux')}>quelles applications retirent le lieu d'une photo</a>
+    détaille où cette règle cesse de tenir, et comment éprouver votre propre chemin en deux
+    minutes.
   </p>
 
   <h2 id="verifier">{fr.titres.verifier}</h2>
