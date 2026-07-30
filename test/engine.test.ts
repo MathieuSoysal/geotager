@@ -1406,6 +1406,27 @@ scenario('« Ouvrir avec » ne promet que ce que le tableau tient', () => {
       h !== undefined && !('launch_type' in h));
 
     /*
+     * The manifest names itself, in both languages. An installation remembers
+     * the address of the manifest it was made from: announcing only its own
+     * would leave an application installed from "/fr/" unrecognisable from the
+     * English page, and the install button would reappear in front of somebody
+     * who has already installed.
+     */
+    const parentes: Array<{ platform: string; url: string }> = m.related_applications ?? [];
+    check(`${langue} : les deux manifestes sont désignés`,
+      parentes.length === LANGUES.length,
+      JSON.stringify(parentes.map((a) => a.url)));
+    for (const l of LANGUES) {
+      check(`${langue} : « ${l} » est désigné par son manifeste`,
+        parentes.some(
+          (a) => a.platform === 'webapp' && a.url === `${DICOS[l].base}manifest.webmanifest`,
+        ));
+    }
+    // Set to true it would suppress the install prompt, and so the button.
+    check(`${langue} : rien ne détourne vers une autre application`,
+      m.prefer_related_applications !== true);
+
+    /*
      * The table is authoritative, as everywhere else. Registering for a format
      * we cannot give a location to is offering work we cannot do to somebody
      * who did not ask for it, the reasoning already written down for videos. A

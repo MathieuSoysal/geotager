@@ -950,6 +950,10 @@ const POSER_INVITE = () => {
     window.dispatchEvent(e);
   };
   window.__installee = () => window.dispatchEvent(new Event('appinstalled'));
+  // The bench's browser could answer whatever it likes to "is this application
+  // installed?". We answer in its place, so that the "not installed" case is a
+  // fact of the test rather than luck.
+  navigator.getInstalledRelatedApps = async () => [];
 };
 
 const pageInstall = await contexte.newPage();
@@ -1012,6 +1016,25 @@ await pageInstallee.evaluate(() => window.__inviterInstall());
 check("dans la fenêtre installée, le bouton reste absent malgré l'invitation",
   await pageInstallee.locator('#installer').isHidden());
 await pageInstallee.close();
+
+/*
+ * Lock 5: the browser answers that the application is already installed.
+ *
+ * It is the only lock that infers nothing: the other four rest on the absence
+ * of a prompt or on the display mode, this one asks the question. It covers the
+ * case the others let through: the application is installed, and the site is
+ * reopened in an ordinary tab.
+ */
+const pageDejaPosee = await contexte.newPage();
+await pageDejaPosee.addInitScript(POSER_INVITE);
+await pageDejaPosee.addInitScript(() => {
+  navigator.getInstalledRelatedApps = async () => [{ platform: 'webapp', url: '/manifest.webmanifest' }];
+});
+await pageDejaPosee.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await pageDejaPosee.evaluate(() => window.__inviterInstall());
+check("quand le navigateur confirme l'installation, le bouton reste absent",
+  await pageDejaPosee.locator('#installer').isHidden());
+await pageDejaPosee.close();
 
 const restantesInstall = erreursInstall.filter((e) => !/Failed to load resource|net::ERR_/.test(e));
 check("aucune exception sur le chemin de l'installation",
