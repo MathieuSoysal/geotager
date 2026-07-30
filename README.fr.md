@@ -71,6 +71,37 @@ Le plan complet, les décisions et les points non tranchés sont dans
   en subsiste la moindre trace, ou si le paquet est compressé et donc illisible pour ce moteur,
   l'effacement échoue plutôt que de rendre un fichier qu'on croirait propre.
 
+## Les guides
+
+En plus de l'outil, le site publie six guides écrits dans chaque langue&nbsp;: modifier la
+géolocalisation d'une photo, la vérifier, la supprimer, en ajouter une, faire tout cela sur un
+iPhone, et ce que les réseaux sociaux et les messageries en font réellement. Ils vivent sous
+`/guides/` et `/fr/guides/`.
+
+Leur structure est **dérivée**, jamais écrite deux fois. `src/lib/guides/` porte une fiche typée par
+langue — le segment d'adresse, le titre, la description, le résumé d'une ligne — et tout le reste
+lit d'ici&nbsp;: le sommaire, les liens croisés entre guides, les `hreflang` réciproques, le plan du
+site et les contrôles. Un guide ajouté dans une langue et pas dans l'autre est une erreur de
+compilation, puisque toute page indexable doit annoncer toutes les langues. La prose, elle, reste
+dans la page qui la porte.
+
+Quatre choses sont **imposées au build** plutôt que confiées à la bonne volonté&nbsp;:
+
+- **Rien de mince.** Un guide de moins de 700 mots fait échouer la build. Le compte est affiché pour
+  chacun.
+- **La réponse d'abord.** Un guide doit s'ouvrir sur un `<p class="reponse">`&nbsp;: une réponse
+  directe dans le premier paragraphe, pas un préambule.
+- **Aucun orphelin.** Chaque guide doit figurer au sommaire de sa langue, et ramener à l'outil comme
+  à ce sommaire.
+- **Aucun `@id` dans le vide.** Un guide désigne l'application dans ses données structurées par
+  référence plutôt qu'en la redéfinissant&nbsp;; le contrôle résout chaque référence contre les
+  identifiants que le site définit vraiment, toutes pages confondues.
+
+Les guides n'embarquent **aucun JavaScript** — le test de bout en bout vérifie les deux moitiés&nbsp;:
+aucune balise de script ne subsiste, et aucun module n'est demandé au réseau. Astro réunit les
+scripts hissés en un seul paquet&nbsp;: importer la décoration de la page y amènerait tout l'outil,
+sur une page qui n'en a pas.
+
 ## L'installer, et s'en servir hors ligne
 
 Geotager s'installe, et fonctionne sans le moindre réseau — ce qui est bien le sujet&nbsp;: l'outil

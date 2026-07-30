@@ -1643,6 +1643,17 @@ l'application, le site et son éditeur au lieu de le deviner.
 `preserve` : les deux pages du site ne bougent pas — `index.astro` donnait déjà `index.html` — et la
 page d'erreur sort en `fr/404.html`, qui est le seul nom servi.
 
+**Le bouton vit sur la page de l'outil, et pas sur les guides.** Il avait d'abord été retenu de l'y
+porter aussi — un visiteur qui arrive d'une recherche sur un guide est un candidat plausible. La
+fusion avec la V1.6 a montré que celle-ci impose l'inverse et l'écrit : « Guides ship no JavaScript
+at all », promesse tenue par deux contrôles du test de bout en bout. Y poser le bouton aurait donc
+demandé de casser une promesse publiée dans les deux README et de supprimer deux contrôles écrits
+exprès quelques jours plus tôt, pour un bouton que rien n'aurait pu découvrir sur une page sans
+script — c'est-à-dire très exactement le « contrôle qui ne peut pas agir » que ce projet refuse
+partout, invisible au lieu d'être grisé. La décision a été renversée devant ce coût. Les guides
+ramènent à l'outil ; l'offre y est à un clic. Le contrôle de build refuse désormais les deux
+débordements : le bouton absent de l'outil, et le bouton présent ailleurs.
+
 **Ce que ce lot ne prouve pas.** Le test de bout en bout atteint les pages 404 par leur chemin : il
 ne peut pas provoquer un vrai 404, puisque c'est l'hébergeur qui remonte au fichier le plus proche et
 que le serveur du banc ne l'imite pas. Ce qui est jugé est la page ; le réglage qui la sert ne l'est
@@ -1653,7 +1664,108 @@ demandent des outils en ligne qu'aucun test local ne remplace.
 
 ---
 
-## [V1.5] Q-047 — L'application était installable, et personne ne le proposait
+## [V1.6] Q-047 — Quatorze pages dans un dépôt dont les contrôles n'en connaissaient que deux
+
+**Contexte :** la demande était d'ajouter « des articles de blog utiles, du genre *comment changer le
+géotag d'une photo* ou *comment vérifier le géotag d'une photo*, optimisés pour le référencement ».
+Le site n'avait que deux pages, et un seul endroit où écrire de la prose : l'article sous la ligne de
+flottaison de l'accueil, déjà long et déjà chargé de six sujets.
+
+Le vrai sujet n'était donc pas d'écrire. C'était d'ajouter quatorze documents à un dépôt où **chaque
+page est surveillée par des contrôles bloquants** — et où ces contrôles avaient été écrits pour deux
+pages. Trois d'entre eux exigeaient de toute page indexable qu'elle porte les six blocs de prose de
+l'accueil et qu'elle se décrive comme une `SoftwareApplication`. Un guide n'est ni l'un ni l'autre.
+Il n'y avait que deux issues : élargir les contrôles pour qu'ils sachent de quelle sorte de page ils
+parlent, ou les assouplir jusqu'à ce qu'ils ne regardent plus rien. La seconde est celle que
+l'urgence choisit toujours, et c'est celle qui laisse ensuite une page sortir sans titre.
+
+**Ce qu'on a trouvé en chemin, et qui n'avait rien à voir avec la demande.** `compressHTML`, activé
+par défaut, ne réduit pas l'espace en fin de ligne : il le supprime. Dans un paragraphe écrit sur
+plusieurs lignes — c'est-à-dire dans toute la prose de ce dépôt — un retour à la ligne suivi d'une
+balise en ligne donnait « transmis à un<a>Web Worker</a> » et « <code>GPSLatitudeRef</code>vaut ».
+**Ces deux-là étaient sur la page d'accueil, livrés depuis des mois.** Le défaut ne lève rien, ne
+casse rien, n'apparaît dans aucun test : il ne se voit qu'en lisant la page, ce que personne ne fait
+après la première fois.
+
+**Options :**
+
+- **A.** Un registre typé par langue (`src/lib/guides/`) qui porte l'adresse, le titre, la
+  description et le résumé ; le sommaire, les liens croisés, les `hreflang`, le plan du site et les
+  contrôles en dérivent. Les contrôles apprennent la notion de FAMILLE de page — outil, sommaire,
+  guide — et exigent de chacune ce qui la définit.
+- **B.** Une collection Markdown, comme le font la plupart des sites. Écartée : le contrat de
+  traduction de ce dépôt est un type TypeScript, et c'est lui qui fait qu'une phrase oubliée est une
+  erreur de compilation. Un dossier de fichiers Markdown ne sait pas dire qu'il manque la version
+  française d'un article — il sait seulement ne pas la produire, et le plan du site l'annoncerait
+  quand même.
+- **C.** Allonger l'article de l'accueil. Écarté : une page qui répond à onze questions ne se
+  positionne sur aucune, et surtout elle n'est pas ce qu'on vient chercher quand on tape une
+  question précise.
+- **D.** Assouplir les contrôles. Écarté, et c'est l'entrée entière.
+
+**Retenu : A.** Six guides par langue, plus un sommaire. Les adresses diffèrent d'une langue à
+l'autre (`/guides/remove-photo-location/` et `/fr/guides/supprimer-geolocalisation-photo/`) : une
+adresse partagée serait une adresse fausse dans une des deux langues.
+
+**Ce que les contrôles savent désormais refuser, et qui ne se voit pas à l'écran :**
+
+- une page dont la FORME est inconnue — mieux vaut faire échouer la build que laisser sortir un
+  document que rien ne regarde ;
+- un guide de moins de sept cents mots. Le compte est affiché à chaque build, pas seulement comparé :
+  un plancher qu'on ne voit qu'en l'atteignant ne dit jamais de combien on s'en approche ;
+- un guide sans paragraphe de réponse en tête. C'est une règle éditoriale tenue par un contrôle,
+  parce qu'elle ne survit pas autrement à la quinzième page écrite un soir de fatigue ;
+- un guide qui ne figure au sommaire d'aucune langue, ou qui ne ramène ni à l'outil ni au sommaire ;
+- un lien alternatif qui ne désigne aucune page produite. Le contrôle des `hreflang` ne regardait que
+  les LANGUES déclarées, jamais les adresses : sans conséquence à deux pages, plus du tout à seize ;
+- un `@id` de données structurées que rien ne définit. Un guide DÉSIGNE l'application plutôt que de
+  la redéfinir — c'est l'usage même d'un `@id`, et cela évite de déclarer douze fois une application
+  qui n'est pas sur la page. Le prix est qu'une référence peut tomber dans le vide sans que rien ne
+  le signale : ni erreur de console, ni page cassée, seulement un graphe qui a cessé de dire ce qu'on
+  croit qu'il dit ;
+- un mot collé à sa balise, dans n'importe quelle page — le §3 bis, né du défaut ci-dessus.
+
+**Ce qui a été refusé, et pourquoi c'est une décision et non un oubli :**
+
+- **`FAQPage` et `HowTo`, une seconde fois.** Six guides sur sept en ont exactement la forme, et la
+  tentation était plus forte ici que sur l'accueil. La réponse de Q-046 n'a pas changé : `HowTo` est
+  abandonné depuis 2023, les questions-réponses ont été retirées de la recherche. `BreadcrumbList`
+  est ajouté, lui, et pour la raison inverse : le fil d'Ariane s'affiche encore dans une page de
+  résultats. Il est accompagné d'un vrai fil d'Ariane dans la page — un balisage qui décrit une
+  navigation absente décrit une page qu'on ne sert pas.
+- **`llms.txt` et un balisage « pour les IA ».** Google écrit qu'aucun des deux n'est nécessaire pour
+  apparaître dans ses réponses génératives, et aucun moteur majeur ne s'engage sur `llms.txt`.
+- **Des chiffres.** Les guides ne citent aucun pourcentage sur ce que les réseaux sociaux retirent.
+  Les sources qui en donnent — « 89 % des photos en mode compressé en 2026 » — sont des pages écrites
+  pour se positionner, et le chiffre est invérifiable. Les guides expliquent le MÉCANISME, qui est
+  vrai et qui survit à une refonte d'application, puis donnent le protocole en quatre étapes pour que
+  le lecteur mesure son propre cas.
+- **Des liens vers les pages d'aide d'Apple et de Google.** Ils auraient valu pour la crédibilité,
+  et deux adresses sur trois se sont révélées mortes ou redirigées à la vérification. Rien ici ne
+  surveille un lien sortant : en ajouter qu'on ne peut pas contrôler, c'est s'engager à publier des
+  404 un jour prochain. Les gestes sont donc décrits, et la seule source citée reste ExifTool, qui
+  est déjà dans la liste blanche et qui, lui, ne bouge pas.
+- **Des dates de publication tirées de l'heure de build.** Même règle qu'au `lastmod` de Q-046 : la
+  date vient de l'historique git, et si personne ne peut répondre, la balise n'est pas écrite.
+- **Le décor et les scripts sur les guides.** Astro réunit les scripts hissés en un seul paquet :
+  embarquer la décoration amènerait tout `app.ts` sur une page sans outil. Et le calque décoratif est
+  calibré pour que le texte du HÉROS reste lisible par-dessus ; sans script pour l'effacer, il
+  resterait à pleine opacité sous mille mots de prose, c'est-à-dire sous le seul endroit où la mesure
+  de contraste n'a jamais été faite.
+
+**Sur la méthode, puisque la demande disait « optimisé pour le référencement ».** Le connecteur
+Ahrefs de cette session refuse les points d'entrée de recherche de mots-clés — plan insuffisant.
+**Aucun volume de recherche n'a donc été mesuré, et aucun n'est cité.** Les six sujets viennent des
+intentions que l'outil sert déjà et des questions que les pages de résultats posent réellement ;
+c'est un choix raisonné, pas une mesure, et il faut le dire plutôt que d'inventer des chiffres.
+
+**Ce que ce lot ne prouve pas.** Rien ici ne démontre qu'une page se positionnera. Les contrôles
+attrapent ce qui est vérifiable sur l'artefact produit — le titre, la description, le canonique, les
+langues, le balisage, l'épaisseur du texte, l'absence de page orpheline. Le classement se mesure dans
+la Search Console, des semaines plus tard, et aucun test local ne le remplace.
+
+---
+## [V1.5] Q-048 — L'application était installable, et personne ne le proposait
 
 **Contexte :** l'outil est installable depuis la V1.3. Le manifeste porte tout ce qu'un navigateur
 exige — `id`, `start_url`, `scope`, `display: 'standalone'`, une icône 192, une 512, une 512
@@ -1733,10 +1845,10 @@ Chrome ou Edge de bureau.
 
 ---
 
-## [V1.5] Q-048 — Le bouton déduisait l'installation au lieu de la vérifier
+## [V1.5] Q-049 — Le bouton déduisait l'installation au lieu de la vérifier
 
 **Contexte :** le chapitre « Installation » de *Learn PWA* et les pages auxquelles il renvoie ont été
-lus après coup, sur le bouton déjà livré en Q-047. **L'essentiel était conforme** : le bouton
+lus après coup, sur le bouton déjà livré en Q-048. **L'essentiel était conforme** : le bouton
 n'apparaît qu'après l'invitation du navigateur — « Do not show the install button unless the
 `beforeinstallprompt` has been fired » —, il appelle `preventDefault()` pour supprimer la barrette
 que le navigateur poserait sinon, il écoute `appinstalled`, et un bouton fixe en tête de page est
@@ -1764,7 +1876,7 @@ d'installabilité **ne mentionne ni service worker, ni gestionnaire `fetch`, ni 
 Elle tient en : application pas déjà installée, heuristiques d'engagement, HTTPS, et un manifeste
 portant `short_name` ou `name`, des icônes de 192 **et** 512, `start_url`, un `display` autonome, et
 `prefer_related_applications` absent ou faux. `display_override` n'y figure pas davantage : c'est
-`display` seul qui est jugé. Les contrôles ajoutés en Q-047 visaient donc les bons champs — mais
+`display` seul qui est jugé. Les contrôles ajoutés en Q-048 visaient donc les bons champs — mais
 écrits de mémoire, pas d'après la source. Le commentaire la cite désormais.
 
 **Ce qu'on continue de refuser, et l'argument a changé :**

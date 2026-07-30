@@ -1,0 +1,56 @@
+---
+/**
+ * Le pied de page, commun à l'outil et aux guides.
+ *
+ * La navigation vit ici plutôt qu'en tête : ces liens mènent à des sections de
+ * lecture, pas à l'outil. Les remonter au-dessus du titre disputerait
+ * l'attention au seul geste qui compte — déposer une photo. Le choix de langue
+ * les accompagne.
+ *
+ * Les ancres sont préfixées par la racine de la langue — `/#vie-privee` et non
+ * `#vie-privee`. Sur la page de l'outil, cela ne change rien : le navigateur y
+ * reconnaît la page courante et se contente de défiler. Sur un guide, c'est la
+ * différence entre un lien qui ramène à la bonne section et un lien qui ne
+ * mène nulle part, l'ancre n'existant pas sur cette page-là.
+ *
+ * Le lien de langue reçoit l'adresse de CETTE page dans l'autre langue, et non
+ * la racine : un guide qui renvoyait à l'accueil ferait recommencer sa lecture
+ * depuis le début à qui a simplement changé de langue.
+ */
+import type { Dictionnaire, Langue } from '../lib/i18n/types.ts';
+import { DICOS, LANGUES } from '../lib/i18n/index.ts';
+import { cheminSommaire } from '../lib/guides/index.ts';
+
+interface Props {
+  dico: Dictionnaire;
+  alternatives: Record<Langue, string>;
+}
+const { dico: T, alternatives } = Astro.props;
+---
+
+<footer>
+  <nav class="main" aria-label={T.nav.sections}>
+    <a href={cheminSommaire(T.langue)}>{T.nav.guides}</a>
+    <a href={`${T.base}#vie-privee`}>{T.nav.viePrivee}</a>
+    <a href={`${T.base}#mode-emploi`}>{T.nav.modeEmploi}</a>
+    <a href={`${T.base}#verifier`}>{T.nav.verifier}</a>
+    {
+      LANGUES.filter((l) => l !== T.langue).map((l) => (
+        <a
+          href={alternatives[l]}
+          lang={DICOS[l].htmlLang}
+          hreflang={DICOS[l].htmlLang}
+          rel="alternate">
+          {DICOS[l].meta.nomLangue}
+        </a>
+      ))
+    }
+  </nav>
+  <!-- L'espace est explicite : entre une expression et la balise qui la
+       suit, celui de la mise en forme est supprimé au rendu, et la ligne
+       se lisait « licence MIT :github.com/… ». -->
+  <p>
+    {T.pied}{' '}
+    <a href="https://github.com/MathieuSoysal/geotager">github.com/MathieuSoysal/geotager</a>.
+  </p>
+</footer>

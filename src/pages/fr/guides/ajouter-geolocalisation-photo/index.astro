@@ -1,0 +1,144 @@
+---
+/** Français — donner un lieu à un fichier qui n'en a pas. */
+import Guide from '../../../../components/Guide.astro';
+import { fr } from '../../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../../lib/guides/index.ts';
+---
+
+<Guide dico={fr} id="ajouter">
+  <p class="reponse">
+    Ajouter un lieu et en modifier un sont deux opérations différentes. Déposez la photo sur
+    <a href="/fr/">Geotager</a>, donnez-lui des coordonnées, téléchargez : un bloc neuf est ajouté à
+    la fin du fichier et une seule adresse est redirigée, si bien que rien de ce qui s'y trouvait ne
+    bouge. L'outil dit d'avance si votre fichier l'acceptera.
+  </p>
+
+  <h2 id="pourquoi-vide">Quelles photos n'ont aucun lieu</h2>
+  <ul>
+    <li>
+      <strong>Les scans de tirages anciens.</strong> Le négatif savait où il était ; le scanner, non.
+    </li>
+    <li><strong>Les captures d'écran et les exports.</strong> Rien en eux n'a jamais eu de position.</li>
+    <li>
+      <strong>Les photos d'un appareil sans GPS.</strong> La plupart des appareils qui ne sont pas
+      des téléphones n'en ont pas, sauf s'ils ont été appairés à l'un d'eux.
+    </li>
+    <li><strong>Les photos prises localisation désactivée</strong> — volontairement ou non.</li>
+    <li>
+      <strong>Les photos passées par quelque chose qui l'a retiré</strong> : une messagerie, une
+      mise en ligne, un export qui a recompressé.
+    </li>
+  </ul>
+  <p>
+    Si vous ne savez pas dans quel cas vous êtes,
+    <a href={cheminGuide('fr', 'verifier')}>lisez d'abord le fichier</a>. Une photo qui porte déjà un
+    lieu relève de la <a href={cheminGuide('fr', 'modifier')}>modification</a>, qui se comporte
+    autrement.
+  </p>
+
+  <h2 id="etapes">Ajouter un lieu en quatre étapes</h2>
+  <ol>
+    <li>
+      Déposez la photo. L'outil la lit et vous dit, avant que vous ayez touché à quoi que ce soit,
+      si un lieu peut être créé dans ce fichier.
+    </li>
+    <li>Trouvez les coordonnées de l'endroit — voir plus bas si vous ne les avez pas encore.</li>
+    <li>
+      Collez-les ou saisissez-les, en décimal (<code>43,9493, 4,8055</code>) ou en
+      degrés-minutes-secondes. La carte repliée fait le même travail au clic, si vous préférez
+      montrer plutôt qu'écrire.
+    </li>
+    <li>
+      Téléchargez. Le nom reçoit le suffixe <code>-geotager</code> : rien n'est écrasé.
+    </li>
+  </ol>
+
+  <h2 id="coordonnees">Trouver les coordonnées d'un endroit</h2>
+  <p>
+    Dans Google Maps, faites un clic droit sur le lieu : la première ligne du menu donne la latitude
+    et la longitude, et cliquer dessus les copie en décimal — exactement la forme à coller ici. Sur
+    OpenStreetMap, la même chose se trouve sous « Afficher l'adresse », et les coordonnées
+    apparaissent dans la barre d'adresse à mesure qu'on se déplace.
+  </p>
+  <p>
+    Les deux formes sont acceptées et disent la même chose. <code>43,9493, 4,8055</code> vaut 43° 56′
+    57,48″ nord, 4° 48′ 19,8″ est. La latitude vient toujours en premier, et les nombres négatifs
+    désignent le sud et l'ouest.
+  </p>
+  <div class="note">
+    <p>
+      <strong>N'inventez pas une précision que vous n'avez pas.</strong> La cinquième décimale vaut
+      environ un mètre. Si ce que vous savez vraiment est « quelque part dans ce village », écrire
+      sept décimales affirme quelque chose de faux avec beaucoup d'assurance — et une bibliothèque
+      de photos le dessinera sur une carte comme si vous l'aviez mesuré. Trois décimales valent une
+      centaine de mètres, et c'est souvent la réponse honnête pour un scan.
+    </p>
+  </div>
+
+  <h2 id="dans-le-fichier">Ce qu'ajouter un lieu fait au fichier</h2>
+  <p>
+    Modifier un lieu déjà présent réécrit des valeurs sur place, et le fichier produit fait
+    exactement la taille de l'original. Ajouter ne peut pas être gratuit : aucune place n'avait été
+    réservée pour cela, donc le fichier grossit nécessairement un peu.
+  </p>
+  <p>
+    Ce qui compte, c'est <em>où</em> il grossit. L'approche naïve — reconstruire le bloc
+    d'informations avec le nouveau champ inséré au milieu — décale tout ce qui suit, or le MakerNote
+    d'un appareil est plein d'adresses qui désignent des positions absolues dans le fichier. C'est
+    exactement ainsi qu'un outil bien intentionné abîme des données d'objectif auxquelles il ne
+    voulait pas toucher. Ici, un bloc neuf est ajouté à la fin et une seule adresse, en tête de
+    fichier, est redirigée vers lui. Tous les décalages existants restent valides, parce que rien
+    d'existant n'a bougé.
+  </p>
+
+  <h2 id="refus">Les fichiers qui refuseront, et pourquoi</h2>
+  <ul>
+    <li>
+      <strong>Les fichiers bruts — DNG, NEF, CR2.</strong> L'effacement est proposé, l'ajout non. Un
+      fichier brut est un TIFF, et c'est l'original irremplaçable de quelqu'un ; une erreur y serait
+      sans retour. S'il vous faut une copie localisée, exportez un JPEG ou un TIFF depuis votre
+      logiciel de développement et ajoutez-y le lieu.
+    </li>
+    <li>
+      <strong>Un WebP de forme simple.</strong> Le format sous cette forme n'a nulle part où ranger
+      un lieu. On peut le lire ; on ne peut pas lui en donner un. Le ré-enregistrer en WebP étendu,
+      en PNG ou en JPEG lui en donnerait la place — au prix d'une recompression, que cet outil ne
+      fait délibérément jamais à votre place.
+    </li>
+    <li><strong>Les vidéos.</strong> Pas encore, lecture comprise.</li>
+    <li>
+      <strong>Les fichiers dont le bloc d'informations est déjà à la limite du format.</strong> Rare,
+      et annoncé le cas échéant plutôt que découvert après coup.
+    </li>
+  </ul>
+  <p>
+    Chacune de ces limites est annoncée au moment où vous déposez le fichier, avant toute action —
+    le <a href="/fr/#limites">tableau de la page d'accueil</a> est rendu depuis le code que le
+    moteur lit lui-même, il ne peut donc pas annoncer une capacité que l'outil n'a pas.
+  </p>
+
+  <h2 id="verifier">Vérifier que cela a pris</h2>
+  <p>
+    Le fichier est relu avant de vous parvenir, par ce moteur et par un second lecteur écrit par
+    d'autres ; un désaccord annule l'opération et vous rend l'original. La vérification qui ne
+    dépend pas de nous :
+  </p>
+  <pre><code>exiftool -gps:all -n photo-geotager.jpg</code></pre>
+  <p>
+    Vous devez y voir la latitude et la longitude données, et les deux champs d'hémisphère qui les
+    accompagnent. Si une bibliothèque de photos n'affiche toujours rien, fermez-la et rouvrez-la :
+    beaucoup gardent en mémoire ce qu'elles ont lu la première fois.
+  </p>
+
+  <h2 id="lot">Tout un voyage d'un coup</h2>
+  <p>
+    Les photos d'un même endroit se traitent ensemble : déposez le lot, donnez les coordonnées une
+    fois, et le résultat revient dans une seule archive ZIP. Les fichiers qui ne peuvent pas
+    recevoir de lieu sont nommés et rendus intacts, jamais écartés en silence.
+  </p>
+  <p>
+    Si au contraire vous voulez que le lieu disparaisse d'un lot —
+    <a href={cheminGuide('fr', 'supprimer')}>l'effacement</a> fonctionne de la même façon, et
+    vérifie à deux reprises que rien n'a survécu.
+  </p>
+</Guide>

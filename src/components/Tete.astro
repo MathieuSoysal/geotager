@@ -1,0 +1,98 @@
+---
+/**
+ * Le `<head>` commun à toutes les pages indexables.
+ *
+ * Il vivait dans la coquille de l'outil, où il était juste — et il l'était
+ * pour deux pages. En ajouter quatorze en recopiant trente lignes de balises
+ * aurait garanti qu'une page finisse un jour sans canonique, sans `hreflang`
+ * réciproques ou sans manifeste, et qu'aucune relecture ne le voie : ce sont
+ * précisément les balises que personne ne regarde à l'écran.
+ *
+ * Le contrôle de build les exige toutes sur chaque page indexable. Les écrire
+ * ici, une fois, fait de cette exigence quelque chose qu'on ne peut pas
+ * oublier plutôt que quelque chose qu'on doit se rappeler.
+ *
+ * L'ordre des attributs n'est pas cosmétique : `check-build.mjs` lit ces
+ * balises à l'expression régulière, `rel` avant `href` et `property` avant
+ * `content`. Les intervertir ne casserait pas la page, seulement le contrôle
+ * qui la surveille — soit la pire des deux pannes.
+ */
+import type { Dictionnaire } from '../lib/i18n/types.ts';
+
+interface Props {
+  dico: Dictionnaire;
+  /** Le titre rendu, suffixe compris. Plafonné à 60 caractères au build. */
+  titre: string;
+  /** La méta-description. Plafonnée à 155 caractères au build. */
+  description: string;
+  /** Le canonique, absolu. C'est aussi `og:url` : un seul et même signal. */
+  url: string;
+  /** Toutes les langues de CETTE page, celle-ci comprise, en absolu. */
+  alternates: Array<{ lang: string; href: string }>;
+  /** L'adresse servie à qui n'a demandé aucune langue en particulier. */
+  xDefault: string;
+  /** `website` partout, `article` sur un guide. */
+  ogType?: string;
+  jsonLd: unknown;
+}
+
+const {
+  dico: T,
+  titre,
+  description,
+  url,
+  alternates,
+  xDefault,
+  ogType = 'website',
+  jsonLd,
+} = Astro.props;
+
+const site = Astro.site?.origin;
+if (!site) throw new Error('Tete : « site » manque dans astro.config.mjs');
+---
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- La couleur du fond de page, et non le rose de la marque. Le rose
+     peignait la barre du navigateur d'une teinte qui n'existe nulle part
+     comme surface : la fenêtre annonçait une application claire au-dessus
+     d'une page sombre. C'est aussi cette valeur que prend la barre de titre
+     une fois l'application installée, et l'écran de démarrage à froid. -->
+<meta name="theme-color" content="#17161b" />
+<title>{titre}</title>
+<meta name="description" content={description} />
+<link rel="canonical" href={url} />
+{alternates.map((a) => <link rel="alternate" hreflang={a.lang} href={a.href} />)}
+<link rel="alternate" hreflang="x-default" href={xDefault} />
+<meta property="og:type" content={ogType} />
+<meta property="og:site_name" content="Geotager" />
+<meta property="og:title" content={titre} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={url} />
+<meta property="og:locale" content={T.ogLocale} />
+<!-- `summary_large_image` était déclaré depuis toujours SANS aucune image :
+     la carte annoncée n'existait pas, et tout partage du site s'affichait
+     vide. L'image est unique pour tout le site — un fichier de cette taille
+     ne se recoupe pas par page pour deux phrases. -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta property="og:image" content={`${site}/og.png`} />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content={T.meta.imageAlt} />
+<meta name="twitter:image" content={`${site}/og.png`} />
+
+<!-- Le manifeste de CETTE langue. Les deux partagent un `id`, donc une
+     seule application installée, sous le nom de la page d'où on l'installe.
+     Il est déclaré sur les guides aussi : une adresse de guide ouverte
+     depuis l'application installée n'a aucune raison d'en sortir. -->
+<link rel="manifest" href={`${T.base}manifest.webmanifest`} />
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<!-- L'URL de données reste : elle est le secours des navigateurs qui ne
+     savent pas d'un favicon SVG, et elle ne coûte pas une requête. -->
+<link
+  rel="icon"
+  href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z' fill='%23FF3385'/%3E%3Ccircle cx='20' cy='17.4' r='5.7' fill='%2317161B'/%3E%3C/svg%3E"
+/>
+<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />

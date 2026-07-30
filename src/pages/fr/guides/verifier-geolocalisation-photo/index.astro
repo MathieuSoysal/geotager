@@ -1,0 +1,131 @@
+---
+/** Français — lire le lieu qu'une photo porte. */
+import Guide from '../../../../components/Guide.astro';
+import { fr } from '../../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../../lib/guides/index.ts';
+---
+
+<Guide dico={fr} id="verifier">
+  <p class="reponse">
+    Tous les systèmes savent déjà montrer où une photo a été prise. Sous Windows c'est clic droit ▸
+    Propriétés ▸ Détails ; sur un Mac c'est l'inspecteur d'Aperçu ; sur un téléphone c'est le bouton
+    d'information sous l'image. Pour le lire sans rien installer, déposez la photo sur
+    <a href="/fr/">Geotager</a> : les coordonnées s'affichent aussitôt.
+  </p>
+
+  <h2 id="navigateur">Dans un navigateur, sans rien installer</h2>
+  <p>
+    Déposez la photo sur l'outil. Si le fichier porte un lieu, il apparaît à côté du nom, avec la
+    date, l'appareil et les autres informations enregistrées. Rien n'est envoyé pour le lire : le
+    fichier est ouvert par votre propre navigateur, et si vous coupez la connexion d'abord, cela
+    fonctionne exactement pareil. Cela vaut la peine de l'essayer au moins une fois — c'est la façon
+    la plus rapide de se convaincre de ce qu'un site comme celui-ci peut voir, et de ce qu'il ne
+    peut pas voir.
+  </p>
+
+  <h2 id="windows">Sous Windows</h2>
+  <ol>
+    <li>Clic droit sur la photo dans l'explorateur, puis <strong>Propriétés</strong>.</li>
+    <li>Ouvrez l'onglet <strong>Détails</strong>.</li>
+    <li>
+      Descendez jusqu'à la section <strong>GPS</strong> : latitude, longitude et souvent altitude y
+      sont listées.
+    </li>
+  </ol>
+  <p>
+    Windows affiche les coordonnées en degrés, minutes et secondes — <code>43; 56; 57,48</code>
+    signifie 43° 56′ 57,48″ — c'est-à-dire sous la forme où elles sont réellement rangées, et non
+    sous celle qu'attend une carte. Le même panneau porte en bas un lien
+    <em>Supprimer les propriétés et les informations personnelles</em> : c'est un véritable outil
+    d'effacement, et il vaut la peine de
+    <a href={cheminGuide('fr', 'supprimer')}>savoir ce qu'il retire et ce qu'il laisse</a>.
+  </p>
+
+  <h2 id="macos">Sur macOS</h2>
+  <p>
+    Ouvrez la photo dans <strong>Aperçu</strong>, puis Outils ▸ Afficher l'inspecteur
+    (<kbd>⌘</kbd>+<kbd>I</kbd>), et choisissez l'onglet <strong>GPS</strong>. Aperçu dessine la
+    position sur une petite carte et donne les chiffres exacts en dessous. Dans l'application Photos,
+    sélectionner une image et appuyer sur <kbd>⌘</kbd>+<kbd>I</kbd> montre aussi le lieu — avec la
+    réserve de la section suivante.
+  </p>
+
+  <h2 id="iphone-android">Sur iPhone et sur Android</h2>
+  <p>
+    Sur un iPhone, ouvrez l'image dans Photos et touchez le bouton <strong>(i)</strong>, ou faites
+    glisser la photo vers le haut. Si elle porte un lieu, vous obtenez une carte et un nom
+    d'endroit. Sur Android, ouvrez-la dans Google Photos et faites de même — glissement vers le
+    haut, ou bouton d'information — et le panneau de détails affiche la carte.
+  </p>
+  <p>
+    Les deux applications vous disent ce que <em>leur bibliothèque</em> sait, ce qui n'est pas
+    toujours ce que contient le fichier.
+    <a href={cheminGuide('fr', 'iphone')}>Ce que l'application Photos change, et ce qu'elle ne
+    change pas</a> détaille ce point.
+  </p>
+
+  <h2 id="exiftool">Avec ExifTool, quand la réponse doit être exacte</h2>
+  <p>
+    <a href="https://exiftool.org/">ExifTool</a> est la référence du domaine, gratuit et hors ligne.
+    Il lit ce qui est dans le fichier, et rien d'autre — c'est précisément ce qu'on veut quand une
+    visionneuse et un téléphone se contredisent.
+  </p>
+  <pre><code>exiftool -gps:all -n photo.jpg</code></pre>
+  <p>
+    Le <code>-n</code> donne des degrés décimaux, prêts à coller dans une carte. Pour voir tous les
+    blocs que porte le fichier, groupés par l'endroit où ils vivent — c'est ainsi qu'on repère une
+    seconde copie du lieu cachée dans le paquet de texte descriptif :
+  </p>
+  <pre><code>exiftool -a -G1 photo.jpg</code></pre>
+
+  <h2 id="lire">Lire ce qu'on obtient</h2>
+  <p>
+    Une position est enregistrée en degrés, minutes et secondes, avec deux champs de plus pour
+    l'hémisphère : <code>GPSLatitudeRef</code> vaut « N » ou « S », <code>GPSLongitudeRef</code>
+    vaut « E » ou « W ». Une latitude de 43,9493° nord s'écrit 43° 56′ 57,48″ avec la référence
+    « N ». Perdez l'une de ces deux lettres et la coordonnée n'est pas seulement imprécise : elle est
+    dans le mauvais hémisphère.
+  </p>
+  <p>
+    Sur la forme décimale, les chiffres après la virgule sont des mètres : la cinquième décimale
+    vaut environ un mètre à l'équateur, la quatrième une dizaine. Une photo qui annonce
+    <code>43,94930, 4,80550</code> prétend connaître l'endroit au mètre près — ce qui est toute la
+    raison pour laquelle une photo géolocalisée d'une porte d'entrée est un problème.
+  </p>
+  <p>
+    L'altitude est souvent enregistrée à côté, ainsi qu'un horodatage de la mesure satellite, qui
+    n'est pas la même chose que l'heure de la prise de vue.
+  </p>
+
+  <h2 id="pas-de-lieu">« Aucun lieu affiché » ne veut pas toujours dire « aucun lieu dans le fichier »</h2>
+  <p>Trois choses peuvent en cacher un, et on les confond facilement :</p>
+  <ul>
+    <li>
+      <strong>La visionneuse ne lit pas la seconde copie.</strong> Un lieu peut être rangé deux fois
+      — dans l'EXIF et dans un paquet de texte descriptif. Certaines visionneuses ne lisent que la
+      première.
+    </li>
+    <li>
+      <strong>L'application affiche une estimation.</strong> Les bibliothèques de photos savent
+      deviner un endroit à partir d'autres images prises à côté au même moment. Cela ressemble
+      exactement à une vraie lecture, et n'en est pas une.
+    </li>
+    <li>
+      <strong>Le fichier est passé par quelque chose qui l'a retiré.</strong> Envoyer une photo par
+      une messagerie ou un réseau social la recompresse souvent et fait tomber tout le bloc.
+    </li>
+  </ul>
+  <p>
+    Le piège inverse est plus grave : une visionneuse qui affiche un nom de lieu ne prouve rien sur
+    ce que contient le fichier que vous vous apprêtez à envoyer. Si l'enjeu est réel — une annonce
+    immobilière, une photo d'enfant, un objet vendu depuis chez vous — lisez le fichier exact que
+    vous allez joindre, pas celui de votre bibliothèque.
+  </p>
+
+  <h2 id="ensuite">Une fois qu'on sait ce qu'il y a dedans</h2>
+  <p>
+    Si le lieu est faux, <a href={cheminGuide('fr', 'modifier')}>modifiez-le</a>. S'il ne devrait pas
+    être là du tout, <a href={cheminGuide('fr', 'supprimer')}>supprimez-le</a> — et vérifiez ensuite,
+    avec la même commande, que rien n'a survécu.
+  </p>
+</Guide>

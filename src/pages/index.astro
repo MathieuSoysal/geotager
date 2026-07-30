@@ -3,6 +3,7 @@
 import Page from '../components/Page.astro';
 import Matrice from '../components/Matrice.astro';
 import { en } from '../lib/i18n/index.ts';
+import { cheminGuide, cheminSommaire } from '../lib/guides/index.ts';
 ---
 
 <Page dico={en}>
@@ -81,6 +82,14 @@ import { en } from '../lib/i18n/index.ts';
     several megabytes without ever decoding it: we do not promise it came through intact, we show
     it.
   </p>
+  <p>
+    Longer walk-throughs, including what to do on a phone and how to check the result with another
+    tool, live in the <a href={cheminSommaire('en')}>guides</a>:
+    <a href={cheminGuide('en', 'modifier')}>changing a photo’s location</a>,
+    <a href={cheminGuide('en', 'verifier')}>checking where a photo was taken</a>,
+    <a href={cheminGuide('en', 'supprimer')}>removing the location</a>, and
+    <a href={cheminGuide('en', 'ajouter')}>adding one to a photo that has none</a>.
+  </p>
 
   <h2 id="limites">{en.titres.limites}</h2>
   <Matrice dico={en} />
@@ -141,7 +150,9 @@ import { en } from '../lib/i18n/index.ts';
     they re-encode images, but that behaviour is neither guaranteed, nor contractual, nor
     consistent depending on whether you go through the app or the website. Messaging services that
     send a file “as a document” generally pass on the original as-is, stored information included.
-    The safe rule is to clean before sending, rather than to count on the recipient.
+    The safe rule is to clean before sending, rather than to count on the recipient —
+    <a href={cheminGuide('en', 'reseaux')}>which apps remove a photo’s location</a> goes through
+    where that rule stops holding, and how to test your own path in two minutes.
   </p>
 
   <h2 id="verifier">{en.titres.verifier}</h2>

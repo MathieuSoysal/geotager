@@ -1,0 +1,110 @@
+---
+/** English — the iPhone, where the library and the file are two different things. */
+import Guide from '../../../components/Guide.astro';
+import { en } from '../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../lib/guides/index.ts';
+---
+
+<Guide dico={en} id="iphone">
+  <p class="reponse">
+    The Photos app can adjust a picture’s location, and the share sheet can leave it out of a
+    single send. Both act on what leaves the app, not necessarily on the HEIC file sitting in your
+    library. If the file itself has to be right — because you are about to hand it to someone — edit
+    the file and read it back.
+  </p>
+
+  <h2 id="voir">See where an iPhone photo was taken</h2>
+  <p>
+    Open the picture in Photos and tap the <strong>(i)</strong> button, or swipe up on the photo. A
+    map and a place name appear underneath if there is a location. No map means either that the
+    photo carries none, or that Photos is not showing you one — which is not the same thing, and is
+    the whole subject of this page.
+  </p>
+
+  <h2 id="regler">Adjust the location in Photos</h2>
+  <ol>
+    <li>Open the photo and tap <strong>(i)</strong>.</li>
+    <li>Tap <strong>Adjust</strong> next to the map, or <strong>Add a Location</strong> if there is none.</li>
+    <li>Search for a place, pick it, and confirm.</li>
+  </ol>
+  <p>
+    Photos will show the new place from then on, and <strong>Revert</strong> puts the original back
+    — which tells you something useful in itself: the app is keeping both, so what it is editing is
+    its own record of the picture.
+  </p>
+  <div class="note">
+    <p>
+      This is the part that surprises people. A photo library editing a location is editing a
+      library entry; a file on disk is a different object. Whether your adjustment travels depends
+      on how the photo leaves the phone — AirDrop, Mail, a messaging app and “save to Files” do not
+      all behave the same way, and none of them promises to. The only answer that is not a guess is
+      to send the photo to yourself and
+      <a href={cheminGuide('en', 'verifier')}>read the location out of the file you received</a>.
+    </p>
+  </div>
+
+  <h2 id="partage">Leave the location out of one send</h2>
+  <p>
+    This one is exact, and it is the setting most people never find. Select the photo, tap
+    <strong>Share</strong>, then tap <strong>Options</strong> at the very top of the share sheet, and
+    turn <strong>Location</strong> off. Everything you send in that sheet goes without coordinates.
+  </p>
+  <p>
+    The same panel lets you send <em>All Photos Data</em> or the unmodified original, which is the
+    opposite choice — useful when you actually want the file intact, and worth noticing so you do
+    not pick it by accident.
+  </p>
+  <p>
+    The toggle applies to that share and resets. It protects the copy you send, never the copy in
+    your library; if what you want is a clean file to keep,
+    <a href={cheminGuide('en', 'supprimer')}>remove the location from the file</a>.
+  </p>
+
+  <h2 id="camera">Stop the camera recording it at all</h2>
+  <p>
+    Settings ▸ Privacy &amp; Security ▸ Location Services ▸ Camera ▸ <strong>Never</strong>. From
+    then on new photos carry no coordinates. It changes nothing about the thousands already in your
+    library, and it also switches off the “places” map that makes those photos findable — which is
+    why most people would rather clean the photos they share than blind the camera.
+  </p>
+
+  <h2 id="heic">HEIC, and editing the file itself on the phone</h2>
+  <p>
+    iPhones save photos as HEIC (and sometimes AVIF), a container that stores the same EXIF block a
+    JPEG does, just arranged differently. There is no need to convert anything to fix a location —
+    converting would re-encode the image and lose quality for no reason.
+  </p>
+  <p>
+    On the phone: open <a href="/">Geotager</a> in Safari, tap the drop area, and pick the photo
+    from Photos or Files. Type or paste coordinates, or use the map, and download — the file lands in
+    Files with a <code>-geotagged</code> suffix. Adding a location to an iPhone photo appends a new
+    block at the end of the file rather than rewriting it, so no existing byte moves and nothing
+    else in the picture’s information is disturbed.
+  </p>
+  <p>
+    The site can also be installed to the Home Screen, after which it appears in the iOS share sheet
+    and photos can be sent to it directly. Nothing is uploaded either way: the file is opened by the
+    browser on the phone.
+  </p>
+
+  <h2 id="revient">Why a location seems to come back</h2>
+  <ul>
+    <li>
+      <strong>You cleaned the library copy, then exported an original.</strong> With iCloud Photos
+      set to optimise storage, what leaves the phone may be fetched fresh from iCloud.
+    </li>
+    <li>
+      <strong>You cleaned one file and attached another.</strong> The most common cause by a wide
+      margin, and the reason the cleaned file here is named <code>-no-location</code>: two files that
+      look alike in a picker are easy to confuse, two files with different names are not.
+    </li>
+    <li>
+      <strong>Something read the second copy.</strong> A location can sit in two places in a file,
+      and a tool that clears only the first leaves the other for anything that looks.
+    </li>
+  </ul>
+  <p>
+    All three are settled the same way, by reading the exact file you are about to send rather than
+    the one your phone is showing you.
+  </p>
+</Guide>

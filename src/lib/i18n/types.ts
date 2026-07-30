@@ -64,6 +64,8 @@ export interface Dictionnaire {
     viePrivee: string;
     modeEmploi: string;
     verifier: string;
+    /** Le sommaire des guides — aussi le nom de sa marche du fil d'Ariane. */
+    guides: string;
     sections: string;
     aller: string;
     /** Nom accessible du repère qui porte les cartes et l'article. */
@@ -193,6 +195,31 @@ export interface Dictionnaire {
     pasEncore: string;
     /** Libellé et mention de chaque ligne, par format meneur de la ligne. */
     lignes: Partial<Record<Format, { libelle: string; mention?: string }>>;
+  };
+
+  /**
+   * Les étiquettes de la coquille des guides.
+   *
+   * Elles reviennent sur chacun des sept documents d'une langue : les écrire
+   * dans les pages reviendrait à s'engager à corriger sept copies le jour où
+   * une phrase change. La PROSE des guides, elle, reste dans les pages —
+   * même règle que pour l'article sous la ligne de flottaison.
+   */
+  guides: {
+    /** Nom accessible du fil d'Ariane, et nom de sa première marche. */
+    filAriane: string;
+    accueil: string;
+    /** Le bloc qui ramène à l'outil, au milieu de chaque guide. */
+    essayerTitre: string;
+    essayerTexte: string;
+    essayerBouton: string;
+    /** La liste des autres guides, en fin de page. */
+    autres: string;
+    /** Le lien du sommaire vers un guide, et le mot du fil d'attente. */
+    lire: string;
+    /** Les deux dates déclarées, quand l'historique sait répondre. */
+    publie: (d: string) => string;
+    misAJour: (d: string) => string;
   };
 
   /** L'article sous la ligne de flottaison a ses titres ici : le contrôle de
