@@ -118,6 +118,8 @@ export const fr: Dictionnaire = {
       n > 1
         ? `${n} photos de plus que la limite : elles n'ont pas été ajoutées.`
         : 'Une photo de plus que la limite : elle n\'a pas été ajoutée.',
+    installer: 'Installer l\'application',
+    installee: 'Geotager est installé. Vous le retrouverez avec vos autres applications.',
     majDispo: 'Une nouvelle version de Geotager est disponible.',
     majTravaux: 'Une nouvelle version est disponible. Récupérez vos photos avant de recharger : celles qui sont ouvertes seraient abandonnées.',
     majRecharger: 'Recharger',

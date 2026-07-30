@@ -55,6 +55,7 @@ const el = {
   majTexte: $('maj-texte'),
   majRecharger: $<HTMLButtonElement>('maj-recharger'),
   majPlusTard: $<HTMLButtonElement>('maj-plus-tard'),
+  installer: $<HTMLButtonElement>('installer'),
   titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
@@ -962,6 +963,90 @@ if (filePeutEtreLancee.launchQueue) {
     void ouvrir(poignees).catch(() => signalerArriveeVide(T.app.ouverturePerdue));
   });
 }
+
+/* --- installation --------------------------------------------------- */
+
+/*
+ * Proposer l'installation, et seulement quand elle est possible.
+ *
+ * L'application est installable depuis la V1.3 — le manifeste a tout ce qu'il
+ * faut et le service worker répond aux requêtes — mais rien ne l'a jamais
+ * PROPOSÉ. Elle ne s'installait que par le menu du navigateur, que presque
+ * personne n'ouvre.
+ *
+ * LE BOUTON N'APPARAÎT QUE SI L'APPLICATION N'EST PAS DÉJÀ INSTALLÉE, et cela
+ * tient à quatre choses plutôt qu'à une :
+ *
+ *  1. il naît caché dans le HTML servi — l'état par défaut, pour tout le monde,
+ *     est « absent ». Il faut un événement pour le faire apparaître, jamais
+ *     l'inverse : une régression ne peut donc pas le faire surgir par accident ;
+ *  2. seule l'invitation du navigateur le découvre, et le navigateur n'en émet
+ *     pas quand l'application est déjà installée. C'est le verrou principal, et
+ *     c'est la plate-forme qui le tient, pas nous ;
+ *  3. `dejaInstallee()` refuse de le montrer si la page tourne DANS la fenêtre
+ *     installée, même si une invitation arrivait tout de même ;
+ *  4. `appinstalled` le retire sur-le-champ, sans attendre un rechargement.
+ *
+ * Rien n'est mémorisé. Refermer la boîte du navigateur ne laisse aucune trace :
+ * ce site ne persiste rien, et faire une exception pour se souvenir d'un refus
+ * coûterait plus que cela ne rapporte. Le navigateur décide lui-même de la
+ * fréquence à laquelle il repropose.
+ */
+interface InviteInstall extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+let invite: InviteInstall | null = null;
+
+/** L'application tourne dans sa propre fenêtre : il n'y a plus rien à installer. */
+function dejaInstallee(): boolean {
+  const enFenetre =
+    matchMedia('(display-mode: standalone)').matches ||
+    matchMedia('(display-mode: minimal-ui)').matches;
+  // iOS ne connaît pas `display-mode` et répond par cette propriété non
+  // normalisée. La lire ne coûte rien ; l'ignorer laisserait le bouton
+  // apparaître dans une application déjà posée sur l'écran d'accueil.
+  const iOS = (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return enFenetre || iOS;
+}
+
+function cacherInstallation(): void {
+  invite = null;
+  el.installer.hidden = true;
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Sans cela, le navigateur pose EN PLUS sa propre barrette en bas de l'écran :
+  // deux propositions concurrentes pour un seul geste.
+  e.preventDefault();
+  if (dejaInstallee()) return;
+  invite = e as InviteInstall;
+  el.installer.hidden = false;
+});
+
+el.installer.addEventListener('click', () => {
+  const invitee = invite;
+  if (!invitee) return;
+  /*
+   * Le bouton s'en va tout de suite : une invitation ne se rejoue pas, et un
+   * second appel sur le même événement lève. Si la boîte est refermée sans
+   * rien choisir, le navigateur en émettra une nouvelle à la visite suivante et
+   * le bouton reparaîtra alors.
+   *
+   * Un refus n'est PAS une panne — c'est le même raisonnement que pour le
+   * partage sortant : on n'insiste pas, et on ne dit rien.
+   */
+  cacherInstallation();
+  void invitee.prompt().catch(() => {});
+});
+
+window.addEventListener('appinstalled', () => {
+  cacherInstallation();
+  // Le bouton qui disparaît est le retour visuel. L'annonce est le retour pour
+  // qui ne regarde pas l'écran.
+  annoncer(T.app.installee);
+});
 
 /* --- service worker ------------------------------------------------ */
 

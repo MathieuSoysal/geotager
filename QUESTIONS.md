@@ -1650,3 +1650,83 @@ que par relecture. De même, la validation du JSON-LD produit et la soumission d
 demandent des outils en ligne qu'aucun test local ne remplace.
 
 **Bloque :** non.
+
+---
+
+## [V1.5] Q-047 — L'application était installable, et personne ne le proposait
+
+**Contexte :** l'outil est installable depuis la V1.3. Le manifeste porte tout ce qu'un navigateur
+exige — `id`, `start_url`, `scope`, `display: 'standalone'`, une icône 192, une 512, une 512
+masquable — et le service worker répond aux requêtes. Chromium émettait donc déjà son invitation à
+installer sur ce site. **Personne ne l'écoutait.** L'installation n'était offerte que par le menu du
+navigateur, que presque personne n'ouvre. Recherche dans tout le dépôt de `beforeinstallprompt`,
+`appinstalled`, `getInstalledRelatedApps`, `display-mode` : zéro occurrence.
+
+La demande venait avec une contrainte : **le bouton ne doit apparaître que si l'application n'est pas
+déjà installée.**
+
+**Options :**
+
+- **A.** Un bouton qui naît caché dans le HTML servi, et que seule l'invitation du navigateur
+  découvre.
+- **B.** Un bouton toujours affiché, qui ouvre une explication quand l'installation n'est pas
+  possible. Écarté : c'est exactement « un bouton qui n'agit pas », que le projet refuse ailleurs
+  nommément. Et il resterait affiché pour qui a déjà installé, c'est-à-dire l'inverse du demandé.
+- **C.** Interroger `navigator.getInstalledRelatedApps()` pour savoir si l'application est déjà là.
+  Écarté : il faudrait ajouter `related_applications` au manifeste, l'interface n'existe que sur une
+  partie des navigateurs, et elle ne répondrait à une question à laquelle l'absence d'invitation
+  répond déjà. Un mécanisme de plus pour un fait qu'on connaît sans lui.
+- **D.** Un bandeau, comme celui des mises à jour. Écarté : c'est la forme que les gens ont appris à
+  fermer sans lire, et elle recouvre le seul geste qui compte — déposer une photo.
+
+**Retenu : A.**
+
+**Pourquoi cela suffit à ne l'afficher que si l'application n'est pas installée**, et pourquoi cela
+ne tient pas à un seul mécanisme :
+
+1. Il naît `hidden` dans le HTML servi. L'état par défaut, pour tout le monde, est « absent » : il
+   faut un événement pour le faire apparaître, jamais l'inverse. Une régression échoue donc du bon
+   côté.
+2. Seule l'invitation le découvre — et un navigateur n'en émet pas quand l'application est déjà
+   installée. C'est le verrou principal, et c'est la plate-forme qui le tient, pas nous.
+3. `dejaInstallee()` refuse de le montrer si la page tourne dans la fenêtre installée
+   (`display-mode`, et `navigator.standalone` sous iOS), même si une invitation arrivait tout de
+   même.
+4. `appinstalled` le retire sur-le-champ, sans attendre un rechargement.
+
+Le test de bout en bout juge les quatre séparément, pour qu'aucun ne puisse tomber en silence
+derrière un autre.
+
+**Ce qui a été refusé, et pourquoi c'est une décision et non un oubli :**
+
+- **Mémoriser un refus.** Refermer la boîte du navigateur ne laisse aucune trace. Ce site ne
+  persiste rien — ni `localStorage`, ni `IndexedDB`, ni serveur — et c'est une promesse affichée sur
+  les deux pages. Y faire une exception pour se souvenir qu'on a dit non coûterait plus que cela ne
+  rapporte, d'autant que le navigateur décide déjà lui-même de la fréquence à laquelle il repropose.
+- **Renifler le navigateur pour aider iOS.** Une phrase « Partager → Sur l'écran d'accueil » serait
+  utile, et elle exigerait de deviner le navigateur à sa chaîne d'identification — ce que ce dépôt
+  n'a jamais fait nulle part. Écarté pour cette raison, pas par indifférence. À rouvrir si quelqu'un
+  le redemande.
+- **Un état inactif.** Le bouton n'en a aucun, donc pas d'`aria-disabled` et pas
+  d'`aria-describedby` : il est là et il marche, ou il n'est pas là. C'est la forme la plus simple
+  de la règle du projet, et elle ne s'obtient que parce qu'on a refusé l'option B.
+
+**Le contrôle de build ne surveillait pas ce dont l'installation dépend.** Le §8 vérifiait `id`,
+`scope`, `start_url`, l'existence des icônes et la présence d'une masquable. Il ne regardait ni
+`name`, ni `short_name`, ni `description`, ni `display`, ni qu'il existe une icône de 192 et une de
+512 — c'est-à-dire précisément les champs sans lesquels un navigateur n'émet jamais son invitation.
+Tant que l'installation passait par son menu, en perdre un serait passé inaperçu. Depuis qu'un
+bouton en dépend, la même perte le ferait disparaître de la page pour tout le monde, sans message et
+sans erreur. Le §8 les contrôle désormais, et le §3 exige que le bouton soit présent **et** `hidden`
+dans le HTML servi : perdre cet attribut l'afficherait partout, y compris là où il ne peut rien
+faire.
+
+**Ce que ce lot ne prouve pas.** Le test remet à la page exactement ce que le navigateur lui
+remettrait, mais il ne peut pas provoquer une vraie invitation : elle est décidée par le navigateur
+sur des critères qu'aucun test ne pilote. Ce qui est jugé est donc ce que la page en fait, et non le
+fait qu'elle arrive. De même, `emulateMedia` de Playwright ne connaît pas `display-mode` : la fenêtre
+installée est simulée en truquant `matchMedia`, ce qui vérifie notre garde et non le comportement
+réel du système. Le parcours complet — installer, désinstaller, rouvrir — se vérifie à la main sur
+Chrome ou Edge de bureau.
+
+**Bloque :** non.

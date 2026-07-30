@@ -83,6 +83,13 @@ Geotager is installable, and it works with no network at all — which is the po
 ran entirely on your device, and the only reason it used to stop working offline is that nothing
 kept a copy of it.
 
+**An “Install the app” button appears in the top bar, and only when it can do something.** It ships
+`hidden` in the served HTML and is revealed solely by the browser's install prompt — which browsers
+do not fire when the app is already installed. So it is absent for anyone who has installed it,
+absent inside the installed window, and absent in browsers that cannot install at all; there, the
+browser's own menu remains the way in. Nothing is remembered if you dismiss the dialog: this site
+persists nothing, and the browser already decides how often to offer again.
+
 A hand-written service worker (`scripts/sw-modele.js`, ~120 lines, no Workbox) precaches both pages,
 the stylesheet, the interface and the reading worker. Three rules govern it:
 

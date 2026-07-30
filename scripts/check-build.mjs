@@ -281,6 +281,23 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
     continue;
   }
 
+  /*
+   * Le bouton d'installation, présent et CACHÉ.
+   *
+   * Le `hidden` est tout le dispositif : le bouton n'est découvert que par
+   * l'invitation du navigateur, qui n'arrive jamais si l'application est déjà
+   * installée. Le perdre — un attribut, une ligne — l'afficherait pour tout le
+   * monde, y compris là où il ne peut rien faire, ce qui est exactement
+   * l'inverse de ce qu'on veut. Le retirer tout court reviendrait à ne plus
+   * proposer l'installation du tout, sans que rien ne le dise.
+   */
+  const bouton = html.match(/<button[^>]*\bid=["']installer["'][^>]*>/i)?.[0];
+  if (!bouton) {
+    echecs.push(`${rel(f)} : le bouton d'installation est absent`);
+  } else if (!/\shidden(?=[\s>=])/i.test(bouton)) {
+    echecs.push(`${rel(f)} : le bouton d'installation doit être « hidden » dans le HTML servi`);
+  }
+
   const attendus = BLOCS_OBLIGATOIRES[lang];
   if (!attendus) {
     echecs.push(`${rel(f)} : langue « ${lang} » inconnue du contrôle de contenu`);
@@ -532,6 +549,36 @@ for (const [fichierReadme, page] of [
     // carré blanc — ce qui est toujours laid et souvent illisible.
     if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
       echecs.push(`${rel(cible)} : aucune icône « maskable »`);
+    }
+
+    /*
+     * CE QUI REND L'APPLICATION INSTALLABLE, et que rien ne vérifiait.
+     *
+     * Un navigateur n'émet son invitation à installer que si le manifeste porte
+     * un nom, une description, un mode d'affichage autonome et des icônes d'au
+     * moins 192 et 512 pixels. Tant que l'installation n'était offerte que par
+     * le menu du navigateur, en perdre une passait inaperçu. Depuis qu'un
+     * BOUTON en dépend, la même perte le fait disparaître de la page pour tout
+     * le monde — sans message, sans erreur, sans rien.
+     */
+    for (const [cle, valeur] of [
+      ['name', m.name],
+      ['short_name', m.short_name],
+      ['description', m.description],
+    ]) {
+      if (typeof valeur !== 'string' || !valeur.trim()) {
+        echecs.push(`${rel(cible)} : « ${cle} » est vide — le navigateur ne proposera pas d'installer`);
+      }
+    }
+    if (!['standalone', 'fullscreen', 'minimal-ui'].includes(String(m.display))) {
+      echecs.push(
+        `${rel(cible)} : « display » vaut « ${m.display} » — seul un mode autonome rend installable`,
+      );
+    }
+    for (const taille of ['192x192', '512x512']) {
+      if (!(m.icons ?? []).some((i) => String(i.sizes ?? '').split(/\s+/).includes(taille))) {
+        echecs.push(`${rel(cible)} : aucune icône « ${taille} », exigée pour l'installation`);
+      }
     }
 
     /*

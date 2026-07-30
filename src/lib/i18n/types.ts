@@ -155,6 +155,14 @@ export interface Dictionnaire {
     ajoutees: (n: number) => string;
     /** Le lot est plein : ce qui dépasse n'est pas ajouté, et c'est dit. */
     lotPlafonne: (n: number) => string;
+    /**
+     * Le bouton d'installation, et ce qu'on dit une fois qu'elle a abouti.
+     *
+     * Le bouton n'existe que si le navigateur propose d'installer, ce qu'il ne
+     * fait jamais quand l'application l'est déjà.
+     */
+    installer: string;
+    installee: string;
     /** Bandeau de mise à jour — jamais automatique, voir `sw-modele.js`. */
     majDispo: string;
     majTravaux: string;
