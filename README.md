@@ -90,7 +90,8 @@ the stylesheet, the interface and the reading worker. Three rules govern it:
   anything else. A cached map tile would write a durable on-disk record of the places you looked at,
   which is exactly what this site promises not to do.
 - **No unconditional `skipWaiting()`.** Nothing is persisted here, so a forced reload would destroy
-  photos you have loaded and not yet downloaded. A new version waits behind a banner until you say so.
+  photos you have loaded and not yet downloaded. A new version waits behind a banner until you say so
+  — and a window that did not ask is not reloaded because another one said yes.
 - **No offline fallback page.** Both real pages are precached, so there is no navigation left for a
   fallback to catch.
 
@@ -104,6 +105,21 @@ Once installed, Geotager appears in the OS share sheet and as an “Open with”
 
 “Open with” is the simple one: the system hands over a file handle, so there is nothing to carry
 and nothing to keep.
+
+Simple is not the same as safe, and this is where that sentence used to stop. A handle can point at
+a file that has moved since, or at one that has not come down from online storage yet — and the
+system hands the batch over exactly once, so there is nothing to come back for. Each handle is
+therefore opened on its own, with a time limit: one photo that has gone missing no longer takes the
+rest of the batch with it, and an “Open with” that yields nothing usable says so on screen and out
+loud instead of leaving an empty window. A launch with no files at all stays silent, because that is
+what clicking the app's own icon looks like.
+
+The manifest also states which window receives the files: the one already open, brought forward as
+it is, with the new photos **joining** the ones already loaded rather than replacing them. Nothing
+is persisted here, so a launch that navigated the window would discard work — the same reason
+updates wait behind a banner. The manifest itself is fetched from the network first: it is the only
+file the system reads on its own behalf, and served from cache a correction to it would never
+arrive.
 
 Sharing is not. The Web Share Target API delivers files as a `POST`, and there is no server here to
 receive one — the service worker intercepts it. Every other app that does this parks the file in

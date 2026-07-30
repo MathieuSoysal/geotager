@@ -76,6 +76,20 @@ let carte: Carte | null = null;
 let precision: number | null = null;
 /** Empêche l'aller-retour champ → carte → champ de se mordre la queue. */
 let enSync = false;
+/** Cette fenêtre a cliqué « Recharger » sur le bandeau de mise à jour. */
+let demandeMaj = false;
+/**
+ * Une écriture est en cours.
+ *
+ * Depuis qu'un lot peut GROSSIR pendant qu'on écrit — une photo ouverte depuis
+ * le système rejoint celles qui sont là — le rendu du lot passe par
+ * `majResultat`, qui rallume « Télécharger ». Il le rallumerait au milieu d'une
+ * écriture, et un second clic relancerait tout par-dessus le premier.
+ */
+let enApplication = false;
+
+/** Le lot ne dépasse pas trois cents photos, et ce qui dépasse est annoncé. */
+const PLAFOND_LOT = 300;
 
 /* --- worker ------------------------------------------------------- */
 
@@ -403,8 +417,8 @@ async function ouvrirCarte(): Promise<void> {
 }
 
 function majResultat(): void {
-  if (!cible) {
-    el.resultat.hidden = true;
+  if (!cible || enApplication) {
+    el.resultat.hidden = !cible;
     inactiver(el.telecharger, true);
     el.telecharger.textContent = T.app.telechargerPhotos(items.length);
     return;
@@ -423,30 +437,92 @@ function majResultat(): void {
 
 /* --- chargement --------------------------------------------------- */
 
-async function charger(fichiers: File[]): Promise<void> {
-  const utiles = fichiers.filter((f) => f.size > 0).slice(0, 300);
+/**
+ * Ce qu'une arrivée fait de ce qui était déjà chargé.
+ *
+ * `remplacer` pour les gestes faits DANS la page — sélecteur, glisser-déposer,
+ * collage : on vient d'y désigner des fichiers, remplacer est ce qu'on attend.
+ * `ajouter` pour ce qui arrive DU SYSTÈME, où personne n'a rien demandé à la
+ * page : effacer un lot de quarante photos non exportées parce qu'on en ouvre
+ * une quarante-et-unième serait la perte que le bandeau de mise à jour refuse
+ * déjà de causer.
+ */
+type ModeArrivee = 'remplacer' | 'ajouter';
+
+/*
+ * Les arrivées sont sérialisées, et ce n'est pas une précaution de confort.
+ * Deux `charger` en vol parcouraient le même tableau `items` pendant que l'un
+ * le vidait sous l'autre : des fichiers sautés, et deux lectures du même
+ * identifiant dont la première écrase le résolveur dans `enAttente` — donc une
+ * promesse qui n'aboutit jamais et une interface figée sur un nom de fichier.
+ */
+let lecture: Promise<void> = Promise.resolve();
+
+function charger(fichiers: File[], mode: ModeArrivee = 'remplacer'): Promise<void> {
+  /*
+   * La chaîne ne doit JAMAIS rester en échec, et le rattrapage est ici plutôt
+   * que chez les appelants pour cette raison. Lire les octets d'un fichier peut
+   * lever — un fichier retiré sous nos pieds pendant la lecture, ce qui n'est
+   * plus une hypothèse depuis que le système nous en confie — et une chaîne
+   * laissée en échec ne rendrait plus la main à AUCUNE arrivée suivante : le
+   * sélecteur, le glisser-déposer et le collage cesseraient tous de répondre,
+   * définitivement, et sans un mot.
+   */
+  lecture = lecture
+    .then(() => chargerMaintenant(fichiers, mode))
+    .catch(() => signalerArriveeVide(T.app.ouverturePerdue));
+  return lecture;
+}
+
+async function chargerMaintenant(fichiers: File[], mode: ModeArrivee): Promise<void> {
+  const utiles = fichiers.filter((f) => f.size > 0);
   if (!utiles.length) return;
 
-  items.length = 0;
-  principal = null;
-  cible = null;
-  precision = null;
-  el.coords.value = '';
-
-  for (const file of utiles) {
-    items.push({ id: `f${++compteur}`, file });
+  if (mode === 'remplacer') {
+    items.length = 0;
+    principal = null;
+    cible = null;
+    precision = null;
+    el.coords.value = '';
   }
 
-  el.vide.hidden = true;
-  el.actif.hidden = false;
-  el.nom.textContent = utiles[0].name;
-  // Le focus était sur le sélecteur de fichier, à l'intérieur de l'état qu'on
-  // vient de cacher : sans cette ligne il retombe sur `body`, et la tabulation
-  // repart du haut du document au milieu du geste.
-  el.titreActif.focus();
-  annoncer(T.app.lecturePlurielle(utiles.length));
+  /*
+   * Le plafond ne jette plus en silence. Il jetait, et l'annonce rapportait le
+   * compte TRONQUÉ : elle affirmait donc avoir reçu moins qu'on ne lui avait
+   * donné, ce qui est la forme la plus discrète de mensonge.
+   */
+  const place = Math.max(0, PLAFOND_LOT - items.length);
+  const gardes = utiles.slice(0, place);
+  const refuses = utiles.length - gardes.length;
 
-  for (const it of items) {
+  // La boucle de lecture porte sur CETTE arrivée, jamais sur le tableau vivant :
+  // c'est ce qui rend l'ajout sûr, et ce qui rend la sérialisation suffisante.
+  const arrivants: Item[] = gardes.map((file) => ({ id: `f${++compteur}`, file }));
+  items.push(...arrivants);
+
+  const premier = mode === 'remplacer' || !principal;
+  if (premier) {
+    el.vide.hidden = true;
+    el.actif.hidden = false;
+    if (gardes.length) el.nom.textContent = gardes[0].name;
+    // Le focus était sur le sélecteur de fichier, à l'intérieur de l'état qu'on
+    // vient de cacher : sans cette ligne il retombe sur `body`, et la tabulation
+    // repart du haut du document au milieu du geste. Sur un AJOUT, en revanche,
+    // le focus est là où l'utilisateur l'a mis — peut-être dans le champ de
+    // coordonnées qu'il est en train de remplir. On n'y touche pas.
+    el.titreActif.focus();
+  }
+  if (refuses > 0) annoncer(T.app.lotPlafonne(refuses));
+  else if (gardes.length) {
+    annoncer(premier ? T.app.lecturePlurielle(gardes.length) : T.app.ajoutees(gardes.length));
+  }
+  // Le lot apparaît dès l'arrivée : les noms sont connus, seuls les états
+  // restent à lire. `afficherPrincipal` réannoncerait la photo principale, qui
+  // n'a pas changé.
+  if (!premier) majListeLot();
+  el.lot.hidden = items.length <= 1;
+
+  for (const it of arrivants) {
     const buffer = await it.file.arrayBuffer();
     const rep = await demander(
       { type: 'read', id: it.id, name: it.file.name, buffer },
@@ -468,7 +544,18 @@ async function charger(fichiers: File[]): Promise<void> {
     annoncer(T.app.illisibleAlerte);
     return;
   }
-  afficherPrincipal();
+  /*
+   * Un ajout ne repasse PAS par `afficherPrincipal` : la photo principale n'a
+   * pas changé, et le refaire réannoncerait son état — « photo lue, 43,60 ;
+   * 1,44 » — alors que ce qui vient de se passer est qu'on en a ajouté d'autres.
+   * Seuls la liste du lot et le libellé du bouton dépendent du compte.
+   */
+  if (premier) afficherPrincipal();
+  else {
+    majListeLot();
+    majResultat();
+  }
+  el.lot.hidden = items.length <= 1;
 }
 
 /* --- application et téléchargement -------------------------------- */
@@ -478,7 +565,40 @@ function nomSortie(nom: string, prefixe: string): string {
   return point > 0 ? `${nom.slice(0, point)}${prefixe}${nom.slice(point)}` : `${nom}${prefixe}`;
 }
 
+/** Les trois contrôles d'écriture, rendus à l'utilisateur. */
+function rendreLesBoutons(): void {
+  enApplication = false;
+  inactiver(el.effacer, false);
+  inactiver(el.effacerTout, false);
+  inactiver(el.telecharger, false);
+}
+
+/**
+ * Une écriture qui lève ne laisse pas l'outil grisé.
+ *
+ * Lire les octets d'un original peut échouer — un fichier retiré du disque
+ * pendant qu'on écrit, ce que « Ouvrir avec » rend possible puisque c'est le
+ * système qui les désigne. Sans ce rattrapage, la boucle s'interrompait sur
+ * trois boutons inactifs et l'outil restait figé jusqu'au rechargement, en plus
+ * de laisser filer un rejet que le test de bout en bout traite comme fatal.
+ */
 async function appliquer(
+  operation: Extract<ToWorker, { type: 'apply' }>['operation'],
+  prefixe: string,
+): Promise<void> {
+  try {
+    await appliquerMaintenant(operation, prefixe);
+  } catch {
+    rendreLesBoutons();
+    el.alerteFormat.hidden = false;
+    el.alerteFormat.classList.remove('attention');
+    el.alerteFormat.classList.add('grave');
+    el.alerteFormat.textContent = T.app.aucunProduit;
+    annoncer(T.app.aucunProduitAnnonce);
+  }
+}
+
+async function appliquerMaintenant(
   operation: Extract<ToWorker, { type: 'apply' }>['operation'],
   prefixe: string,
 ): Promise<void> {
@@ -494,6 +614,7 @@ async function appliquer(
   const concernes = items.filter((i) => i.read && permise(i.read));
   if (!concernes.length) return;
 
+  enApplication = true;
   inactiver(el.telecharger, true);
   inactiver(el.effacer, true);
   inactiver(el.effacerTout, true);
@@ -531,9 +652,15 @@ async function appliquer(
   }
 
   if (concernes.length > 1) majListeLot(statuts);
-  inactiver(el.effacer, false);
-  inactiver(el.effacerTout, false);
-  inactiver(el.telecharger, false);
+  /*
+   * Le rétablissement des boutons est inconditionnel, et c'est nouveau.
+   *
+   * Lire les octets d'un original peut lever — un fichier retiré du disque
+   * pendant qu'on écrit, ce que « Ouvrir avec » rend possible puisque c'est le
+   * système qui les désigne. La boucle ci-dessus s'interrompait alors sur trois
+   * boutons grisés, et l'outil restait figé jusqu'au rechargement.
+   */
+  rendreLesBoutons();
 
   if (!produits.length) {
     el.alerteFormat.hidden = false;
@@ -674,6 +801,19 @@ el.effacerTout.addEventListener('click', () => {
   void appliquer({ kind: 'eraseAll' }, T.app.suffixeSansInfos);
 });
 
+/*
+ * L'état de départ est posé AVANT que quoi que ce soit puisse arriver du
+ * système, et non en fin de fichier où il l'était.
+ *
+ * `setConsumer` appelle son consommateur SUR-LE-CHAMP si un lancement attend
+ * déjà — c'est le cas normal d'un « Ouvrir avec ». Posé après, `versEtatVide()`
+ * remettait tout à zéro par-dessus une arrivée en cours : la photo ne survivait
+ * que parce que la première chose que fait le consommateur est d'attendre. Une
+ * correction qui aurait rendu cette première étape synchrone aurait effacé le
+ * lot sans que rien ne le dise. On ne laisse pas une propriété tenir à cela.
+ */
+versEtatVide();
+
 /* --- arrivées depuis le système ------------------------------------ */
 
 /*
@@ -709,15 +849,39 @@ function reclamerPartage(): void {
   }, 3_000);
 }
 
+/**
+ * Dire qu'une arrivée n'a rien apporté, dans le canal VISIBLE de l'état courant.
+ *
+ * `#avis-vide` vit dans l'état vide, `#alerte-format` dans l'état actif : une
+ * phrase déposée dans celui qu'on masque n'est visible nulle part, et la page
+ * reste muette là où elle croit parler. Le partage n'avait qu'une réponse à ce
+ * choix, puisqu'il n'arrive que sur une page qui vient de s'ouvrir. « Ouvrir
+ * avec » en a deux : il peut tomber sur un lot déjà chargé, et c'est alors
+ * l'état actif qui est à l'écran.
+ *
+ * On demande donc à l'ÉCRAN, et non à `principal`. Les deux se ressemblent et
+ * ne coïncident pas : `charger` découvre l'état actif dès l'arrivée, alors que
+ * `principal` n'existe qu'une fois la première photo lue. Entre les deux, se
+ * fier à `principal` faisait repasser à l'état vide — donc masquer un lot en
+ * cours de lecture — pour y déposer une phrase.
+ */
+function signalerArriveeVide(phrase: string): void {
+  if (!el.actif.hidden) {
+    el.alerteFormat.hidden = false;
+    el.alerteFormat.classList.remove('attention');
+    el.alerteFormat.classList.add('grave');
+    el.alerteFormat.textContent = phrase;
+  } else {
+    el.vide.hidden = false;
+    el.actif.hidden = true;
+    el.avisVide.hidden = false;
+    el.avisVide.textContent = phrase;
+  }
+  annoncer(phrase);
+}
+
 function signalerPartagePerdu(): void {
-  // Le message va dans l'état VIDE, qui est celui qu'on affiche. L'écrire dans
-  // `#alerte-format` le déposerait à l'intérieur de l'état actif, qu'on masque
-  // dans la même respiration : visible nulle part, et la page resterait muette.
-  el.vide.hidden = false;
-  el.actif.hidden = true;
-  el.avisVide.hidden = false;
-  el.avisVide.textContent = T.app.partagePerdu;
-  annoncer(T.app.partagePerdu);
+  signalerArriveeVide(T.app.partagePerdu);
 }
 
 /*
@@ -744,14 +908,58 @@ interface LaunchParams {
 const filePeutEtreLancee = window as typeof window & {
   launchQueue?: { setConsumer(f: (p: LaunchParams) => void): void };
 };
+
+/** Une poignée qui ne répond pas ne doit pas laisser la page attendre en vain. */
+const DELAI_OUVERTURE = 10_000;
+
+/** La même poignée, mais qui rend la main. Rien de plus, et le minuteur est éteint. */
+function avecDelai(p: Promise<File>): Promise<File | null> {
+  return new Promise((resoudre) => {
+    const minuteur = setTimeout(() => resoudre(null), DELAI_OUVERTURE);
+    void p.then(
+      (f) => resoudre(f),
+      () => resoudre(null),
+    ).finally(() => clearTimeout(minuteur));
+  });
+}
+
+/**
+ * Ouvrir un fichier remis par le système, sans que le lot en dépende.
+ *
+ * `allSettled` et non `all` : une seule photo déplacée depuis le clic
+ * emportait TOUT le lot, et le rejet ne remontait nulle part. Le reste est
+ * chargé, et ce qui manque est dit.
+ */
+async function ouvrir(poignees: FileHandleLike[]): Promise<void> {
+  const arrivees = await Promise.all(poignees.map((h) => avecDelai(h.getFile())));
+  /*
+   * Taille nulle : le fichier n'est pas là. Un espace de stockage distant monté
+   * comme un dossier local rend des fichiers de 0 octet tant qu'il ne les a pas
+   * fait descendre, et ils arrivaient jusqu'ici pour être jetés sans un mot.
+   */
+  const fichiers = arrivees.filter((f): f is File => f !== null && f.size > 0);
+  if (!fichiers.length) {
+    signalerArriveeVide(T.app.ouverturePerdue);
+    return;
+  }
+  await charger(fichiers, 'ajouter');
+  const manquants = poignees.length - fichiers.length;
+  if (manquants > 0) annoncer(T.app.ouvertureIncomplete(manquants));
+}
+
 if (filePeutEtreLancee.launchQueue) {
   filePeutEtreLancee.launchQueue.setConsumer((params) => {
-    void (async () => {
-      const poignees = params.files ?? [];
-      if (!poignees.length) return;
-      const fichiers = await Promise.all(poignees.map((h) => h.getFile()));
-      void charger(fichiers.filter((f) => f.size > 0));
-    })();
+    // Un lancement SANS fichier est le lancement ordinaire : ouvrir
+    // l'application par son icône passe aussi par ici, et il n'y a rien à dire.
+    // Une entrée sans `getFile` n'est pas un fichier et ne prétend pas l'être.
+    const poignees = (params.files ?? []).filter((h) => typeof h?.getFile === 'function');
+    if (!poignees.length) return;
+    /*
+     * Tout est enveloppé. Un rejet qui s'échapperait d'ici laisserait la fenêtre
+     * sur un écran vide et muet — c'est la panne que ce chemin vient de cesser
+     * d'avoir — et le test de bout en bout refuse la moindre erreur de console.
+     */
+    void ouvrir(poignees).catch(() => signalerArriveeVide(T.app.ouverturePerdue));
   });
 }
 
@@ -774,9 +982,17 @@ function proposerMaj(reg: ServiceWorkerRegistration): void {
   el.maj.hidden = false;
   el.majRecharger.onclick = () => {
     el.maj.hidden = true;
+    // C'est CETTE fenêtre qui a demandé. Sans ce drapeau, le clic d'une fenêtre
+    // rechargeait toutes les autres — le worker qui s'active réclame tous les
+    // clients d'un coup — et emportait leurs photos non exportées. La règle 2
+    // interdit le rechargement imposé ; elle ne l'interdisait qu'aux mises à
+    // jour, pas aux voisins.
+    demandeMaj = true;
     // Le worker en attente ne prend la main que sur ce message : voir
-    // `scripts/sw-modele.js`, règle 2.
-    reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
+    // `scripts/sw-modele.js`, règle 2. S'il n'attend plus, c'est qu'une autre
+    // fenêtre l'a déjà fait passer devant : il ne reste qu'à se recharger.
+    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    else location.reload();
   };
   el.majPlusTard.onclick = () => {
     el.maj.hidden = true;
@@ -794,6 +1010,9 @@ if ('serviceWorker' in navigator) {
    * sécurisé ou un stockage refusé fait lever `register`.
    */
   window.addEventListener('load', () => {
+    // Lu AVANT l'enregistrement : après, le contrôleur peut déjà avoir changé.
+    const avant = navigator.serviceWorker.controller;
+
     void navigator.serviceWorker
       .register('/sw.js')
       .then((reg) => {
@@ -815,11 +1034,33 @@ if ('serviceWorker' in navigator) {
         /* Pas de cache, et c'est tout : l'application marche sans. */
       });
 
-    // Un seul rechargement. Sans ce drapeau, deux onglets qui se réclament le
-    // contrôle l'un à l'autre bouclent indéfiniment.
+    /*
+     * Un seul rechargement, et jamais celui de la PREMIÈRE prise de contrôle.
+     *
+     * Le worker réclame ses clients en s'activant : la page qui vient de
+     * l'enregistrer passe donc sous contrôle sans qu'aucune mise à jour ne soit
+     * en jeu. Recharger là n'apportait rien — le document servi est déjà le
+     * bon — et cela JETAIT ce que le système venait de remettre. Un « Ouvrir
+     * avec » consommait ses fichiers — `setConsumer` appelle son consommateur
+     * sur-le-champ — et se rechargeait aussitôt par-dessus. Ils sont remis une
+     * fois et une seule : il n'y a rien à revenir chercher, et la fenêtre
+     * restait vide et muette.
+     *
+     * Le partage n'y perdait pas ses octets, contrairement à ce qu'on pourrait
+     * croire : il n'arrive que si un worker est déjà actif, donc la page qu'il
+     * ouvre est contrôlée dès sa naissance et cet événement ne s'y déclenche
+     * pas. Ce que le rechargement lui prenait, c'est la PHRASE — « la photo
+     * partagée n'est pas arrivée » venait de s'afficher, et disparaissait.
+     *
+     * `avant` non nul veut dire « il y avait déjà un worker, donc c'en est un
+     * nouveau » — la même distinction que le bandeau fait plus haut. `demandeMaj`
+     * veut dire « c'est cette fenêtre qui l'a demandé ». Le drapeau `recharge`,
+     * lui, était déjà là : sans lui, deux onglets qui se réclament le contrôle
+     * l'un à l'autre bouclent indéfiniment.
+     */
     let recharge = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (recharge) return;
+      if (recharge || !avant || !demandeMaj) return;
       recharge = true;
       location.reload();
     });
@@ -856,5 +1097,3 @@ document.addEventListener('paste', (e) => {
     void charger(files);
   }
 });
-
-versEtatVide();

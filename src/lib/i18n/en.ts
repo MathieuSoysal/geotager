@@ -111,6 +111,17 @@ export const en: Dictionnaire = {
     pretsAvecEchecs: (n, e) =>
       `${n} file(s) ready, ${e} failed. The originals concerned are untouched.`,
     partagePerdu: 'The shared photo did not make it across — nothing was stored, so nothing was lost. Share it again, or drop it below.',
+    ouverturePerdue: 'The photo did not make it across — it may have been moved or deleted since, or it may not have come down to this machine yet. Nothing was stored, so nothing was lost: the original never moved. Open it again, or drop it below.',
+    ouvertureIncomplete: (n) =>
+      n > 1
+        ? `${n} photos did not arrive; the others are loaded.`
+        : 'One photo did not arrive; the others are loaded.',
+    ajoutees: (n) =>
+      n > 1 ? `${n} photos added to the batch.` : 'One photo added to the batch.',
+    lotPlafonne: (n) =>
+      n > 1
+        ? `${n} photos beyond the limit: they were not added.`
+        : 'One photo beyond the limit: it was not added.',
     majDispo: 'A new version of Geotager is available.',
     majTravaux: 'A new version is available. Download your photos first — reloading discards the ones you have open.',
     majRecharger: 'Reload',

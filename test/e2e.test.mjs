@@ -421,6 +421,28 @@ for (const langue of LANGUES) {
     check(`${langue} / erreur « ${code} » : sans jargon`,
       Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
   }
+  /*
+   * Les phrases des arrivées depuis le système. Elles ne figurent dans aucun
+   * HTML servi — c'est le script qui les pose, quand quelque chose a échoué —
+   * donc aucun balayage de page ne les voit passer.
+   *
+   * Nommées une par une, et non par un parcours de tout `T.app` : cet objet
+   * porte aussi des suffixes de nom de fichier, et `suffixeSansInfos` vaut
+   * « -sans-metadonnees ». Ce n'est pas une phrase du parcours, et la règle du
+   * §5 porte sur les phrases du parcours.
+   */
+  for (const cle of ['partagePerdu', 'ouverturePerdue']) {
+    const p = T.app[cle];
+    check(`${langue} / « ${cle} » : une phrase sans jargon`,
+      Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+  }
+  for (const cle of ['ouvertureIncomplete', 'ajoutees', 'lotPlafonne']) {
+    for (const n of [1, 3]) {
+      const p = T.app[cle](n);
+      check(`${langue} / « ${cle}(${n}) » : une phrase sans jargon`,
+        Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+    }
+  }
 }
 check('les onze motifs du parcours sont couverts', MOTIFS.length === 11);
 check('les deux langues ont exactement les mêmes clés',
@@ -1243,6 +1265,224 @@ check('aucune exception sur le chemin du partage',
   restantesPartage.length === 0, restantesPartage[0]);
 
 await ctxSw.close();
+
+/*
+ * « OUVRIR AVEC », JOUÉ POUR DE VRAI.
+ *
+ * Le système remet des poignées de fichier, et rien d'autre : pas de paramètre
+ * dans l'adresse, pas d'octets gardés quelque part, rien à réclamer à personne.
+ * Ce qui n'est pas rattrapé à cet instant est perdu — et l'était SANS UN MOT.
+ *
+ * On ne peut pas déclencher le menu du système depuis un test. Tout ce qui se
+ * passe après, si : la file de lancement est posée avant l'exécution de l'îlot,
+ * et on lui remet exactement ce que le système lui remettrait.
+ */
+const POSER_FILE = () => {
+  // `addInitScript` et non `addScriptTag` : le second injecte un script EN
+  // LIGNE, que `script-src 'self'` refuse. Celui-ci passe par le protocole de
+  // débogage, hors de portée de la politique de la page.
+  //
+  // `defineProperty` et non une affectation : le jour où la plate-forme définit
+  // `launchQueue` en accesseur sans écriture, une affectation échouerait sans un
+  // mot et le test se mettrait à passer pour rien.
+  let consommateur = null;
+  Object.defineProperty(window, 'launchQueue', {
+    configurable: true,
+    value: {
+      setConsumer(f) {
+        consommateur = f;
+      },
+    },
+  });
+  // Une poignée est un objet qui sait rendre un fichier, et rien de plus. Les
+  // octets arrivent en base64 — c'est un argument d'appel, donc la politique du
+  // contenu n'a rien à en dire.
+  window.__lancer = (lot) =>
+    consommateur({
+      files: lot.map((p) => ({
+        kind: 'file',
+        getFile: p.refuse
+          ? () => Promise.reject(new DOMException('déplacée', 'NotFoundError'))
+          : () =>
+              Promise.resolve(
+                new File(
+                  [p.b64 ? Uint8Array.from(atob(p.b64), (c) => c.charCodeAt(0)) : new Uint8Array(0)],
+                  p.nom,
+                  { type: 'image/jpeg' },
+                ),
+              ),
+      })),
+    });
+  window.__lancerSansFichier = () => consommateur({ files: [] });
+};
+
+const octetsLancement = readFileSync(source).toString('base64');
+
+console.log('\nUne photo ouverte depuis le système');
+const pageLance = await contexte.newPage();
+const erreursLance = [];
+pageLance.on('pageerror', (e) => erreursLance.push(String(e)));
+pageLance.on('console', (m) => {
+  if (m.type() === 'error') erreursLance.push(m.text());
+});
+await pageLance.addInitScript(POSER_FILE);
+await pageLance.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+
+await pageLance.evaluate((b64) => window.__lancer([{ b64, nom: 'ouverte-avec.jpg' }]), octetsLancement);
+const arrivee = await pageLance
+  .waitForFunction(
+    () => {
+      const n = document.getElementById('nom-fichier');
+      return n && n.textContent.includes('ouverte-avec');
+    },
+    null,
+    { timeout: 20_000 },
+  )
+  .then(() => true)
+  .catch(() => false);
+check("une photo ouverte depuis le système arrive dans l'outil", arrivee);
+check('et elle est lue comme n’importe quelle autre',
+  await pageLance
+    .waitForFunction(
+      () => {
+        const p = document.getElementById('pill-position');
+        return p && !p.hidden && p.textContent.trim().length > 0;
+      },
+      null,
+      { timeout: 20_000 },
+    )
+    .then(() => true)
+    .catch(() => false));
+
+/*
+ * La seconde ouverture REJOINT la première. Elle l'effaçait : `charger` remettait
+ * `items` à zéro sans rien demander, et quarante photos non exportées
+ * disparaissaient parce qu'on en avait ouvert une quarante-et-unième.
+ */
+await pageLance.fill('#coords', '43.9493, 4.8055');
+await pageLance.evaluate((b64) => window.__lancer([{ b64, nom: 'deuxieme.jpg' }]), octetsLancement);
+await pageLance
+  .waitForFunction(() => document.querySelectorAll('#lot-liste li').length === 2, null, { timeout: 20_000 })
+  .catch(() => {});
+const lot = await pageLance.locator('#lot-liste').textContent();
+check("une seconde ouverture n'efface pas la première",
+  lot.includes('ouverte-avec') && lot.includes('deuxieme'), lot.slice(0, 80));
+check('et le lieu déjà désigné reste désigné',
+  (await pageLance.locator('#coords').inputValue()).includes('43.9493'));
+
+/*
+ * Cliquer l'icône de l'application passe aussi par la file de lancement, sans
+ * aucun fichier. `focus-existing` la remet à la fenêtre ouverte comme le reste :
+ * annoncer « cette photo n'est pas arrivée » à chaque clic sur l'icône serait un
+ * mensonge dit très régulièrement.
+ */
+await pageLance.evaluate(() => window.__lancerSansFichier());
+await pageLance.waitForTimeout(800);
+check('un lancement sans fichier ne fait croire à rien',
+  (await pageLance.locator('#avis-vide').isHidden()) &&
+    (await pageLance.locator('#lot-liste li').count()) === 2);
+
+console.log('\nUne ouverture qui n’apporte rien le dit');
+const pageRien = await contexte.newPage();
+const erreursRien = [];
+pageRien.on('pageerror', (e) => erreursRien.push(String(e)));
+pageRien.on('console', (m) => {
+  if (m.type() === 'error') erreursRien.push(m.text());
+});
+await pageRien.addInitScript(POSER_FILE);
+await pageRien.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+
+/*
+ * Zéro octet. Un espace de stockage distant monté comme un dossier local rend
+ * des fichiers de taille nulle tant qu'il ne les a pas fait descendre : ils
+ * étaient écartés deux fois de suite, et la fenêtre restait vide et muette.
+ */
+await pageRien.evaluate(() => window.__lancer([{ nom: 'rien.jpg' }]));
+const ditRien = await pageRien
+  .waitForSelector('#avis-vide:not([hidden])', { timeout: 10_000 })
+  .then(() => true)
+  .catch(() => false);
+check("une photo sans octets le dit, au lieu de laisser une fenêtre vide", ditRien);
+const phraseRien = (await pageRien.locator('#avis-vide').textContent()).trim();
+check('et elle le dit aussi à voix haute',
+  (await pageRien.locator('#annonce').textContent()).trim() === phraseRien);
+check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phraseRien), phraseRien.slice(0, 80));
+check("l'état actif reste masqué", await pageRien.locator('#etat-actif').isHidden());
+
+// Une poignée fâchée n'emporte plus le lot : c'est tout l'objet du changement.
+await pageRien.evaluate(
+  (b64) => window.__lancer([{ refuse: true, nom: 'partie.jpg' }, { b64, nom: 'restee.jpg' }]),
+  octetsLancement,
+);
+check("une photo déplacée n'emporte pas celles qui sont restées",
+  await pageRien
+    .waitForFunction(
+      () => {
+        const n = document.getElementById('nom-fichier');
+        return n && n.textContent.includes('restee');
+      },
+      null,
+      { timeout: 20_000 },
+    )
+    .then(() => true)
+    .catch(() => false));
+
+// Et un lot entièrement fâché le dit, dans le canal qui est à l'écran : l'état
+// actif est affiché, donc `#avis-vide` n'y serait visible nulle part.
+await pageRien.evaluate(() => window.__lancer([{ refuse: true, nom: 'toutes-parties.jpg' }]));
+check('un lot entièrement perdu le dit là où on le voit',
+  await pageRien
+    .waitForFunction(
+      () => {
+        const a = document.getElementById('alerte-format');
+        return a && !a.hidden && a.classList.contains('grave');
+      },
+      null,
+      { timeout: 10_000 },
+    )
+    .then(() => true)
+    .catch(() => false));
+
+const restantesLance = [...erreursLance, ...erreursRien].filter(
+  (e) => !/Failed to load resource|net::ERR_/.test(e),
+);
+check("aucune exception, et aucun rejet non traité, sur le chemin de l'ouverture",
+  restantesLance.length === 0, restantesLance[0]);
+
+/*
+ * LA COURSE DU PREMIER LANCEMENT — la panne du rapport, dans son propre contexte.
+ *
+ * Un contexte neuf : aucun worker n'y est enregistré, donc le document se charge
+ * SANS contrôleur. Le worker s'enregistre au chargement, s'active, réclame ses
+ * clients — et la page se rechargeait. Les fichiers du lancement, remis une fois
+ * et une seule, étaient déjà consommés : la fenêtre repartait vide et muette.
+ *
+ * Le `ctxSw` d'au-dessus ne peut pas juger ceci : il attend d'être contrôlé puis
+ * recharge lui-même, c'est-à-dire précisément l'état où la course n'a pas lieu.
+ */
+console.log('\nLe premier lancement, worker non installé');
+const ctxCourse = await navigateur.newContext();
+const pageCourse = await ctxCourse.newPage();
+let chargementsCourse = 0;
+pageCourse.on('load', () => chargementsCourse++);
+await pageCourse.addInitScript(POSER_FILE);
+await pageCourse.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+check("le document du premier lancement n'est pas contrôlé",
+  await pageCourse.evaluate(() => navigator.serviceWorker.controller === null));
+
+await pageCourse.evaluate((b64) => window.__lancer([{ b64, nom: 'premier-lancement.jpg' }]), octetsLancement);
+const prisLeControle = await pageCourse
+  .waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('le worker prend le contrôle de la page', prisLeControle);
+await pageCourse.waitForTimeout(2_000);
+check("le worker qui prend la main ne recharge pas une page qui n'a rien demandé",
+  chargementsCourse === 1, `${chargementsCourse} chargement(s)`);
+check('et la photo du premier lancement est toujours là',
+  (await pageCourse.locator('#nom-fichier').textContent()).includes('premier-lancement'));
+
+await ctxCourse.close();
 
 await navigateur.close();
 serveur.close();

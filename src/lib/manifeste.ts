@@ -82,12 +82,34 @@ export function manifeste(langue: Langue): string {
       },
 
       /*
-       * « Ouvrir avec ». Plus simple que le partage, et plus propre : le système
-       * remet directement une poignée de fichier, sans requête, sans corps de
-       * formulaire, donc sans rien à garder entre deux instants.
+       * Quelle fenêtre reçoit un « Ouvrir avec ».
        *
-       * `single-client` : une seule fenêtre reçoit tout le lot, au lieu d'en
-       * ouvrir une par photo.
+       * `launch_handler.client_mode` est le membre NORMALISÉ, et c'est lui qui
+       * décide. Le `launch_type` des débuts du File Handling, écrit ici jusqu'à
+       * la V1.4, ne disait la même chose que dans un navigateur et rien ne le
+       * lisait ailleurs : la promesse « une seule fenêtre reçoit tout le lot »
+       * était donc écrite sans être tenue. Deux déclarations qui peuvent se
+       * contredire ne valent pas mieux qu'une seule ; on ne garde que celle-ci.
+       *
+       * `focus-existing` : la fenêtre déjà ouverte reçoit le lot SANS être
+       * renavigée. C'est ce qui lui laisse les photos qu'elle tenait déjà — un
+       * rechargement les effacerait, et personne n'a demandé cela.
+       */
+      launch_handler: { client_mode: 'focus-existing' },
+
+      /*
+       * « Ouvrir avec ». Plus simple que le partage : le système remet
+       * directement une poignée de fichier, sans requête, sans corps de
+       * formulaire, donc sans rien à garder entre deux instants. Le lot
+       * s'AJOUTE à ce que la fenêtre tenait déjà — voir `charger` dans
+       * `ui/app.ts`.
+       *
+       * Les mêmes formats que le partage, à deux absences près, et pour la même
+       * raison qu'y manquent les vidéos. Un GIF n'a nulle part où mettre un
+       * lieu — le moteur le range en « sans-lieu-possible » — et un fichier brut
+       * d'appareil, DNG, NEF ou CR2, ne doit rien recevoir du tout. S'inscrire
+       * pour eux serait se proposer pour un travail qu'on ne sait pas faire, à
+       * quelqu'un qui ne l'a pas demandé.
        */
       file_handlers: [
         {
@@ -101,7 +123,6 @@ export function manifeste(langue: Langue): string {
             'image/avif': ['.avif'],
             'image/tiff': ['.tif', '.tiff'],
           },
-          launch_type: 'single-client',
         },
       ],
       icons: [

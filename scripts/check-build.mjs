@@ -89,6 +89,27 @@ function texteVisible(s) {
 
 const longueurVisible = (s) => texteVisible(s).length;
 
+/**
+ * Une liste littérale du service worker construit, relue telle quelle.
+ *
+ * `gen-sw.mjs` écrit `PRECACHE` en JSON, et `sw-modele.js` écrit `PARTAGE` à la
+ * main avec des guillemets doubles : les deux se relisent donc par `JSON.parse`,
+ * sans qu'un contrôle ait à deviner ce que le worker reconnaît. Une liste
+ * illisible rend un tableau vide, et l'appelant décide s'il s'en plaint — c'est
+ * la seule manière de ne pas transformer une absence en fausse réussite.
+ */
+function listeDuWorker(chemin, nom) {
+  const trouve = readFileSync(chemin, 'utf8').match(
+    new RegExp(String.raw`const ${nom} = (\[[\s\S]*?\]);`),
+  );
+  if (!trouve) return [];
+  try {
+    return JSON.parse(trouve[1]);
+  } catch {
+    return [];
+  }
+}
+
 /* --- 1. structure et plafonds ------------------------------------- */
 
 if (!fichiers.includes(join(DIR, 'index.html'))) echecs.push("dist/index.html est absent");
@@ -435,6 +456,13 @@ for (const [fichierReadme, page] of [
     if (m.id !== '/') echecs.push(`${rel(cible)} : « id » vaut « ${m.id} », il doit valoir « / »`);
     if (m.scope !== '/') echecs.push(`${rel(cible)} : « scope » doit valoir « / »`);
 
+    // `start_url` est l'adresse que le système ouvre en cliquant l'icône. Elle
+    // n'était vérifiée que comme chaîne : une page absente passait en vert.
+    const depart = String(m.start_url ?? '');
+    if (!depart.endsWith('/') || !existsSync(join(DIR, depart.replace(/^\//, ''), 'index.html'))) {
+      echecs.push(`${rel(cible)} : « start_url » ne désigne aucune page — ${depart}`);
+    }
+
     /*
      * `share_target.action` et `file_handlers[].action` sont des adresses vers
      * lesquelles le SYSTÈME enverra des fichiers de l'utilisateur. Une seule
@@ -483,11 +511,93 @@ for (const [fichierReadme, page] of [
       const chemin = String(m.share_target.action ?? '');
       if (!existsSync(sw)) {
         echecs.push(`${rel(cible)} annonce un partage, mais ${rel(sw)} n'existe pas`);
-      } else if (!new RegExp(String.raw`\$\{?\w*\}?|partager`).test(readFileSync(sw, 'utf8'))) {
+      } else if (!listeDuWorker(sw, 'PARTAGE').includes(chemin)) {
+        /*
+         * Ce contrôle a longtemps été creux. Il cherchait
+         * `\$\{?\w*\}?|partager`, dont la première branche accepte un simple
+         * « $ » — et `sw.js` en contient toujours un. Il passait donc quoi que
+         * fasse le worker, et le 404 que le paragraphe ci-dessus dit prévenir
+         * serait parti en production sans un mot. Il lit maintenant la liste que
+         * le worker consulte vraiment.
+         */
         echecs.push(`${rel(sw)} ne reconnaît pas la cible de partage « ${chemin} »`);
       }
       if (m.share_target.method !== 'POST' || m.share_target.enctype !== 'multipart/form-data') {
         echecs.push(`${rel(cible)} : un partage de FICHIERS exige POST + multipart/form-data`);
+      }
+    }
+
+    /*
+     * « Ouvrir avec » est l'autre porte par laquelle le SYSTÈME envoie des
+     * fichiers, et la seule dont l'adresse désigne un document RÉEL. Si elle
+     * pointait à côté — une langue qui n'existe pas, une barre oblique finale
+     * oubliée — le système ouvrirait une redirection ou un 404, et personne ne
+     * le saurait avant qu'un utilisateur ne s'en plaigne. C'est arrivé : le
+     * lancement était livré en V1.3 sans qu'aucun contrôle ne le regarde.
+     */
+    const sw = join(DIR, 'sw.js');
+    const precache = existsSync(sw) ? listeDuWorker(sw, 'PRECACHE') : [];
+    for (const [n, h] of (m.file_handlers ?? []).entries()) {
+      const nom = `file_handlers[${n}]`;
+      const action = String(h.action ?? '');
+
+      /*
+       * La barre oblique finale n'est pas une coquetterie. `/fr` répond 307 chez
+       * l'hébergeur, et une entrée préchargée qui redirige est stockée comme
+       * telle : le worker la rendrait à une navigation dont le mode de
+       * redirection est `manual`, ce dont le navigateur fait une erreur réseau.
+       * Ce n'est pas « Ouvrir avec » qui tomberait alors, c'est l'application
+       * entière, hors ligne.
+       */
+      if (!action.endsWith('/')) {
+        echecs.push(`${rel(cible)} : « ${nom}.action » doit finir par « / » — ${action}`);
+      } else if (!existsSync(join(DIR, action.replace(/^\//, ''), 'index.html'))) {
+        echecs.push(`${rel(cible)} : « ${nom}.action » ne désigne aucune page — ${action}`);
+      }
+      if (!action.startsWith(String(m.scope ?? '/'))) {
+        echecs.push(`${rel(cible)} : « ${nom}.action » sort de la portée — ${action}`);
+      }
+      /*
+       * Et elle vaut `start_url`. C'est le contrôle qui porte vraiment : les deux
+       * manifestes ne diffèrent que par leur langue, et celui du français
+       * pointant sur la page anglaise ferait atterrir une photo dans une langue
+       * que son propriétaire n'a pas installée. La portée, elle, vaut « / » pour
+       * les deux et ne pouvait rien attraper.
+       */
+      if (action !== m.start_url) {
+        echecs.push(
+          `${rel(cible)} : « ${nom}.action » vaut ${action} et « start_url » ${m.start_url} — une arrivée n'atterrirait pas dans la langue installée`,
+        );
+      }
+      if (precache.length && !precache.includes(action)) {
+        echecs.push(`${rel(sw)} ne précharge pas « ${action} », que ${nom} annonce`);
+      }
+
+      const types = Object.entries(h.accept ?? {});
+      if (!types.length) echecs.push(`${rel(cible)} : « ${nom}.accept » est vide`);
+      for (const [type, exts] of types) {
+        if (!/^[a-z]+\/[a-z0-9.+-]+$/.test(type)) {
+          echecs.push(`${rel(cible)} : « ${nom}.accept » a une clé douteuse — ${type}`);
+        }
+        if (!Array.isArray(exts) || !exts.length || !exts.every((e) => /^\.[a-z0-9]+$/.test(e))) {
+          echecs.push(`${rel(cible)} : « ${nom}.accept[${type}] » n'est pas une liste d'extensions`);
+        }
+      }
+
+      /*
+       * `launch_type` est le champ des débuts du File Handling, jamais
+       * normalisé : il déclarait ici « une seule fenêtre reçoit tout le lot »
+       * sans que rien ne le tienne. On refuse son retour, pour qu'il ne
+       * réapparaisse pas à côté du membre qui décide vraiment.
+       */
+      if ('launch_type' in h) {
+        echecs.push(`${rel(cible)} : « ${nom}.launch_type » n'est pas normalisé, voir launch_handler`);
+      }
+    }
+    if (m.file_handlers?.length) {
+      const mode = m.launch_handler?.client_mode;
+      if (!['auto', 'focus-existing', 'navigate-existing', 'navigate-new'].includes(mode)) {
+        echecs.push(`${rel(cible)} : « launch_handler.client_mode » est absent ou inconnu — ${mode}`);
       }
     }
   }
