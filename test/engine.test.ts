@@ -483,7 +483,7 @@ function conteneurOuEchec(src: Uint8Array) {
   return c;
 }
 
-for (const [nom, etiquette] of [
+for (const [nom] of [
   ['iphone.heic', 'photo iPhone'],
   ['photo.avif', 'photo AVIF'],
 ] as const) {

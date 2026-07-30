@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+
+  // `astro/tsconfigs/strict` = `base` + `strict: true`. Tout ce que `base`
+  // apporte est nécessaire ici et serait recopié à l'identique si on repartait
+  // de zéro : `allowImportingTsExtensions` (le projet importe avec l'extension
+  // `.ts` explicite, à plus de soixante endroits), `verbatimModuleSyntax`,
+  // `noEmit`, et un `include` qui couvre `.astro/types.d.ts` — le fichier que
+  // `astro sync` régénère et que `.gitignore` écarte à juste titre.
+  //
+  // Pas `strictest` : il active `noUncheckedIndexedAccess`, et le moteur EXIF
+  // passe sa vie à indexer des tableaux d'octets. Ce serait une assertion non
+  // nulle par accès dans le code le plus délicat du dépôt, pour aucun défaut
+  // qu'il attraperait réellement.
+  "extends": "astro/tsconfigs/strict",
+
+  "compilerOptions": {
+    // Les tests tournent sous `node --experimental-strip-types`, qui efface les
+    // types sans les compiler : une énumération, un espace de noms ou une
+    // propriété de constructeur raccourcie y échoue à l'exécution. Le code
+    // respecte déjà cette contrainte, par nécessité — sinon `npm test` ne
+    // démarrerait pas. L'option ne change donc rien aujourd'hui ; elle
+    // transforme juste la panne déroutante d'un futur contributeur en une
+    // erreur de type qui nomme le problème.
+    "erasableSyntaxOnly": true
+  }
+}
