@@ -35,8 +35,8 @@ export function parseCoordinates(input: string): LatLon | null {
     });
     const lat = valeurs.find((x) => x.ref === 'N' || x.ref === 'S');
     const lon = valeurs.find((x) => x.ref === 'E' || x.ref === 'W' || x.ref === 'O');
-    if (lat && lon) return valider({ lat: lat.v, lon: lon.v });
-    return valider({ lat: valeurs[0].v, lon: valeurs[1].v });
+    if (lat && lon) return validerPosition({ lat: lat.v, lon: lon.v });
+    return validerPosition({ lat: valeurs[0].v, lon: valeurs[1].v });
   }
 
   // 2) Decimal form. Isolate two signed numbers, tolerating the French decimal
@@ -44,12 +44,29 @@ export function parseCoordinates(input: string): LatLon | null {
   const normalise = texte.replace(/(\d),(\d)/g, '$1.$2');
   const nombres = normalise.match(/-?\d+(?:\.\d+)?/g);
   if (nombres && nombres.length >= 2) {
-    return valider({ lat: Number(nombres[0]), lon: Number(nombres[1]) });
+    return validerPosition({ lat: Number(nombres[0]), lon: Number(nombres[1]) });
   }
   return null;
 }
 
-function valider(p: LatLon): LatLon | null {
+/**
+ * The one definition of a usable position, and the only place it lives.
+ *
+ * `NaN` is a number as far as `typeof` is concerned, which defeats the naive
+ * guard. A `NaN` position then crosses the whole interface without tripping
+ * anything, displays as "NaN, NaN" through `toFixed`, and projects the map onto
+ * `NaN` pixels, so marker and tiles vanish at once. There is no error message
+ * at the end of that path, only an empty view.
+ *
+ * The range check is here for the same reason: a latitude of 500 is as
+ * unusable as an absent one, and comes from the same place, a third-party
+ * reader nobody asked for guarantees from.
+ *
+ * Returning `null` is the intended behaviour, never a fallback position.
+ * Substituting a value would have a file with no location announce one, which
+ * is the single lie this tool cannot afford.
+ */
+export function validerPosition(p: LatLon): LatLon | null {
   if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) return null;
   if (Math.abs(p.lat) > 90 || Math.abs(p.lon) > 180) return null;
   return p;

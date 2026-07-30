@@ -24,7 +24,7 @@ import {
 import { type Capacites, type Motif, capacitesDe } from '../lib/exif/capacites.ts';
 import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
-import { distanceMetres } from '../lib/exif/coords.ts';
+import { distanceMetres, validerPosition } from '../lib/exif/coords.ts';
 import type {
   Format,
   FromWorker,
@@ -186,6 +186,33 @@ function projeter(s: Sonde): PhotoRead['can'] {
   };
 }
 
+/**
+ * The location reported by the second reader, held to the same rules as ours.
+ *
+ * This fallback only opens if our engine found nothing, and that is precisely
+ * what made it dangerous: it could report from a file exactly what the engine
+ * had just rejected, applying none of its rules.
+ *
+ * Two values got through. `NaN` first, which `typeof` calls a number: a GPS
+ * rational with a zero denominator, which a Galaxy S10 writes without a fix,
+ * came out as "NaN, NaN" on screen and then emptied the map, the projection
+ * carrying `NaN` all the way to the tile pixels. Exact zero next: our
+ * `readPosition` rejects it by name because it is the trace of software that
+ * purged the coordinates without removing the entries, and announcing the Gulf
+ * of Guinea for a file with no location is the one lie this tool cannot afford.
+ * Both rules now apply to both readers.
+ *
+ * The refusal is an absence, never a fallback location: the interface already
+ * has a "no location" state, said in words, and the map then opens on an
+ * overview.
+ */
+function positionDuSecondLecteur(lat: unknown, lon: unknown): LatLon | null {
+  if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+  const p = validerPosition({ lat, lon });
+  if (!p || (p.lat === 0 && p.lon === 0)) return null;
+  return p;
+}
+
 function texteDate(v: unknown): string | null {
   if (v instanceof Date && !Number.isNaN(v.valueOf())) return v.toISOString();
   if (typeof v === 'string' && v.trim()) return v;
@@ -210,10 +237,10 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
       | undefined;
 
     if (tags) {
-      if (!position && typeof tags.latitude === 'number' && typeof tags.longitude === 'number') {
-        position = { lat: tags.latitude, lon: tags.longitude };
+      if (!position) position = positionDuSecondLecteur(tags.latitude, tags.longitude);
+      if (typeof tags.GPSAltitude === 'number' && Number.isFinite(tags.GPSAltitude)) {
+        altitude = tags.GPSAltitude;
       }
-      if (typeof tags.GPSAltitude === 'number') altitude = tags.GPSAltitude;
       takenAt = texteDate(tags.DateTimeOriginal ?? tags.CreateDate ?? tags.ModifyDate);
       const make = typeof tags.Make === 'string' ? tags.Make.trim() : '';
       const model = typeof tags.Model === 'string' ? tags.Model.trim() : '';
@@ -284,9 +311,14 @@ async function gpsParExifr(octets: Uint8Array): Promise<LatLon | null> {
     const t = (await exifr.gps(octets.slice().buffer)) as
       | { latitude: number; longitude: number }
       | undefined;
-    if (t && Number.isFinite(t.latitude) && Number.isFinite(t.longitude)) {
-      return { lat: t.latitude, lon: t.longitude };
-    }
+    // Finiteness and range only, not the exact-zero rule.
+    //
+    // This function serves the cross-check, whose entire value is its
+    // independence: making it apply our policies would have it agree with our
+    // own mistakes. `NaN` and a latitude of 500 are nobody's position, and
+    // rejecting them does not weaken that testimony; deciding that an exact
+    // zero is not a location would.
+    if (t) return validerPosition({ lat: t.latitude, lon: t.longitude });
   } catch {
     /* the second reader cannot open this file */
   }
