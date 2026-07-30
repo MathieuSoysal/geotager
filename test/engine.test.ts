@@ -34,8 +34,10 @@ import {
   ZOOM_MAX,
   ZOOM_MIN,
   depuisPixels,
+  formatDecimal,
   metresParPixel,
   normaliserLon,
+  validerPosition,
   versPixels,
 } from '../src/lib/exif/coords.ts';
 import type { Format } from '../src/lib/exif/types.ts';
@@ -1218,6 +1220,47 @@ scenario('Un TIFF large est refusé plutôt que lu de travers', () => {
     code = e.code;
   }
   check('la variante large est reconnue et refusée', code === 'FORMAT_NON_PRIS_EN_CHARGE', code);
+});
+
+scenario('« NaN, NaN » — une position illisible est absente, pas repliée', () => {
+  // The defect as experienced: a degenerate GPS rational makes the second
+  // reader return NaN, `typeof NaN === 'number'` gets past the naive guard, and
+  // the interface shows "NaN, NaN" before blanking the map.
+  check('la garde naïve accepterait NaN — c’est bien elle qui manquait',
+    typeof NaN === 'number');
+  check('et « NaN, NaN » est exactement ce que l’affichage en tire',
+    formatDecimal({ lat: NaN, lon: NaN }) === 'NaN, NaN');
+
+  // Why the map disappears rather than merely sitting off centre: the
+  // projection propagates NaN, so neither tile nor marker has a position.
+  const pixels = versPixels({ lat: NaN, lon: NaN }, 13);
+  check('la projection propage NaN jusqu’aux pixels, ce qui vide la vue',
+    Number.isNaN(pixels.x) && Number.isNaN(pixels.y));
+
+  // The fix. One rule, and it refuses.
+  check('deux NaN sont refusés', validerPosition({ lat: NaN, lon: NaN }) === null);
+  check('un seul NaN suffit à refuser', validerPosition({ lat: 48.8566, lon: NaN }) === null);
+  check('l’infini est refusé aussi', validerPosition({ lat: Infinity, lon: 2.3522 }) === null);
+
+  // Same source, same remedy: a third-party reader with no guarantees can also
+  // return an out-of-range value, as unusable as an absent one.
+  check('une latitude hors plage est refusée', validerPosition({ lat: 500, lon: 2.3522 }) === null);
+  check('une longitude hors plage est refusée', validerPosition({ lat: 48.8566, lon: -400 }) === null);
+
+  // And what is readable passes untouched, exact bounds included.
+  const paris = validerPosition({ lat: 48.8566, lon: 2.3522 });
+  check('une position lisible traverse inchangée',
+    paris !== null && paris.lat === 48.8566 && paris.lon === 2.3522);
+  check('les bornes exactes sont valables, ce sont des lieux réels',
+    validerPosition({ lat: -90, lon: 180 }) !== null);
+
+  // The exact-zero rule is not here, and that is deliberate: `validerPosition`
+  // also serves manual entry, where "0, 0" is the user's choice. It is
+  // `readPosition` that discards that point for a file, because there it is the
+  // trace of an incomplete purge rather than a reading, and the cross-check does
+  // not apply it either, so that it stays an independent witness.
+  check('le zéro exact reste une saisie valable, la politique vit ailleurs',
+    validerPosition({ lat: 0, lon: 0 }) !== null);
 });
 
 scenario('Projection de la carte — aller et retour', () => {
