@@ -1,0 +1,118 @@
+---
+/** Français — l'iPhone, où la bibliothèque et le fichier sont deux choses différentes. */
+import Guide from '../../../../components/Guide.astro';
+import { fr } from '../../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../../lib/guides/index.ts';
+---
+
+<Guide dico={fr} id="iphone">
+  <p class="reponse">
+    L'application Photos sait régler le lieu d'une image, et la feuille de partage sait l'omettre le
+    temps d'un envoi. Les deux agissent sur ce qui sort de l'application, pas nécessairement sur le
+    fichier HEIC posé dans votre bibliothèque. Si c'est le fichier lui-même qui doit être juste —
+    parce que vous allez le remettre à quelqu'un — modifiez le fichier, et relisez-le.
+  </p>
+
+  <h2 id="voir">Voir où une photo d'iPhone a été prise</h2>
+  <p>
+    Ouvrez l'image dans Photos et touchez le bouton <strong>(i)</strong>, ou faites-la glisser vers
+    le haut. Une carte et un nom d'endroit apparaissent en dessous s'il y a un lieu. Pas de carte
+    signifie soit que la photo n'en porte aucun, soit que Photos ne vous en montre pas — ce n'est
+    pas la même chose, et c'est tout le sujet de cette page.
+  </p>
+
+  <h2 id="regler">Régler le lieu dans Photos</h2>
+  <ol>
+    <li>Ouvrez la photo et touchez <strong>(i)</strong>.</li>
+    <li>
+      Touchez <strong>Régler</strong> à côté de la carte, ou <strong>Ajouter un lieu</strong> s'il
+      n'y en a pas.
+    </li>
+    <li>Cherchez un endroit, choisissez-le, confirmez.</li>
+  </ol>
+  <p>
+    Photos affichera le nouvel endroit à partir de là, et <strong>Rétablir</strong> remet
+    l'original — ce qui apprend déjà quelque chose : l'application garde les deux, donc ce qu'elle
+    modifie est sa propre fiche de l'image.
+  </p>
+  <div class="note">
+    <p>
+      C'est le point qui surprend. Une bibliothèque de photos qui modifie un lieu modifie une entrée
+      de bibliothèque ; un fichier sur un disque est un autre objet. Que votre réglage voyage ou non
+      dépend de la façon dont la photo quitte le téléphone — AirDrop, courriel, messagerie et
+      « enregistrer dans Fichiers » ne se comportent pas tous pareil, et aucun ne le promet. La
+      seule réponse qui ne soit pas une supposition est de vous envoyer la photo à vous-même et de
+      <a href={cheminGuide('fr', 'verifier')}>lire le lieu dans le fichier reçu</a>.
+    </p>
+  </div>
+
+  <h2 id="partage">Omettre le lieu le temps d'un envoi</h2>
+  <p>
+    Celui-ci est exact, et c'est le réglage que presque personne ne trouve. Sélectionnez la photo,
+    touchez <strong>Partager</strong>, puis touchez <strong>Options</strong> tout en haut de la
+    feuille, et désactivez <strong>Lieu</strong>. Tout ce que vous envoyez depuis cette feuille part
+    sans coordonnées.
+  </p>
+  <p>
+    Le même panneau permet d'envoyer <em>Toutes les données de la photo</em> ou l'original non
+    modifié, c'est-à-dire le choix inverse — utile quand on veut vraiment le fichier intact, et bon
+    à repérer pour ne pas le cocher par mégarde.
+  </p>
+  <p>
+    Le réglage vaut pour ce partage et se réinitialise. Il protège la copie envoyée, jamais celle de
+    votre bibliothèque ; si ce que vous voulez est un fichier propre à conserver,
+    <a href={cheminGuide('fr', 'supprimer')}>retirez le lieu du fichier</a>.
+  </p>
+
+  <h2 id="camera">Empêcher l'appareil de l'enregistrer</h2>
+  <p>
+    Réglages ▸ Confidentialité et sécurité ▸ Service de localisation ▸ Appareil photo ▸
+    <strong>Jamais</strong>. À partir de là, les nouvelles photos ne portent plus de coordonnées.
+    Cela ne change rien aux milliers déjà présentes dans votre bibliothèque, et cela désactive aussi
+    la carte des « lieux » qui rend ces photos retrouvables — d'où le fait que la plupart des gens
+    préfèrent nettoyer les photos qu'ils partagent plutôt qu'aveugler l'appareil.
+  </p>
+
+  <h2 id="heic">Le HEIC, et modifier le fichier depuis le téléphone</h2>
+  <p>
+    Les iPhone enregistrent en HEIC (parfois en AVIF), un conteneur qui range le même bloc EXIF
+    qu'un JPEG, simplement disposé autrement. Il n'y a rien à convertir pour corriger un lieu — une
+    conversion recompresserait l'image et perdrait de la qualité pour rien.
+  </p>
+  <p>
+    Sur le téléphone : ouvrez <a href="/fr/">Geotager</a> dans Safari, touchez la zone de dépôt et
+    choisissez la photo dans Photos ou dans Fichiers. Saisissez ou collez des coordonnées, ou
+    utilisez la carte, et téléchargez — le fichier arrive dans Fichiers avec le suffixe
+    <code>-geotager</code>. Ajouter un lieu à une photo d'iPhone ajoute un bloc neuf à la fin du
+    fichier au lieu de le réécrire : aucun octet existant ne bouge, et rien d'autre dans les
+    informations de l'image n'est dérangé.
+  </p>
+  <p>
+    Le site peut aussi être installé sur l'écran d'accueil ; il apparaît alors dans la feuille de
+    partage d'iOS, et les photos peuvent lui être envoyées directement. Rien n'est envoyé sur un
+    serveur dans un cas comme dans l'autre : le fichier est ouvert par le navigateur du téléphone.
+  </p>
+
+  <h2 id="revient">Pourquoi un lieu semble revenir</h2>
+  <ul>
+    <li>
+      <strong>Vous avez nettoyé la copie de la bibliothèque, puis exporté un original.</strong> Avec
+      Photos iCloud réglé sur l'optimisation du stockage, ce qui quitte le téléphone peut être
+      redescendu d'iCloud à cet instant.
+    </li>
+    <li>
+      <strong>Vous avez nettoyé un fichier et joint l'autre.</strong> La cause la plus fréquente,
+      et de loin, et la raison pour laquelle le fichier nettoyé s'appelle ici
+      <code>-sans-position</code> : deux fichiers qui se ressemblent dans un sélecteur se
+      confondent, deux noms différents non.
+    </li>
+    <li>
+      <strong>Quelque chose a lu la seconde copie.</strong> Un lieu peut occuper deux endroits dans
+      un fichier, et un outil qui ne nettoie que le premier laisse l'autre à tout ce qui regarde.
+    </li>
+  </ul>
+  <p>
+    Les trois se tranchent de la même façon : en lisant le fichier exact que vous vous apprêtez à
+    envoyer, plutôt que celui que votre téléphone vous montre.
+  </p>
+</Guide>

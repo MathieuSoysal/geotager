@@ -1,0 +1,143 @@
+---
+/** English — giving a place to a file that has none. */
+import Guide from '../../../components/Guide.astro';
+import { en } from '../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../lib/guides/index.ts';
+---
+
+<Guide dico={en} id="ajouter">
+  <p class="reponse">
+    Adding a location and changing one are two different operations. Drop the photo on
+    <a href="/">Geotager</a>, give it coordinates, and download: a fresh block is appended at the end
+    of the file and a single address is repointed, so nothing already in the file moves. The tool
+    says up front whether your file will accept one.
+  </p>
+
+  <h2 id="pourquoi-vide">Which photos have no location at all</h2>
+  <ul>
+    <li><strong>Scans of old prints.</strong> The negative knew where it was; the scanner did not.</li>
+    <li><strong>Screenshots and exports.</strong> Nothing about them ever had a position.</li>
+    <li>
+      <strong>Photos from a camera without GPS.</strong> Most cameras that are not phones have none,
+      unless they were paired with one.
+    </li>
+    <li><strong>Photos taken with location switched off</strong> — deliberately or not.</li>
+    <li>
+      <strong>Photos that went through something that stripped it</strong> — a messaging app, a
+      social upload, an export that re-encoded.
+    </li>
+  </ul>
+  <p>
+    If you are not sure which case you are in,
+    <a href={cheminGuide('en', 'verifier')}>read the file first</a>. A photo that already carries a
+    location needs the <a href={cheminGuide('en', 'modifier')}>change</a> operation, which behaves
+    differently.
+  </p>
+
+  <h2 id="etapes">Add a location in four steps</h2>
+  <ol>
+    <li>
+      Drop the photo. The tool reads it and tells you, before you touch anything, whether a location
+      can be created in this file.
+    </li>
+    <li>
+      Find the coordinates of the place — see below if you do not have them yet.
+    </li>
+    <li>
+      Paste or type them, in decimal (<code>43.9493, 4.8055</code>) or in degrees-minutes-seconds.
+      The folded map does the same job by clicking, if you would rather point than type.
+    </li>
+    <li>
+      Download. The name gains a <code>-geotagged</code> suffix, so nothing is overwritten.
+    </li>
+  </ol>
+
+  <h2 id="coordonnees">Finding the coordinates of a place</h2>
+  <p>
+    In Google Maps, right-click the spot: the first line of the menu is the latitude and longitude,
+    and clicking it copies them in decimal form — exactly the form to paste here. On
+    OpenStreetMap, the same thing lives under “Show address”, and the coordinates appear in the
+    address bar as you move around.
+  </p>
+  <p>
+    Both forms are accepted, and both mean the same thing. <code>43.9493, 4.8055</code> is 43° 56′
+    57.48″ north, 4° 48′ 19.8″ east. Latitude always comes first, and negative numbers mean south
+    and west.
+  </p>
+  <div class="note">
+    <p>
+      <strong>Do not invent precision you do not have.</strong> The fifth decimal is about a metre.
+      If what you actually know is “somewhere in this village”, writing seven decimals states
+      something false with great confidence — and a photo library will happily draw it on a map as
+      if you had measured it. Three decimals is roughly a hundred metres, and is often the honest
+      answer for a scan.
+    </p>
+  </div>
+
+  <h2 id="dans-le-fichier">What adding a location does to the file</h2>
+  <p>
+    Changing a location that is already present rewrites values in place, and the file produced is
+    exactly the size of the original. Adding one cannot be free: there was no room set aside for it,
+    so the file necessarily grows a little.
+  </p>
+  <p>
+    What matters is <em>where</em> it grows. The naive approach — rebuild the information block with
+    the new field inserted in the middle — shifts everything after it, and a camera’s MakerNote is
+    full of addresses pointing at absolute positions in the file. That is exactly how a well-meaning
+    tool corrupts lens data it never intended to touch. Here, a new block is appended at the end and
+    a single address at the front of the file is repointed at it. Every existing offset stays valid,
+    because nothing existing has moved.
+  </p>
+
+  <h2 id="refus">Files that will not accept one, and why</h2>
+  <ul>
+    <li>
+      <strong>Camera raw — DNG, NEF, CR2.</strong> Removal is offered, adding is not. A raw file is
+      a TIFF, and it is somebody’s irreplaceable original; a mistake there cannot be undone. If you
+      need a located copy, export a JPEG or a TIFF from your developer and add the location to that.
+    </li>
+    <li>
+      <strong>A simple-form WebP.</strong> The format in that shape has nowhere to put a location.
+      It can be read; it cannot be given one. Re-saving it as an extended WebP, a PNG or a JPEG
+      gives it somewhere to go — at the cost of re-encoding, which this tool deliberately never does
+      on your behalf.
+    </li>
+    <li>
+      <strong>Videos.</strong> Not yet, reading included.
+    </li>
+    <li>
+      <strong>Files whose information block is already at the format’s limit.</strong> Rare, and
+      announced when it happens rather than discovered afterwards.
+    </li>
+  </ul>
+  <p>
+    Every one of these is stated when you drop the file, before you have done anything — the
+    <a href="/#limites">table on the home page</a> is rendered from the same code the engine reads,
+    so it cannot claim an ability the tool does not have.
+  </p>
+
+  <h2 id="verifier">Check it took</h2>
+  <p>
+    The file is read back before it reaches you, by this engine and by a second reader written by
+    other people; a disagreement cancels the operation and hands you the original. The check that
+    does not depend on us:
+  </p>
+  <pre><code>exiftool -gps:all -n photo-geotagged.jpg</code></pre>
+  <p>
+    You should see the latitude and longitude you gave, and the two hemisphere fields that go with
+    them. If a photo library still shows nothing, close and reopen it: many of them cache what they
+    read the first time.
+  </p>
+
+  <h2 id="lot">A whole trip at once</h2>
+  <p>
+    Photos from one place can be done together: drop the batch, give the coordinates once, and the
+    results come back as a single ZIP. Files that cannot take a location are named and handed back
+    untouched rather than quietly skipped.
+  </p>
+  <p>
+    If instead you want the location gone from a batch —
+    <a href={cheminGuide('en', 'supprimer')}>removing it</a> works the same way, and checks twice
+    that nothing survived.
+  </p>
+</Guide>

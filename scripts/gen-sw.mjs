@@ -8,9 +8,14 @@
  *
  * Ce qui entre, et pourquoi :
  *
- *   - les deux pages, dans leur forme d'URL (« / » et « /fr/ ») et non de
- *     fichier : c'est ce que le navigateur demande, et donc ce que le cache doit
- *     porter comme clé ;
+ *   - TOUTES les pages, dans leur forme d'URL (« / », « /fr/ », « /guides/… »)
+ *     et non de fichier : c'est ce que le navigateur demande, et donc ce que le
+ *     cache doit porter comme clé. Elles sont déduites des `index.html`
+ *     produits, jamais énumérées à la main — c'est la règle 3 du modèle qui
+ *     l'impose, et elle ne tient que si l'inventaire est automatique : une
+ *     page oubliée ici serait une navigation que le secours rattraperait en
+ *     servant la page d'accueil, c'est-à-dire une adresse de guide répondant
+ *     tranquillement autre chose que le guide ;
  *   - la feuille de style et l'îlot d'interface ;
  *   - le worker de lecture. Il est chargé par `new Worker(new URL(...))`, donc
  *     il n'apparaît dans aucune balise et un balayage du HTML ne le verrait
@@ -52,10 +57,20 @@ const actifs = tous.map(adresse);
 /** Le morceau de la carte, reconnu à son nom d'entrée — jamais préchargé. */
 const estCarte = (a) => /^\/_astro\/carte\./.test(a);
 
+/*
+ * Les URLs de navigation, pas les chemins de fichier.
+ *
+ * Une page d'erreur n'en est pas une : `404.html` ne s'appelle pas `index.html`,
+ * donc elle tombe d'elle-même, et c'est bien ce qu'on veut — précharger une
+ * page qui dit « cette adresse n'existe pas » serait la seule entrée du cache
+ * dont la présence ne rend service à personne.
+ */
+const navigations = tous
+  .filter((f) => /(^|[\\/])index\.html$/.test(f))
+  .map((f) => adresse(f).replace(/index\.html$/, ''));
+
 const precache = [
-  // Les URLs de navigation, pas les chemins de fichier.
-  '/',
-  '/fr/',
+  ...navigations,
   ...actifs.filter((a) => a.startsWith('/_astro/') && extname(a) === '.css'),
   ...actifs.filter((a) => a.startsWith('/_astro/') && extname(a) === '.js' && !estCarte(a)),
   ...actifs.filter((a) => a.startsWith('/icons/')),
@@ -77,9 +92,33 @@ if (!precache.some((a) => extname(a) === '.css')) {
 if (precache.some(estCarte)) {
   echecs.push('le morceau de la carte ne doit pas être préchargé');
 }
+// La racine est le dernier recours du gestionnaire de navigation hors ligne.
+// Sans elle, une adresse inconnue ne mène plus nulle part du tout.
+if (!navigations.includes('/')) echecs.push("la racine n'est pas dans la liste de préchargement");
 for (const a of precache) {
-  if (a === '/' || a === '/fr/') continue;
-  if (!existsSync(join(DIR, a.slice(1)))) echecs.push(`${a} n'existe pas dans ${DIR}/`);
+  const cible = a.endsWith('/') ? `${a.slice(1)}index.html` : a.slice(1);
+  if (!existsSync(join(DIR, cible))) echecs.push(`${a} n'existe pas dans ${DIR}/`);
+}
+
+/*
+ * Un plafond, parce que `addAll` est atomique et se paie à l'installation.
+ *
+ * Le précache portait deux pages ; il en porte seize, et il en portera plus le
+ * jour où un guide sera ajouté. Une liste dérivée grossit toute seule et sans
+ * bruit : c'est sa qualité, et c'est aussi ce qui fait qu'un beau jour une
+ * première visite téléchargerait plusieurs mégaoctets avant d'avoir servi à
+ * quoi que ce soit. Le plafond ne dit pas « n'ajoutez pas de guides », il dit
+ * « au-delà, ce n'est plus une coquille, et il faut décider ce qu'on précharge
+ * vraiment ». Le chiffre est affiché à chaque build, pas seulement comparé.
+ */
+const BUDGET_PRECACHE = 2 * 1024 * 1024;
+const fichierDe = (a) => join(DIR, a.endsWith('/') ? `${a.slice(1)}index.html` : a.slice(1));
+const poids = precache.reduce(
+  (n, a) => n + (existsSync(fichierDe(a)) ? statSync(fichierDe(a)).size : 0),
+  0,
+);
+if (poids > BUDGET_PRECACHE) {
+  echecs.push(`précache de ${poids} o, plafond ${BUDGET_PRECACHE} o`);
 }
 if (echecs.length) {
   console.error('\ngen-sw en échec :');
@@ -96,7 +135,7 @@ if (echecs.length) {
 const empreinte = createHash('sha256');
 for (const a of precache.slice().sort()) {
   empreinte.update(a);
-  const f = join(DIR, a === '/' ? 'index.html' : a === '/fr/' ? 'fr/index.html' : a.slice(1));
+  const f = fichierDe(a);
   if (existsSync(f) && statSync(f).isFile()) empreinte.update(readFileSync(f));
 }
 const version = empreinte.digest('hex').slice(0, 12);
@@ -111,4 +150,8 @@ if (/__VERSION__|__PRECACHE__/.test(code)) {
 }
 
 writeFileSync(SORTIE, code);
-console.log(`  service worker ${version} — ${precache.length} entrées précachées`);
+console.log(
+  `  service worker ${version} — ${precache.length} entrées précachées ` +
+    `(${navigations.length} pages, ${Math.round(poids / 1024)} Ko, ` +
+    `${((poids / BUDGET_PRECACHE) * 100).toFixed(1)} % du budget)`,
+);

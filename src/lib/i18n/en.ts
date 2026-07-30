@@ -34,6 +34,7 @@ export const en: Dictionnaire = {
     viePrivee: 'Privacy',
     modeEmploi: 'How to use it',
     verifier: 'Check for yourself',
+    guides: 'Guides',
     sections: 'Sections',
     aller: 'Skip to content',
   },
@@ -214,6 +215,19 @@ export const en: Dictionnaire = {
       tiff: { libelle: 'TIFF', mention: 'excluding camera raw' },
       video: { libelle: 'Videos (MOV, MP4)' },
     },
+  },
+
+  guides: {
+    filAriane: 'Breadcrumb',
+    accueil: 'Home',
+    essayerTitre: 'Do it now, in this browser',
+    essayerTexte:
+      'Geotager reads and changes the location inside the file itself, on your device. The photo is never uploaded, and there is nothing to install or sign up for.',
+    essayerBouton: 'Open the tool',
+    autres: 'Other guides',
+    lire: 'Read the guide',
+    publie: (d) => `Published ${d}`,
+    misAJour: (d) => `updated ${d}`,
   },
 
   titres: {

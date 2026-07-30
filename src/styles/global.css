@@ -644,6 +644,90 @@ article.contenu table { width: 100%; border-collapse: collapse; font-size: .88re
 article.contenu th, article.contenu td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
 article.contenu th { color: var(--clair); font-weight: 500; }
 
+/* --- les guides --- */
+/*
+ * Un guide est un document, pas une application : il n'a ni scène à hauteur
+ * verrouillée, ni décor, ni script. Ce qu'il lui faut, c'est que le pied de
+ * page reste en bas d'un écran qu'un guide court ne remplit pas — sans quoi il
+ * flotte au milieu du vide et ressemble à une page tronquée.
+ */
+.page-doc { min-height: 100svh; display: flex; flex-direction: column; }
+.page-doc main { flex: 1 1 auto; }
+
+/* Le fil d'Ariane. Une vraie liste ordonnée : les marches ont un ordre, et
+   c'est ce qu'un lecteur d'écran doit entendre. Le chevron est décoratif et
+   posé en CSS, donc il n'est jamais lu à voix haute. */
+.fil { padding: .6rem 0 0; font-size: .8rem; color: var(--muted); }
+.fil ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem .55rem; }
+.fil li { display: flex; align-items: center; gap: .55rem; }
+.fil li + li::before { content: "›"; color: var(--bordure); }
+.fil a { color: var(--clair); text-decoration: none; }
+.fil a:hover { color: var(--pink); text-decoration: underline; }
+.fil [aria-current="page"] { color: var(--muted); }
+
+article.contenu h1 {
+  font-weight: 800; font-size: clamp(1.8rem, 1.3rem + 2.2vw, 2.6rem);
+  letter-spacing: -.03em; line-height: 1.08; margin: 1.2rem 0 .6rem;
+}
+.contenu .dates { font-size: .78rem; color: var(--muted); margin: 0 0 1.6rem; }
+
+/*
+ * La réponse d'abord. Une page de guide qui commence par « il existe plusieurs
+ * méthodes » fait perdre son temps à qui est venu chercher une phrase — et un
+ * moteur qui cite une réponse cite celle qu'il trouve en premier.
+ */
+.contenu .reponse {
+  font-size: 1.06rem; line-height: 1.55; color: var(--text);
+  border-inline-start: 3px solid var(--pink);
+  padding: .1rem 0 .1rem 1rem; margin: 0 0 1.4rem;
+}
+
+/* Une remarque qu'il vaut mieux lire avant d'agir que découvrir après. */
+.contenu .note {
+  background: var(--panel); border: 1px solid var(--bordure);
+  border-radius: 1.2rem .9rem 1.1rem .8rem; padding: .95rem 1.15rem;
+  margin: 1.5rem 0; font-size: .92rem;
+}
+.contenu .note > :first-child { margin-top: 0; }
+.contenu .note > :last-child { margin-bottom: 0; }
+
+/* Le retour à l'outil. Un seul par page, et il ressemble au bouton principal
+   de l'application parce que c'est le même geste. */
+.contenu .essayer {
+  background: var(--panel); border: 1px solid rgba(255, 51, 133, .3);
+  border-radius: 2rem 1.4rem 1.8rem 1.2rem; padding: 1.5rem; margin: 2.8rem 0 0;
+}
+.contenu .essayer h2 { margin-top: 0; font-size: 1.28rem; }
+.contenu .essayer p { margin-bottom: .9rem; }
+.contenu .essayer p:last-child { margin-bottom: 0; }
+/* `.btn.primary` vaut `width: 100%`, ce qui n'a aucun effet sur un lien —
+   il est en ligne. On le rend bloc en ligne pour que le rembourrage vertical
+   compte, et on le laisse à sa largeur de texte : une barre rose de 44 rem au
+   milieu d'un article crie plus fort que tout ce qu'il y a autour. */
+.contenu a.btn { display: inline-block; width: auto; text-decoration: none; color: var(--encre); }
+.contenu a.btn:hover { filter: brightness(1.1); }
+
+/* La liste des autres guides, et le sommaire. Même objet, deux densités.
+   Les sélecteurs sont préfixés par `.contenu` pour une raison de poids et non
+   de style : `article.contenu h2` et `article.contenu li` sont plus
+   spécifiques qu'une classe seule, et gagneraient — les titres des cartes
+   héritaient de la marge haute de 2,4 rem d'un titre d'article, ce qui creusait
+   un trou au-dessus de chacun. */
+.contenu .autres-guides ul,
+.contenu .liste-guides { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .8rem; }
+.contenu .autres-guides li,
+.contenu .liste-guides li {
+  background: var(--panel); border: 1px solid var(--bordure);
+  border-radius: 1.2rem .9rem 1.1rem .8rem; padding: 1rem 1.15rem; margin: 0;
+}
+.contenu .autres-guides li a { font-weight: 600; display: block; margin-bottom: .2rem; }
+.contenu .autres-guides li span { display: block; font-size: .88rem; color: var(--muted); }
+.contenu .liste-guides h2 { margin: 0 0 .35rem; font-size: 1.2rem; }
+.contenu .liste-guides h2 a { text-decoration: none; }
+.contenu .liste-guides h2 a:hover { text-decoration: underline; }
+.contenu .liste-guides p { margin: 0; color: var(--muted); font-size: .92rem; }
+.contenu .liste-guides .lire { margin-top: .55rem; font-size: .85rem; }
+
 footer { padding: 3rem 0; font-size: .82rem; color: var(--clair); border-top: 1px solid var(--bordure); margin-top: 3rem; }
 footer a { color: var(--clair); }
 /* Le retrait négatif compense le rembourrage horizontal des pastilles, pour

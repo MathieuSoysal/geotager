@@ -1,0 +1,233 @@
+---
+/**
+ * La coquille d'un guide.
+ *
+ * Tout ce qui est structure vit ici une seule fois ; seule la prose est
+ * fournie par la page appelante — c'est de la prose, pas des étiquettes, et la
+ * découper en clés la rendrait illisible à écrire comme à relire. Même règle
+ * que l'article sous la ligne de flottaison de la page d'accueil.
+ *
+ * AUCUN SCRIPT, et ce n'est pas une économie de bout de chandelle. Astro
+ * réunit les scripts hissés en un seul paquet : embarquer la seule décoration
+ * amènerait avec elle tout `app.ts`, c'est-à-dire le code d'un outil qui
+ * n'existe pas sur cette page — il chercherait un sélecteur de fichier, un
+ * champ de coordonnées et un bouton de téléchargement, et ne trouverait rien.
+ * Un guide est un document : il se lit, il ne s'utilise pas.
+ *
+ * AUCUN DÉCOR non plus, et pour une raison mesurée plutôt que par goût. Les
+ * opacités du calque sont calibrées pour que le texte du héros reste lisible
+ * par-dessus, et l'article de la page d'accueil ne passe jamais dessus : le
+ * script le fait disparaître dès que le héros sort de l'écran. Sans script,
+ * il resterait à pleine opacité sous mille mots de prose, c'est-à-dire sous le
+ * seul endroit où la mesure de contraste n'a jamais été faite.
+ */
+import '../styles/global.css';
+import Tete from './Tete.astro';
+import Pied from './Pied.astro';
+import type { Dictionnaire } from '../lib/i18n/types.ts';
+import { LANGUES } from '../lib/i18n/index.ts';
+import type { IdGuide } from '../lib/guides/index.ts';
+import {
+  GUIDES,
+  ORDRE_GUIDES,
+  alternatesGuide,
+  cheminGuide,
+  cheminSommaire,
+  sourcesGuide,
+} from '../lib/guides/index.ts';
+import { derniereMaj, premierAjout } from '../lib/histoire.ts';
+import {
+  idApplication,
+  idEditeur,
+  idSite,
+  noeudEditeur,
+  noeudFilAriane,
+  noeudSite,
+} from '../lib/jsonld.ts';
+
+interface Props {
+  dico: Dictionnaire;
+  id: IdGuide;
+}
+const { dico: T, id } = Astro.props;
+
+const site = Astro.site?.origin;
+if (!site) throw new Error('Guide : « site » manque dans astro.config.mjs');
+
+const fiche = GUIDES[T.langue].fiches[id];
+const chemin = cheminGuide(T.langue, id);
+const url = site + chemin;
+const titre = `${fiche.titre} — Geotager`;
+
+// Liens réciproques entre les deux langues, plus x-default sur la langue
+// servie à la racine. Réciproques : chaque page annonce TOUTES les langues,
+// elle-même comprise, sans quoi Google ignore la déclaration.
+const jumeaux = alternatesGuide(id);
+const alternates = LANGUES.map((l) => ({ lang: l, href: site + jumeaux[l] }));
+
+/*
+ * Les dates, demandées à l'historique et jamais inventées. Absentes, elles ne
+ * sont pas écrites du tout : une page publiée « aujourd'hui » à chaque
+ * déploiement est un mensonge que le fichier répète tout seul.
+ */
+const publie = premierAjout([`src/pages${chemin}index.astro`]);
+const modifie = derniereMaj(sourcesGuide(T.langue, id));
+
+/** Une date lisible, sans que le fuseau de la machine de build s'en mêle. */
+const enClair = (iso: string) =>
+  new Date(`${iso}T12:00:00Z`).toLocaleDateString(T.htmlLang, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+
+const marches = [
+  { nom: T.guides.accueil, chemin: T.base },
+  { nom: T.nav.guides, chemin: cheminSommaire(T.langue) },
+  { nom: fiche.titre, chemin },
+];
+
+/*
+ * `about` désigne l'application par son `@id`, sans la redéfinir ici.
+ *
+ * C'est exactement l'usage d'un `@id` : nommer une entité décrite ailleurs.
+ * Recopier le nœud `SoftwareApplication` sur chacun des six guides d'une
+ * langue reviendrait à déclarer six fois une application qui n'est pas sur la
+ * page — ce que la documentation de Google demande précisément de ne pas
+ * faire — et à s'engager à corriger six copies. Le contrôle de build vérifie
+ * que cet identifiant est bien celui que la page de l'outil définit : un
+ * `@id` qui ne correspond à rien ne relie rien, et il se casse en silence.
+ */
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Article',
+      '@id': `${url}#article`,
+      headline: fiche.h1,
+      description: fiche.description,
+      url,
+      mainEntityOfPage: url,
+      inLanguage: T.htmlLang,
+      ...(publie ? { datePublished: publie } : {}),
+      ...(modifie ? { dateModified: modifie } : {}),
+      author: { '@id': idEditeur(site) },
+      publisher: { '@id': idEditeur(site) },
+      isPartOf: { '@id': idSite(site) },
+      about: { '@id': idApplication(site, T) },
+    },
+    noeudFilAriane(site, marches),
+    noeudSite(site),
+    noeudEditeur(site),
+  ],
+};
+
+/** Les autres guides de la même langue, dans l'ordre du sommaire. */
+const autres = ORDRE_GUIDES.filter((g) => g !== id).map((g) => ({
+  chemin: cheminGuide(T.langue, g),
+  fiche: GUIDES[T.langue].fiches[g],
+}));
+---
+
+<!doctype html>
+<html lang={T.htmlLang}>
+  <head>
+    <Tete
+      dico={T}
+      titre={titre}
+      description={fiche.description}
+      url={url}
+      alternates={alternates}
+      xDefault={site + jumeaux.en}
+      ogType="article"
+      jsonLd={jsonLd}
+    />
+  </head>
+  <body>
+    <a class="saut" href="#contenu">{T.nav.aller}</a>
+
+    <div class="wrap page-doc">
+      <!-- `header` et non `div` : la marque devient le repère « bannière ».
+           Ses seuls ancêtres sont des `div`, donc le rôle tient. -->
+      <header class="bar">
+        <a class="brand" href={T.base}>
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <path
+              d="M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z"
+              fill="#FF3385"></path>
+            <circle cx="20" cy="17.4" r="5.7" fill="#17161B"></circle>
+          </svg>
+          Geotager
+        </a>
+      </header>
+
+      <!-- `tabindex="-1"` pour que le lien d'évitement y dépose vraiment le
+           focus. Le pied de page reste dehors : un `footer` dans `main` cesse
+           d'être un repère « contentinfo ». -->
+      <main id="contenu" tabindex="-1">
+        <!-- Le fil d'Ariane existe DANS la page, et pas seulement dans le
+             balisage. C'est la condition posée par la documentation de Google,
+             et c'est la seule honnête : décrire une navigation absente serait
+             décrire une page qui n'est pas celle qu'on sert. -->
+        <nav class="fil" aria-label={T.guides.filAriane}>
+          <ol>
+            {
+              marches.map((m, i) =>
+                i === marches.length - 1 ? (
+                  <li aria-current="page">{m.nom}</li>
+                ) : (
+                  <li>
+                    <a href={m.chemin}>{m.nom}</a>
+                  </li>
+                ),
+              )
+            }
+          </ol>
+        </nav>
+
+        <article class="contenu guide">
+          <h1>{fiche.h1}</h1>
+          {
+            (publie || modifie) && (
+              <p class="dates">
+                {publie && <time datetime={publie}>{T.guides.publie(enClair(publie))}</time>}
+                {publie && modifie && modifie !== publie && ' · '}
+                {modifie && modifie !== publie && (
+                  <time datetime={modifie}>{T.guides.misAJour(enClair(modifie))}</time>
+                )}
+              </p>
+            )
+          }
+
+          <slot />
+
+          <!-- L'appel à l'outil, une fois, à la fin. Les guides le nomment
+               déjà en cours de route, là où il répond à la phrase qu'on vient
+               de lire ; celui-ci est pour qui a tout lu et cherche le bouton. -->
+          <aside class="essayer">
+            <h2>{T.guides.essayerTitre}</h2>
+            <p>{T.guides.essayerTexte}</p>
+            <p><a class="btn primary" href={T.base}>{T.guides.essayerBouton}</a></p>
+          </aside>
+
+          <nav class="autres-guides" aria-label={T.guides.autres}>
+            <h2>{T.guides.autres}</h2>
+            <ul>
+              {
+                autres.map((a) => (
+                  <li>
+                    <a href={a.chemin}>{a.fiche.h1}</a>
+                    <span>{a.fiche.resume}</span>
+                  </li>
+                ))
+              }
+            </ul>
+          </nav>
+        </article>
+      </main>
+
+      <Pied dico={T} alternatives={jumeaux} />
+    </div>
+  </body>
+</html>

@@ -7,7 +7,7 @@
  * c'est la seule preuve recevable de la promesse « rien ne sort du navigateur ».
  */
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
@@ -498,12 +498,81 @@ const plan = await page.evaluate(
 check('et ce plan répond vraiment', plan.ok);
 
 const locs = [...plan.t.matchAll(/<loc>([^<]*)<\/loc>/g)].map(([, u]) => u);
-check('il annonce les deux langues', locs.length === 2, locs.join(' '));
+/*
+ * Le plan doit annoncer TOUTES les pages produites — il en annonçait deux, et
+ * ce contrôle exigeait le chiffre deux. Un nombre écrit en dur dans un test est
+ * un contrôle qui devient faux le jour où le site grandit, c'est-à-dire le jour
+ * où il servirait à quelque chose. On compte donc les pages réellement
+ * construites : une page ajoutée sans être annoncée fait tomber la ligne.
+ */
+const pagesProduites = (function liste(d) {
+  return readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? liste(join(d, e.name)) : [join(d, e.name)],
+  );
+})(DIST).filter((f) => /(^|[\\/])index\.html$/.test(f)).length;
+check('il annonce toutes les pages produites', locs.length === pagesProduites,
+  `${locs.length} annoncées / ${pagesProduites} produites`);
+check('les deux langues de l\'outil en font partie',
+  locs.some((u) => new URL(u).pathname === '/') && locs.some((u) => new URL(u).pathname === '/fr/'));
 const toutesLa = await page.evaluate(
   (l) => Promise.all(l.map((u) => fetch(new URL(u).pathname).then((r) => r.ok))),
   locs);
 check('chaque adresse annoncée répond', toutesLa.every(Boolean));
 check('aucune fréquence de mise à jour n\'est promise', !/<changefreq>/.test(plan.t));
+
+/*
+ * LES GUIDES, servis pour de vrai.
+ *
+ * Ce qui est jugé ici n'est pas la prose — `check-build.mjs` s'en charge, et il
+ * compte même les mots. C'est ce qu'un contrôle sur fichier ne peut pas voir :
+ * qu'un guide s'ouvre, qu'il ne charge PAS l'îlot de l'outil, et que la page
+ * jumelle qu'il annonce dans une autre langue existe vraiment.
+ */
+console.log('\nLes guides');
+await page.goto(`http://127.0.0.1:${PORT}/guides/`, { waitUntil: 'networkidle' });
+const listes = await page.locator('.liste-guides > li').count();
+check('le sommaire liste des guides', listes >= 3, String(listes));
+const premier = await page.locator('.liste-guides h2 a').first().getAttribute('href');
+check('et chacun a une adresse propre', /^\/guides\/[a-z-]+\/$/.test(premier ?? ''), String(premier));
+
+const avantGuide = requetes.length;
+await page.goto(`http://127.0.0.1:${PORT}${premier}`, { waitUntil: 'networkidle' });
+check('le guide répond et porte un titre', (await page.locator('h1').textContent()).trim().length > 10);
+check('la réponse est donnée en tête', await page.locator('p.reponse').isVisible());
+check("le fil d'Ariane compte trois marches",
+  (await page.locator('nav.fil li').count()) === 3);
+check("il ramène à l'outil", (await page.locator('a.brand[href="/"]').count()) > 0);
+check('il ramène au sommaire', (await page.locator('nav.fil a[href="/guides/"]').count()) > 0);
+check('il est canonique sur lui-même',
+  (await page.locator('link[rel="canonical"]').getAttribute('href')).endsWith(premier));
+
+/*
+ * AUCUN SCRIPT. Astro réunit les scripts hissés en un seul paquet : la moindre
+ * décoration importée par la coquille d'un guide y amènerait tout `app.ts`,
+ * c'est-à-dire le code d'un outil absent de la page. Le contrôle porte sur les
+ * deux moitiés — aucune balise de script, et aucune requête vers un module.
+ */
+const scriptsGuide = await page.evaluate(() =>
+  [...document.querySelectorAll('script')].filter((s) => s.type !== 'application/ld+json').length);
+check('un guide ne charge aucun script', scriptsGuide === 0, String(scriptsGuide));
+const jsDuGuide = requetes.slice(avantGuide).filter((u) => /\/_astro\/.*\.js/.test(u));
+check("et il n'en demande aucun au réseau", jsDuGuide.length === 0, jsDuGuide[0] ?? '');
+
+const grapheGuide = JSON.parse(await page.locator('script[type="application/ld+json"]').textContent());
+const typesGuide = (grapheGuide['@graph'] ?? [grapheGuide]).map((n) => n['@type']);
+check("un guide se décrit comme un article, avec son fil d'Ariane",
+  ['Article', 'BreadcrumbList'].every((t) => typesGuide.includes(t)), typesGuide.join(', '));
+
+const jumeauFr = await page.locator('link[rel="alternate"][hreflang="fr"]').getAttribute('href');
+check('il annonce une adresse française sous /fr/guides/',
+  new URL(jumeauFr).pathname.startsWith('/fr/guides/'), String(jumeauFr));
+await page.goto(`http://127.0.0.1:${PORT}${new URL(jumeauFr).pathname}`, { waitUntil: 'networkidle' });
+check('et cette page existe et est en français',
+  (await page.locator('html').getAttribute('lang')) === 'fr');
+check("elle renvoie réciproquement vers l'anglaise",
+  (await page.locator('link[rel="alternate"][hreflang="en"]').getAttribute('href')).endsWith(premier));
+check("son lien de langue mène au guide, pas à l'accueil",
+  (await page.locator('nav.main a[rel="alternate"]').getAttribute('href')) === premier);
 
 // Le canonique de la page ANGLAISE n'était vérifié nulle part.
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
@@ -797,6 +866,20 @@ await auditer(pageAxe, 'carte ouverte');
 
 await pageAxe.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
 await auditer(pageAxe, 'version française');
+
+// Les guides ont leur propre coquille — fil d'Ariane, listes, tableaux — donc
+// leurs propres façons de casser. Un audit qui ne regarderait que l'outil
+// laisserait quatorze pages hors de portée du filet automatique.
+await pageAxe.goto(`http://127.0.0.1:${PORT}/guides/`, { waitUntil: 'networkidle' });
+await auditer(pageAxe, 'sommaire des guides');
+await pageAxe.goto(`http://127.0.0.1:${PORT}/guides/social-networks-photo-location/`, {
+  waitUntil: 'networkidle',
+});
+await auditer(pageAxe, 'un guide, avec son tableau');
+await pageAxe.goto(`http://127.0.0.1:${PORT}/fr/guides/modifier-geolocalisation-photo/`, {
+  waitUntil: 'networkidle',
+});
+await auditer(pageAxe, 'un guide français');
 await ctxAxe.close();
 
 console.log('\nPartager la photo nettoyée');
