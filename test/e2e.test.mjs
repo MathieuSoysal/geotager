@@ -421,6 +421,28 @@ for (const langue of LANGUES) {
     check(`${langue} / erreur « ${code} » : sans jargon`,
       Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
   }
+  /*
+   * The sentences for arrivals from the system. They appear in no served HTML,
+   * since the script sets them when something has failed, so no page sweep sees
+   * them go by.
+   *
+   * Named one by one rather than by walking all of `T.app`: that object also
+   * carries filename suffixes, and `suffixeSansInfos` is "-sans-metadonnees".
+   * That is not a sentence from the journey, and the rule is about sentences
+   * from the journey.
+   */
+  for (const cle of ['partagePerdu', 'ouverturePerdue']) {
+    const p = T.app[cle];
+    check(`${langue} / « ${cle} » : une phrase sans jargon`,
+      Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+  }
+  for (const cle of ['ouvertureIncomplete', 'ajoutees', 'lotPlafonne']) {
+    for (const n of [1, 3]) {
+      const p = T.app[cle](n);
+      check(`${langue} / « ${cle}(${n}) » : une phrase sans jargon`,
+        Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+    }
+  }
 }
 check('les onze motifs du parcours sont couverts', MOTIFS.length === 11);
 check('les deux langues ont exactement les mêmes clés',
@@ -1241,6 +1263,224 @@ check('aucune exception sur le chemin du partage',
   restantesPartage.length === 0, restantesPartage[0]);
 
 await ctxSw.close();
+
+/*
+ * "Open with", actually played through.
+ *
+ * The system hands over file handles and nothing else: no parameter in the
+ * address, no bytes kept anywhere, nothing to claim from anybody. What is not
+ * caught at that instant is lost, and it was lost without a word.
+ *
+ * The system menu cannot be triggered from a test. Everything that happens
+ * afterwards can be: the launch queue is set before the island runs, and we
+ * hand it exactly what the system would.
+ */
+const POSER_FILE = () => {
+  // `addInitScript` rather than `addScriptTag`: the latter injects an inline
+  // script, which `script-src 'self'` refuses. This one goes through the
+  // debugging protocol, out of reach of the page policy.
+  //
+  // `defineProperty` rather than an assignment: the day the platform defines
+  // `launchQueue` as a getter with no setter, an assignment would fail without a
+  // word and the test would start passing for nothing.
+  let consommateur = null;
+  Object.defineProperty(window, 'launchQueue', {
+    configurable: true,
+    value: {
+      setConsumer(f) {
+        consommateur = f;
+      },
+    },
+  });
+  // A handle is an object that can return a file, and nothing more. The bytes
+  // arrive in base64, which is a call argument, so the content policy has
+  // nothing to say about it.
+  window.__lancer = (lot) =>
+    consommateur({
+      files: lot.map((p) => ({
+        kind: 'file',
+        getFile: p.refuse
+          ? () => Promise.reject(new DOMException('déplacée', 'NotFoundError'))
+          : () =>
+              Promise.resolve(
+                new File(
+                  [p.b64 ? Uint8Array.from(atob(p.b64), (c) => c.charCodeAt(0)) : new Uint8Array(0)],
+                  p.nom,
+                  { type: 'image/jpeg' },
+                ),
+              ),
+      })),
+    });
+  window.__lancerSansFichier = () => consommateur({ files: [] });
+};
+
+const octetsLancement = readFileSync(source).toString('base64');
+
+console.log('\nUne photo ouverte depuis le système');
+const pageLance = await contexte.newPage();
+const erreursLance = [];
+pageLance.on('pageerror', (e) => erreursLance.push(String(e)));
+pageLance.on('console', (m) => {
+  if (m.type() === 'error') erreursLance.push(m.text());
+});
+await pageLance.addInitScript(POSER_FILE);
+await pageLance.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+
+await pageLance.evaluate((b64) => window.__lancer([{ b64, nom: 'ouverte-avec.jpg' }]), octetsLancement);
+const arrivee = await pageLance
+  .waitForFunction(
+    () => {
+      const n = document.getElementById('nom-fichier');
+      return n && n.textContent.includes('ouverte-avec');
+    },
+    null,
+    { timeout: 20_000 },
+  )
+  .then(() => true)
+  .catch(() => false);
+check("une photo ouverte depuis le système arrive dans l'outil", arrivee);
+check('et elle est lue comme n’importe quelle autre',
+  await pageLance
+    .waitForFunction(
+      () => {
+        const p = document.getElementById('pill-position');
+        return p && !p.hidden && p.textContent.trim().length > 0;
+      },
+      null,
+      { timeout: 20_000 },
+    )
+    .then(() => true)
+    .catch(() => false));
+
+/*
+ * The second opening joins the first. It used to erase it: `charger` reset
+ * `items` without asking, and forty un-exported photos vanished because a
+ * forty-first had been opened.
+ */
+await pageLance.fill('#coords', '43.9493, 4.8055');
+await pageLance.evaluate((b64) => window.__lancer([{ b64, nom: 'deuxieme.jpg' }]), octetsLancement);
+await pageLance
+  .waitForFunction(() => document.querySelectorAll('#lot-liste li').length === 2, null, { timeout: 20_000 })
+  .catch(() => {});
+const lot = await pageLance.locator('#lot-liste').textContent();
+check("une seconde ouverture n'efface pas la première",
+  lot.includes('ouverte-avec') && lot.includes('deuxieme'), lot.slice(0, 80));
+check('et le lieu déjà désigné reste désigné',
+  (await pageLance.locator('#coords').inputValue()).includes('43.9493'));
+
+/*
+ * Clicking the application icon also goes through the launch queue, with no
+ * file at all. `focus-existing` hands it to the open window like everything
+ * else: announcing "this photo did not arrive" on every click of the icon would
+ * be a lie told very regularly.
+ */
+await pageLance.evaluate(() => window.__lancerSansFichier());
+await pageLance.waitForTimeout(800);
+check('un lancement sans fichier ne fait croire à rien',
+  (await pageLance.locator('#avis-vide').isHidden()) &&
+    (await pageLance.locator('#lot-liste li').count()) === 2);
+
+console.log('\nUne ouverture qui n’apporte rien le dit');
+const pageRien = await contexte.newPage();
+const erreursRien = [];
+pageRien.on('pageerror', (e) => erreursRien.push(String(e)));
+pageRien.on('console', (m) => {
+  if (m.type() === 'error') erreursRien.push(m.text());
+});
+await pageRien.addInitScript(POSER_FILE);
+await pageRien.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+
+/*
+ * Zero bytes. Remote storage mounted as a local folder returns files of zero
+ * length until it has pulled them down: they were discarded twice in a row, and
+ * the window stayed empty and silent.
+ */
+await pageRien.evaluate(() => window.__lancer([{ nom: 'rien.jpg' }]));
+const ditRien = await pageRien
+  .waitForSelector('#avis-vide:not([hidden])', { timeout: 10_000 })
+  .then(() => true)
+  .catch(() => false);
+check("une photo sans octets le dit, au lieu de laisser une fenêtre vide", ditRien);
+const phraseRien = (await pageRien.locator('#avis-vide').textContent()).trim();
+check('et elle le dit aussi à voix haute',
+  (await pageRien.locator('#annonce').textContent()).trim() === phraseRien);
+check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phraseRien), phraseRien.slice(0, 80));
+check("l'état actif reste masqué", await pageRien.locator('#etat-actif').isHidden());
+
+// One unhappy handle no longer takes the batch with it: that is the whole point of the change.
+await pageRien.evaluate(
+  (b64) => window.__lancer([{ refuse: true, nom: 'partie.jpg' }, { b64, nom: 'restee.jpg' }]),
+  octetsLancement,
+);
+check("une photo déplacée n'emporte pas celles qui sont restées",
+  await pageRien
+    .waitForFunction(
+      () => {
+        const n = document.getElementById('nom-fichier');
+        return n && n.textContent.includes('restee');
+      },
+      null,
+      { timeout: 20_000 },
+    )
+    .then(() => true)
+    .catch(() => false));
+
+// And a wholly unhappy batch says so, in the channel that is on screen: the
+// active state is displayed, so `#avis-vide` would be visible nowhere in it.
+await pageRien.evaluate(() => window.__lancer([{ refuse: true, nom: 'toutes-parties.jpg' }]));
+check('un lot entièrement perdu le dit là où on le voit',
+  await pageRien
+    .waitForFunction(
+      () => {
+        const a = document.getElementById('alerte-format');
+        return a && !a.hidden && a.classList.contains('grave');
+      },
+      null,
+      { timeout: 10_000 },
+    )
+    .then(() => true)
+    .catch(() => false));
+
+const restantesLance = [...erreursLance, ...erreursRien].filter(
+  (e) => !/Failed to load resource|net::ERR_/.test(e),
+);
+check("aucune exception, et aucun rejet non traité, sur le chemin de l'ouverture",
+  restantesLance.length === 0, restantesLance[0]);
+
+/*
+ * The first-launch race, the reported failure, in a context of its own.
+ *
+ * A fresh context: no worker is registered in it, so the document loads without
+ * a controller. The worker registers on load, activates, claims its clients,
+ * and the page used to reload. The launch files, handed over once and only
+ * once, had already been consumed: the window came back empty and silent.
+ *
+ * The `ctxSw` above cannot judge this: it waits to be controlled and then
+ * reloads itself, which is precisely the state where the race does not happen.
+ */
+console.log('\nLe premier lancement, worker non installé');
+const ctxCourse = await navigateur.newContext();
+const pageCourse = await ctxCourse.newPage();
+let chargementsCourse = 0;
+pageCourse.on('load', () => chargementsCourse++);
+await pageCourse.addInitScript(POSER_FILE);
+await pageCourse.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+check("le document du premier lancement n'est pas contrôlé",
+  await pageCourse.evaluate(() => navigator.serviceWorker.controller === null));
+
+await pageCourse.evaluate((b64) => window.__lancer([{ b64, nom: 'premier-lancement.jpg' }]), octetsLancement);
+const prisLeControle = await pageCourse
+  .waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 20_000 })
+  .then(() => true)
+  .catch(() => false);
+check('le worker prend le contrôle de la page', prisLeControle);
+await pageCourse.waitForTimeout(2_000);
+check("le worker qui prend la main ne recharge pas une page qui n'a rien demandé",
+  chargementsCourse === 1, `${chargementsCourse} chargement(s)`);
+check('et la photo du premier lancement est toujours là',
+  (await pageCourse.locator('#nom-fichier').textContent()).includes('premier-lancement'));
+
+await ctxCourse.close();
 
 await navigateur.close();
 serveur.close();

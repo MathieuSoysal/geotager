@@ -28,7 +28,9 @@ import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
 import { createHash } from 'node:crypto';
 import { commandePour } from '../scripts/deploy.mjs';
-import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
+import { MATRICE, capacitesDe, cellules } from '../src/lib/exif/capacites.ts';
+import { manifeste } from '../src/lib/manifeste.ts';
+import { DICOS, LANGUES } from '../src/lib/i18n/index.ts';
 import {
   LAT_MAX,
   ZOOM_MAX,
@@ -1359,6 +1361,97 @@ scenario('Précision d’un clic — la table du Gate 1 fait foi', () => {
   check('la précision s’améliore à chaque cran de zoom, sans exception', croissante);
   check('elle reste positive jusqu’au dernier cran, aux hautes latitudes',
     metresParPixel(80, ZOOM_MAX) > 0);
+});
+
+scenario('« Ouvrir avec » ne promet que ce que le tableau tient', () => {
+  /*
+   * The manifest was read by no test at all. It declares the two doors through
+   * which the system hands over files, and its "Open with" entry shipped in
+   * v1.3 with a field that was never standardised, `launch_type`, promising
+   * "one window receives the whole batch" with nothing to back it.
+   * `check-build.mjs` now rereads the produced manifest; this rereads the
+   * function that writes it, before a build even exists.
+   */
+  const PAR_TYPE: Record<string, Format> = {
+    'image/jpeg': 'jpeg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/heic': 'heic',
+    'image/heif': 'heic',
+    'image/avif': 'avif',
+    'image/tiff': 'tiff',
+    'image/gif': 'gif',
+  };
+
+  for (const langue of LANGUES) {
+    const m = JSON.parse(manifeste(langue));
+    const T = DICOS[langue];
+
+    check(`${langue} : l’identité d’installation reste « / »`, m.id === '/', String(m.id));
+    check(`${langue} : la fenêtre ouverte reçoit le lot sans être renavigée`,
+      m.launch_handler?.client_mode === 'focus-existing',
+      String(m.launch_handler?.client_mode));
+
+    const h = m.file_handlers?.[0];
+    check(`${langue} : « Ouvrir avec » ouvre la page de cette langue`,
+      h?.action === T.base, String(h?.action));
+    // The trailing slash decides: without it the host redirects, and a
+    // precached entry that redirects takes the whole application out of service
+    // offline. See the matching check in `check-build.mjs`.
+    check(`${langue} : l’adresse d’ouverture finit par une barre oblique`,
+      typeof h?.action === 'string' && h.action.endsWith('/'), String(h?.action));
+    check(`${langue} : elle reste dans la portée du manifeste`,
+      typeof h?.action === 'string' && h.action.startsWith(m.scope), `${h?.action} / ${m.scope}`);
+    check(`${langue} : le champ jamais normalisé ne revient pas`,
+      h !== undefined && !('launch_type' in h));
+
+    /*
+     * The table is authoritative, as everywhere else. Registering for a format
+     * we cannot give a location to is offering work we cannot do to somebody
+     * who did not ask for it, the reasoning already written down for videos. A
+     * GIF and a video both fall on `RIEN` in `capacitesDe`, so the "add" cell
+     * refuses them outright: there is nothing to keep up to date here when the
+     * matrix moves.
+     */
+    for (const type of Object.keys(h?.accept ?? {})) {
+      const format = PAR_TYPE[type];
+      check(`${langue} : « ${type} » est un format que l’outil connaît`,
+        format !== undefined, type);
+      if (format) {
+        check(`${langue} : et le tableau lui accorde « ajouter »`,
+          capacitesDe(format).ajouter, `${type} → ${format}`);
+      }
+    }
+    for (const [type, exts] of Object.entries(h?.accept ?? {})) {
+      check(`${langue} : « ${type} » liste des extensions pointées`,
+        Array.isArray(exts) && exts.length > 0 && (exts as string[]).every((e) => /^\.[a-z0-9]+$/.test(e)),
+        JSON.stringify(exts));
+    }
+
+    /*
+     * And the other direction, the one no eye catches: a format added to the
+     * engine without being added here would stay invisible to the system. The
+     * tool would know how to read it, and it would not appear under "Open with"
+     * for it.
+     */
+    const proposes = new Set(Object.keys(h?.accept ?? {}).map((t) => PAR_TYPE[t]));
+    for (const ligne of MATRICE) {
+      if (!ligne.capacites.ajouter) continue;
+      for (const f of ligne.formats) {
+        check(`${langue} : le tableau sait donner un lieu à « ${f} », le manifeste le propose`,
+          proposes.has(f));
+      }
+    }
+
+    // Share, on the other hand, accepts `image/*`: taking a video and
+    // explaining that we cannot work on it yet is better than refusing it
+    // without a word. "Open with" does not have that luxury, since registering
+    // there means appearing in a system menu. The two lists therefore have no
+    // reason to be equal.
+    check(`${langue} : le partage reste plus large que l’ouverture`,
+      m.share_target.params.files[0].accept.includes('image/*') &&
+        !Object.keys(h?.accept ?? {}).includes('image/*'));
+  }
 });
 
 console.log(`\n${passed} réussis, ${failed} échoués`);
