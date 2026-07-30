@@ -436,6 +436,11 @@ for (const langue of LANGUES) {
     check(`${langue} / « ${cle} » : une phrase sans jargon`,
       Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
   }
+  for (const cle of Object.keys(T.introuvable)) {
+    const p = T.introuvable[cle];
+    check(`${langue} / « introuvable.${cle} » : une phrase sans jargon`,
+      Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+  }
   for (const cle of ['ouvertureIncomplete', 'ajoutees', 'lotPlafonne']) {
     for (const n of [1, 3]) {
       const p = T.app[cle](n);
@@ -469,6 +474,69 @@ check('les deux langues sont déclarées réciproquement',
   enHref?.endsWith('/') && frHref?.endsWith('/fr/'), `${enHref} | ${frHref}`);
 check('la page française est canonique sur elle-même',
   (await page.locator('link[rel="canonical"]').getAttribute('href')).endsWith('/fr/'));
+
+/*
+ * What we tell the engines, actually served.
+ *
+ * `check-build.mjs` reads these files from disk; here we request them, through
+ * the same server and the same headers as everything else. It is the only way
+ * to know that they answer: the sitemap spent a long time returning 404 while
+ * `robots.txt` announced it, and nothing noticed.
+ */
+console.log('\nCe qu\'on dit aux moteurs');
+const robots = await page.evaluate(() =>
+  fetch('/robots.txt').then((r) => r.text().then((t) => ({ ok: r.ok, t }))));
+check('robots.txt répond', robots.ok);
+check('il laisse le site se faire parcourir',
+  /User-agent:\s*\*/i.test(robots.t) && !/^\s*Disallow:\s*\S/im.test(robots.t));
+
+const annonce = robots.t.match(/^\s*Sitemap:\s*(\S+)/im)?.[1];
+check('il annonce un plan du site', Boolean(annonce), String(annonce));
+const plan = await page.evaluate(
+  (u) => fetch(new URL(u).pathname).then((r) => r.text().then((t) => ({ ok: r.ok, t }))),
+  annonce);
+check('et ce plan répond vraiment', plan.ok);
+
+const locs = [...plan.t.matchAll(/<loc>([^<]*)<\/loc>/g)].map(([, u]) => u);
+check('il annonce les deux langues', locs.length === 2, locs.join(' '));
+const toutesLa = await page.evaluate(
+  (l) => Promise.all(l.map((u) => fetch(new URL(u).pathname).then((r) => r.ok))),
+  locs);
+check('chaque adresse annoncée répond', toutesLa.every(Boolean));
+check('aucune fréquence de mise à jour n\'est promise', !/<changefreq>/.test(plan.t));
+
+// The English page's canonical was verified nowhere.
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+const canonEn = await page.locator('link[rel="canonical"]').getAttribute('href');
+check('la page anglaise est canonique sur elle-même', canonEn.endsWith('geotager.app/'), canonEn);
+check('et son « og:url » dit la même chose',
+  (await page.locator('meta[property="og:url"]').getAttribute('content')) === canonEn);
+
+const graphe = JSON.parse(await page.locator('script[type="application/ld+json"]').textContent());
+const types = (graphe['@graph'] ?? [graphe]).map((n) => n['@type']);
+check('les données structurées relient l\'application, le site et son éditeur',
+  ['SoftwareApplication', 'WebSite', 'Organization'].every((t) => types.includes(t)),
+  types.join(', '));
+
+/*
+ * The error page, reached by its path. A real 404 cannot be provoked here:
+ * it is the host that walks up to the nearest "404.html", and this bench's
+ * server does not imitate it. What is judged is therefore what depends on us,
+ * the page itself, and not the setting that serves it.
+ */
+console.log('\nUne adresse qui ne mène nulle part');
+for (const [chemin, retour] of [['/404.html', '/'], ['/fr/404.html', '/fr/']]) {
+  await page.goto(`http://127.0.0.1:${PORT}${chemin}`, { waitUntil: 'load' });
+  check(`${chemin} refuse d'être indexée`,
+    (await page.locator('meta[name="robots"]').getAttribute('content')).includes('noindex'));
+  check(`${chemin} dit ce qui se passe`,
+    (await page.locator('h1').textContent()).trim().length > 5);
+  check(`${chemin} ramène à l'outil`,
+    (await page.locator(`a[href="${retour}"]`).count()) > 0);
+  check(`${chemin} n'affiche pas le sélecteur de photo`,
+    (await page.locator('#picker').count()) === 0);
+}
+await page.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
 
 // The journey must work identically in both languages: it is the same engine,
 // and a translation must break nothing.
