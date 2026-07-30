@@ -37,6 +37,41 @@ import type {
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 /**
+ * The options passed to `exifr`, and why they need a cast.
+ *
+ * `exifr` accepts `ifd0: true`, as its own README documents, yet its
+ * `index.d.ts` declares `ifd0?: FormatOptions` where the eleven neighbouring
+ * blocks accept `FormatOptions | boolean`. The author's comment on that line,
+ * "cannot be disabled", explains the oversight: the boolean was excluded with
+ * `false` in mind, which excludes `true` too. The declaration contradicts the
+ * library's documentation, not our call.
+ *
+ * So the type is corrected without touching the value passed. Replacing `true`
+ * with `{}` would silence the checker by changing what we ask the metadata
+ * reader for, and this file is not where behaviour is modified to please a type.
+ *
+ * The double cast is the narrowest tool available: `exifr` does not export its
+ * `Options` interface, so it cannot be augmented or fixed field by field from
+ * here. The cast is concentrated on these two constants rather than spread over
+ * the call sites, so if the library fixes its declaration there are two lines
+ * to delete and the checker will say which.
+ */
+type OptionsExifr = NonNullable<Parameters<typeof exifr.parse>[1]>;
+
+/** Full read: location, date, device, and the details displayed. */
+const OPTIONS_COMPLETES = {
+  tiff: true,
+  exif: true,
+  gps: true,
+  ifd0: true,
+  translateValues: true,
+  reviveValues: true,
+} as unknown as OptionsExifr;
+
+/** Simple opening question: can the second reader read this file? */
+const OPTIONS_OUVERTURE = { tiff: true, ifd0: true } as unknown as OptionsExifr;
+
+/**
  * One probe, and only one.
  *
  * `capsOf` used to be called twice with different knowledge: once at read time,
@@ -170,14 +205,9 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   const details: Array<{ cle: string; value: string }> = [];
 
   try {
-    const tags = (await exifr.parse(buffer, {
-      tiff: true,
-      exif: true,
-      gps: true,
-      ifd0: true,
-      translateValues: true,
-      reviveValues: true,
-    })) as Record<string, unknown> | undefined;
+    const tags = (await exifr.parse(buffer, OPTIONS_COMPLETES)) as
+      | Record<string, unknown>
+      | undefined;
 
     if (tags) {
       if (!position && typeof tags.latitude === 'number' && typeof tags.longitude === 'number') {
@@ -266,7 +296,7 @@ async function gpsParExifr(octets: Uint8Array): Promise<LatLon | null> {
 /** True if the second reader can open this file, location or not. */
 async function exifrSaitOuvrir(octets: Uint8Array): Promise<boolean> {
   try {
-    const t = await exifr.parse(octets.slice().buffer, { tiff: true, ifd0: true });
+    const t = await exifr.parse(octets.slice().buffer, OPTIONS_OUVERTURE);
     return t != null;
   } catch {
     return false;

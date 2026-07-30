@@ -6,6 +6,14 @@
  * That is what makes a second language possible without touching a line of
  * binary surgery, and what makes a forgotten sentence a compile error rather
  * than a French word on an English page.
+ *
+ * The guarantee holds because `npm run build` starts with `astro check`. For a
+ * long time it did not: nothing read these types. `astro build` transpiles
+ * through esbuild, which erases annotations without checking them, and the
+ * tests run under `--experimental-strip-types`, which does the same, so the
+ * contract was written and never enforced. A key added to the wrong object
+ * shipped an empty string into an element only screen readers read. A type
+ * nobody checks is a comment.
  */
 
 import type { Motif } from '../exif/capacites.ts';
