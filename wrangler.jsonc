@@ -10,7 +10,16 @@
   // Astro produces "./dist". The dashboard build command must be
   // "npm run build", which chains astro build and then the blocking checks.
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+
+    // Without this setting, an address that leads nowhere gets a bare 404 from
+    // the host and the site's own 404 page is never served: writing it without
+    // enabling this would produce nothing at all.
+    //
+    // The mode walks up to the nearest "404.html", so "/fr/anything" gets the
+    // French page and the rest of the site the English one. The status stays
+    // 404, which is what matters to an engine.
+    "not_found_handling": "404-page"
   },
 
   // The technical host stays enabled, and that is a choice rather than an
@@ -37,5 +46,36 @@
   // Those settings originally had the working branch as the production branch,
   // which deployed unreviewed code straight to production and made any preview
   // impossible: a production branch is not previewed, it is production.
-  "preview_urls": true
+  "preview_urls": true,
+
+  // Host-side telemetry (Workers Logs / Workers Traces).
+  //
+  // The "observability" block is here in the shape Cloudflare generates by
+  // default: the global flag stays false, and only the "logs" sub-block is on.
+  // In this schema "logs.enabled" takes precedence over the global flag for
+  // logs, while traces stay explicitly off.
+  //
+  // Actual scope: with no "main" field there is no Worker code of ours, and so
+  // no application logs. Only the invocation logs the platform produces for the
+  // asset service are reported: request, response, metadata. That is host
+  // telemetry, not visitor tracking; photos and their coordinates do not leave
+  // the user's machine.
+  //
+  // "head_sampling_rate": 1 means 100% of requests sampled. Cloudflare-side
+  // retention: 7 days.
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
 }

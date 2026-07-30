@@ -194,6 +194,17 @@ build only runs `npm run build`, and its image contains neither ExifTool nor lib
 - a README's table disagrees with the table actually served;
 - JavaScript exceeds 150 KB gzipped;
 - an `X-Robots-Tag` appears under a relative pattern in `_headers`;
+- the manifest's `file_handlers` action does not resolve to a page that is served without a
+  redirect, or the never-standardized `launch_type` reappears beside `launch_handler`;
+- `robots.txt` disallows crawling, or advertises a sitemap the build does not produce — which is
+  exactly what happened once, and went unnoticed;
+- the sitemap does not list precisely the indexable pages, carries a `changefreq` or `priority`
+  that search engines ignore anyway, or declares languages that contradict the page's own
+  `hreflang`;
+- a page's canonical is not self-referencing, or `og:url` disagrees with it;
+- a page's JSON-LD is not valid JSON, or stops describing the application, the site and its
+  publisher;
+- an indexable page carries `noindex`, or the 404 page loses it;
 - the deployment guard has been removed from the repository.
 
 ## Deployment

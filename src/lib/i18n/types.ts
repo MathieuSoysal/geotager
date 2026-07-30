@@ -200,4 +200,17 @@ export interface Dictionnaire {
   pitch: Array<{ titre: string; texte: string }>;
 
   pied: string;
+
+  /**
+   * The page served when an address leads nowhere.
+   *
+   * It lives outside the tool's shell: showing the photo picker there would
+   * suggest the requested page exists and works.
+   */
+  introuvable: {
+    titre: string;
+    phrase: string;
+    retour: string;
+    autreLangue: string;
+  };
 }

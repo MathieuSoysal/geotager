@@ -188,7 +188,18 @@ Cloudflare ne lance que `npm run build`, et son image ne contient pas ExifTool.
 - une page n'a pas exactement un `<h1>` ;
 - un des blocs de contenu obligatoires manque du HTML servi ;
 - le JavaScript dépasse 150 Ko gzip ;
-- un `X-Robots-Tag` apparaît sous un motif relatif dans `_headers`.
+- un `X-Robots-Tag` apparaît sous un motif relatif dans `_headers` ;
+- l'action `file_handlers` du manifeste ne désigne pas une page servie sans redirection, ou le
+  champ jamais normalisé `launch_type` réapparaît à côté de `launch_handler` ;
+- `robots.txt` interdit le parcours, ou annonce un plan du site que la build ne produit pas — ce
+  qui est arrivé une fois, sans que rien ne s'en aperçoive ;
+- le plan du site n'annonce pas exactement les pages indexables, porte un `changefreq` ou un
+  `priority` que les moteurs ignorent de toute façon, ou déclare des langues qui contredisent les
+  `hreflang` de la page ;
+- le canonique d'une page ne pointe pas sur elle-même, ou `og:url` le contredit ;
+- le JSON-LD d'une page n'est pas du JSON valide, ou cesse de décrire l'application, le site et son
+  éditeur ;
+- une page indexable porte `noindex`, ou la page 404 le perd.
 
 ## Déploiement
 

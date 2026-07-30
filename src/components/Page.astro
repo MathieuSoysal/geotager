@@ -16,7 +16,15 @@ interface Props {
 }
 const { dico: T } = Astro.props;
 
-const site = 'https://geotager.app';
+/*
+ * The address comes from `astro.config.mjs`, and from one place only. It used
+ * to be copied here and into the sitemap: three copies of the same string, so
+ * three chances for a canonical, an `og:url` and a sitemap to end up
+ * contradicting each other. An engine given contradictory signals does not
+ * settle in our favour: it ignores them and chooses for itself.
+ */
+const site = Astro.site?.origin;
+if (!site) throw new Error('Page : « site » manque dans astro.config.mjs');
 const url = site + T.base;
 
 // Reciprocal links between the two languages, plus x-default on the language
@@ -24,19 +32,59 @@ const url = site + T.base;
 // included, without which Google ignores the declaration.
 const alternates = LANGUES.map((l) => ({ lang: l, href: site + DICOS[l].base }));
 
+/*
+ * Three linked nodes, and not one more.
+ *
+ * What it buys, so nobody expects more: no rich results. No thumbnail, no
+ * stars, nothing visible on a results page. The only gain is that engines,
+ * classic and generative alike, can connect three things they would otherwise
+ * have to guess: which application this is, which site it belongs to, and who
+ * publishes it.
+ *
+ * It is also why there is no `FAQPage` and no `HowTo`. Two sections have
+ * exactly that shape, and marking them up would achieve nothing: `HowTo` was
+ * deprecated in 2023 and question-and-answer results were withdrawn from
+ * search. Writing markup for a display that no longer exists is lying to
+ * yourself in a file nobody re-reads.
+ */
 const jsonLd = {
   '@context': 'https://schema.org',
-  '@type': 'SoftwareApplication',
-  name: 'Geotager',
-  url,
-  applicationCategory: 'MultimediaApplication',
-  applicationSubCategory: T.meta.sousCategorie,
-  operatingSystem: T.meta.systeme,
-  inLanguage: T.htmlLang,
-  isAccessibleForFree: true,
-  offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
-  featureList: T.meta.fonctions,
-  description: T.meta.description,
+  '@graph': [
+    {
+      '@type': 'SoftwareApplication',
+      '@id': `${url}#application`,
+      name: 'Geotager',
+      url,
+      applicationCategory: 'MultimediaApplication',
+      applicationSubCategory: T.meta.sousCategorie,
+      operatingSystem: T.meta.systeme,
+      inLanguage: T.htmlLang,
+      isAccessibleForFree: true,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+      featureList: T.meta.fonctions,
+      description: T.meta.description,
+      isPartOf: { '@id': `${site}/#site` },
+      publisher: { '@id': `${site}/#editeur` },
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${site}/#site`,
+      name: 'Geotager',
+      url: `${site}/`,
+      inLanguage: LANGUES.map((l) => DICOS[l].htmlLang),
+      publisher: { '@id': `${site}/#editeur` },
+    },
+    {
+      '@type': 'Organization',
+      '@id': `${site}/#editeur`,
+      name: 'Geotager',
+      url: `${site}/`,
+      logo: `${site}/icons/icon-512.png`,
+      // The repository is the only other address where this project exists
+      // under its own name. `sameAs` serves that and nothing else.
+      sameAs: ['https://github.com/MathieuSoysal/geotager'],
+    },
+  ],
 };
 ---
 

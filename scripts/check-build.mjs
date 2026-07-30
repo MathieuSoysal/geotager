@@ -222,6 +222,19 @@ const BLOCS_OBLIGATOIRES = {
   ],
 };
 
+/**
+ * An error page is not a page of the site.
+ *
+ * It has neither the tool's six prose blocks nor links between languages, and
+ * requiring either would fail the build for a page whose role is precisely to
+ * promise nothing. It does carry a `noindex`, and the check verifies that
+ * below: the exclusion is named, it is not a hole.
+ */
+const estIntrouvable = (f) => /(^|[\\/])404\.html$/.test(f);
+
+/** The pages we ask an engine to index, and only those. */
+const pagesIndexables = fichiers.filter((x) => extname(x) === '.html' && !estIntrouvable(x));
+
 for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   const html = readFileSync(f, 'utf8');
   const title = html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim();
@@ -251,6 +264,19 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   // "qu&#39;il". Searching for the raw text in escaped HTML would find nothing,
   // and would make a full page look empty.
   const lisible = texteVisible(html);
+
+  if (estIntrouvable(f)) {
+    // What is asked of an error page, and nothing else: to say it does not want
+    // to be indexed, and to lead somewhere.
+    if (!/<meta\s+name=["']robots["']\s+content=["'][^"']*noindex/i.test(html)) {
+      echecs.push(`${rel(f)} : une page d'erreur doit porter « noindex »`);
+    }
+    if (!/<a[^>]+href=["']\/(fr\/)?["']/i.test(html)) {
+      echecs.push(`${rel(f)} : aucun lien de retour vers l'outil`);
+    }
+    continue;
+  }
+
   const attendus = BLOCS_OBLIGATOIRES[lang];
   if (!attendus) {
     echecs.push(`${rel(f)} : langue « ${lang} » inconnue du contrôle de contenu`);
@@ -269,6 +295,13 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   }
   if (!/hreflang=["']x-default["']/i.test(html)) {
     echecs.push(`${rel(f)} : aucun lien alternatif « x-default »`);
+  }
+
+  // An indexable page must certainly not carry a noindex. The opposite of the
+  // error page, and the most expensive failure of the lot: invisible on screen,
+  // and it removes the site from results.
+  if (/<meta\s+name=["']robots["']\s+content=["'][^"']*noindex/i.test(html)) {
+    echecs.push(`${rel(f)} : une page du site porte « noindex »`);
   }
 }
 
@@ -602,6 +635,202 @@ for (const [fichierReadme, page] of [
     if (!apple) echecs.push(`${rel(f)} : aucun <link rel="apple-touch-icon">`);
     else if (!existsSync(join(DIR, apple.replace(/^\//, '')))) {
       echecs.push(`${rel(f)} : apple-touch-icon ${apple} est absent de ${DIR}/`);
+    }
+  }
+}
+
+// 9. What we tell the engines
+
+/*
+ * Nobody was watching `robots.txt` or the sitemap, and it showed: the sitemap
+ * announced in `robots.txt` from the start with nothing producing it, and the
+ * file answered 404. The bug survived until a human noticed, when it is exactly
+ * the class of failure this file catches everywhere else.
+ *
+ * Those two files are read only by machines. Nobody opens them, nobody sees
+ * they are wrong, and they are the first thing an engine asks for. That is what
+ * justifies treating them like the rest: a blocking check, not a review.
+ */
+{
+  const racine = 'https://geotager.app';
+  const robots = join(DIR, 'robots.txt');
+
+  if (!existsSync(robots)) {
+    echecs.push(`${DIR}/robots.txt est absent — un moteur le demande avant toute autre chose`);
+  } else {
+    const texte = readFileSync(robots, 'utf8');
+    const lignes = texte
+      .split('\n')
+      .map((l) => l.replace(/#.*$/, '').trim())
+      .filter(Boolean);
+
+    if (!lignes.some((l) => /^user-agent\s*:/i.test(l))) {
+      echecs.push(`${DIR}/robots.txt n'a aucun groupe « User-agent »`);
+    }
+
+    /*
+     * No non-empty "Disallow". This is not a preference: the technical domains
+     * are removed from the index by an `X-Robots-Tag: noindex`, which an engine
+     * can only read if it is allowed to come and fetch the page. A "Disallow"
+     * here would remove that right and let the addresses be indexed anyway,
+     * without even a snippet. That is the contradiction the file's comment
+     * describes, and which nothing protected against.
+     */
+    for (const l of lignes) {
+      const valeur = l.match(/^disallow\s*:\s*(.*)$/i)?.[1];
+      if (valeur) echecs.push(`${DIR}/robots.txt interdit « ${valeur} » — voir le commentaire du fichier`);
+    }
+
+    const annonces = lignes
+      .map((l) => l.match(/^sitemap\s*:\s*(\S+)$/i)?.[1])
+      .filter(Boolean);
+    if (!annonces.length) {
+      echecs.push(`${DIR}/robots.txt n'annonce aucun plan de site`);
+    }
+    for (const adresse of annonces) {
+      if (!adresse.startsWith(`${racine}/`)) {
+        echecs.push(`${DIR}/robots.txt annonce un plan de site hors de l'origine — ${adresse}`);
+        continue;
+      }
+      // The check that would have caught the original 404.
+      const cible = join(DIR, adresse.slice(racine.length + 1));
+      if (!existsSync(cible)) {
+        echecs.push(`${DIR}/robots.txt annonce ${adresse}, que la build ne produit pas`);
+      }
+    }
+  }
+
+  // The sitemap
+
+  const plan = join(DIR, 'sitemap-index.xml');
+  if (!existsSync(plan)) {
+    echecs.push(`${DIR}/sitemap-index.xml est absent`);
+  } else {
+    const xml = readFileSync(plan, 'utf8');
+
+    if (!/<urlset[^>]+xmlns=["']http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9["']/.test(xml)) {
+      echecs.push(`${rel(plan)} : racine « urlset » ou espace de noms manquant`);
+    }
+
+    /*
+     * "Google ignores <priority> and <changefreq> values." Writing them would
+     * suggest a freshness signal that does not exist; this check is here so
+     * they do not settle back in on a distracted day.
+     */
+    for (const mort of ['changefreq', 'priority']) {
+      if (new RegExp(`<${mort}>`).test(xml)) {
+        echecs.push(`${rel(plan)} porte « ${mort} », que les moteurs ignorent`);
+      }
+    }
+
+    /*
+     * `lastmod` is the only one of the three that counts, and only if it is
+     * verifiable. A date later than the day of the build is not, by
+     * construction: that is the signature of an invented timestamp.
+     */
+    const aujourdhui = new Date().toISOString().slice(0, 10);
+    for (const [, date] of xml.matchAll(/<lastmod>([^<]*)<\/lastmod>/g)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        echecs.push(`${rel(plan)} : « ${date} » n'est pas une date AAAA-MM-JJ`);
+      } else if (date > aujourdhui) {
+        echecs.push(`${rel(plan)} : « ${date} » est dans le futur`);
+      }
+    }
+
+    /*
+     * The set of announced addresses is exactly the set of indexable pages
+     * produced. Too many, and we ask for pages that do not exist to be indexed.
+     * Too few, and we hide a page from an engine without having decided to. And
+     * the error pages are in neither direction.
+     */
+    const annoncees = [...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map(([, u]) => u).sort();
+    const produites = pagesIndexables
+      .map((f) => `${racine}/${rel(f).replace(/index\.html$/, '')}`)
+      .sort();
+    if (annoncees.join('|') !== produites.join('|')) {
+      echecs.push(
+        `${rel(plan)} n'annonce pas les pages produites — annoncées ${annoncees.join(', ')} / produites ${produites.join(', ')}`,
+      );
+    }
+    for (const adresse of annoncees) {
+      if (!adresse.startsWith(`${racine}/`) || !adresse.endsWith('/')) {
+        echecs.push(`${rel(plan)} : « ${adresse} » doit être absolue et finir par « / »`);
+      }
+    }
+
+    /*
+     * And the same languages on both sides. The sitemap and the `<head>` are
+     * two declarations of the same fact; if they contradict each other an
+     * engine does not settle in our favour, it ignores both.
+     */
+    for (const f of pagesIndexables) {
+      const html = readFileSync(f, 'utf8');
+      const adresse = `${racine}/${rel(f).replace(/index\.html$/, '')}`;
+      const bloc = xml.match(new RegExp(`<url>\\s*<loc>${adresse}</loc>([\\s\\S]*?)</url>`))?.[1];
+      if (!bloc) continue;
+      const duPlan = [...bloc.matchAll(/hreflang="([^"]+)"/g)].map(([, l]) => l).sort();
+      const duHead = [...html.matchAll(/<link[^>]+rel=["']alternate["'][^>]+hreflang=["']([^"']+)["']/gi)]
+        .map(([, l]) => l)
+        .sort();
+      if (duPlan.join(',') !== duHead.join(',')) {
+        echecs.push(
+          `${rel(f)} : les langues du plan du site (${duPlan.join(', ')}) et de la page (${duHead.join(', ')}) diffèrent`,
+        );
+      }
+      if (!duPlan.includes('x-default')) {
+        echecs.push(`${rel(plan)} : « ${adresse} » n'a pas de « x-default »`);
+      }
+    }
+  }
+
+  // The <head> of indexable pages
+
+  for (const f of pagesIndexables) {
+    const html = readFileSync(f, 'utf8');
+    const adresse = `${racine}/${rel(f).replace(/index\.html$/, '')}`;
+
+    // A self-referencing canonical on every indexable page. Only the French
+    // page was checked, and only by the end-to-end test.
+    const canonique = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1];
+    if (canonique !== adresse) {
+      echecs.push(`${rel(f)} : canonique « ${canonique ?? '(absent)'} », attendu « ${adresse} »`);
+    }
+
+    const balise = (p) =>
+      html.match(new RegExp(`<meta[^>]+property=["']${p}["'][^>]+content=["']([^"']*)["']`, 'i'))?.[1];
+    for (const p of ['og:title', 'og:description', 'og:url', 'og:locale']) {
+      if (!balise(p)) echecs.push(`${rel(f)} : « ${p} » manque`);
+    }
+    if (!/<meta[^>]+name=["']twitter:card["']/i.test(html)) {
+      echecs.push(`${rel(f)} : « twitter:card » manque`);
+    }
+    // "canonical = internal links = sitemap = og:url". Signals that contradict
+    // each other are signals an engine discards.
+    if (balise('og:url') && balise('og:url') !== canonique) {
+      echecs.push(`${rel(f)} : « og:url » et le canonique diffèrent`);
+    }
+
+    /*
+     * Nobody was parsing the JSON-LD. One comma too many would have broken it
+     * silently: the block stays in the page, it throws no console error, since
+     * an unknown `type` makes the element inert, and nothing is understood any
+     * more. So it is genuinely parsed.
+     */
+    const ld = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
+    if (!ld) {
+      echecs.push(`${rel(f)} : aucun bloc « application/ld+json »`);
+    } else {
+      try {
+        const graphe = JSON.parse(ld);
+        const types = (graphe['@graph'] ?? [graphe]).map((n) => n['@type']);
+        for (const attendu of ['SoftwareApplication', 'WebSite', 'Organization']) {
+          if (!types.includes(attendu)) {
+            echecs.push(`${rel(f)} : le JSON-LD ne déclare pas « ${attendu} » — ${types.join(', ')}`);
+          }
+        }
+      } catch (e) {
+        echecs.push(`${rel(f)} : le JSON-LD n'est pas du JSON valide — ${e.message}`);
+      }
     }
   }
 }
