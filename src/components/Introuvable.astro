@@ -1,0 +1,70 @@
+---
+/**
+ * La page servie quand l'adresse ne mène nulle part.
+ *
+ * Délibérément HORS de la coquille de l'outil. Y afficher le sélecteur de photo
+ * ferait croire que la page demandée existe et fonctionne ; on dit d'abord que
+ * l'adresse est fausse, et on propose ensuite d'aller à l'outil.
+ *
+ * Aucune règle de style n'est écrite ici : la politique de sécurité du contenu
+ * refuse `style-src` en ligne, et cette page n'a pas de raison d'être la seule
+ * exception. Elle se contente des classes de la feuille commune.
+ */
+import '../styles/global.css';
+import type { Dictionnaire } from '../lib/i18n/types.ts';
+import { DICOS, LANGUES } from '../lib/i18n/index.ts';
+
+interface Props {
+  dico: Dictionnaire;
+}
+const { dico: T } = Astro.props;
+
+const autre = LANGUES.find((l) => l !== T.langue);
+---
+
+<!doctype html>
+<html lang={T.htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#17161b" />
+    <title>{`${T.introuvable.titre} — Geotager`}</title>
+    <meta name="description" content={T.introuvable.phrase} />
+    <!--
+      La SEULE page du site qui porte cette balise, et la seule où elle ait un
+      sens. Le statut 404 devrait suffire ; mais une page d'erreur servie par
+      accident en 200 — ce que la moindre erreur de configuration produit —
+      deviendrait indexable, et un moteur aurait alors une page « cette page
+      n'existe pas » dans ses résultats. La ceinture en plus des bretelles.
+
+      Aucun canonique, aucun `hreflang`, et cette page n'est pas dans le plan du
+      site : on ne demande pas à être indexé sur une adresse qui n'existe pas.
+    -->
+    <meta name="robots" content="noindex" />
+    <!-- Le manifeste reste déclaré : une adresse fausse ouverte depuis
+         l'application installée n'a aucune raison d'en sortir. -->
+    <link rel="manifest" href={`${T.base}manifest.webmanifest`} />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  </head>
+  <body>
+    <main class="wrap" id="contenu">
+      <article class="contenu">
+        <h1>{T.introuvable.titre}</h1>
+        <p>{T.introuvable.phrase}</p>
+        <p>
+          <a class="btn primary" href={T.base}>{T.introuvable.retour}</a>
+        </p>
+        {
+          autre && (
+            <p>
+              <a href={DICOS[autre].base} lang={DICOS[autre].htmlLang} hreflang={DICOS[autre].htmlLang}>
+                {T.introuvable.autreLangue}
+              </a>
+            </p>
+          )
+        }
+      </article>
+    </main>
+  </body>
+</html>

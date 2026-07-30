@@ -84,7 +84,8 @@ deux pages, la feuille de style, l'interface et le worker de lecture. Trois règ
   le reste. Une tuile de carte mise en cache écrirait sur le disque la trace durable des lieux
   consultés — exactement ce que ce site promet de ne pas faire.
 - **Aucun `skipWaiting()` inconditionnel.** Rien n'est persisté ici&nbsp;: un rechargement imposé
-  détruirait les photos chargées et non téléchargées. Une nouvelle version attend derrière un bandeau.
+  détruirait les photos chargées et non téléchargées. Une nouvelle version attend derrière un bandeau
+  — et une fenêtre qui n'a rien demandé ne se recharge pas parce qu'une autre a dit oui.
 - **Pas de page «&nbsp;hors ligne&nbsp;».** Les deux vraies pages sont préchargées&nbsp;; il ne reste
   aucune navigation qu'un secours pourrait rattraper.
 
@@ -99,6 +100,21 @@ d'«&nbsp;Ouvrir avec&nbsp;» pour les images.
 
 «&nbsp;Ouvrir avec&nbsp;» est le cas simple&nbsp;: le système remet une poignée de fichier, il n'y a
 donc rien à transporter et rien à garder.
+
+Simple ne veut pas dire sans risque, et c'est là que cette phrase s'arrêtait. Une poignée peut
+désigner un fichier déplacé depuis, ou un fichier qui n'est pas encore descendu d'un espace de
+stockage distant — et le système ne remet le lot qu'une fois, il n'y a rien à revenir chercher.
+Chaque poignée est donc ouverte pour elle-même, avec un délai&nbsp;: une photo partie n'emporte plus
+celles qui sont restées, et une ouverture dont rien n'est utilisable le dit à l'écran et à voix haute
+au lieu de laisser une fenêtre vide. Un lancement sans aucun fichier, lui, se tait&nbsp;: c'est à cela
+que ressemble un clic sur l'icône de l'application.
+
+Le manifeste dit aussi dans quelle fenêtre les fichiers sont posés&nbsp;: celle qui est déjà ouverte,
+mise au premier plan telle quelle, les nouvelles photos **rejoignant** celles qui y étaient au lieu
+de les remplacer. Rien n'est persisté ici&nbsp;: un lancement qui renaviguerait la fenêtre
+abandonnerait du travail, ce qui est la raison pour laquelle les mises à jour attendent derrière un
+bandeau. Le manifeste lui-même se demande au réseau d'abord&nbsp;: c'est le seul fichier que le
+système lit pour son compte, et servi depuis le cache une correction ne l'atteindrait jamais.
 
 Le partage, non. L'API de cible de partage livre les fichiers en `POST`, et aucun serveur n'est là
 pour le recevoir — c'est le service worker qui l'intercepte. Toutes les autres applications qui font
@@ -175,7 +191,18 @@ Cloudflare ne lance que `npm run build`, et son image ne contient pas ExifTool.
 - une page n'a pas exactement un `<h1>` ;
 - un des blocs de contenu obligatoires manque du HTML servi ;
 - le JavaScript dépasse 150 Ko gzip ;
-- un `X-Robots-Tag` apparaît sous un motif relatif dans `_headers`.
+- un `X-Robots-Tag` apparaît sous un motif relatif dans `_headers` ;
+- l'action `file_handlers` du manifeste ne désigne pas une page servie sans redirection, ou le
+  champ jamais normalisé `launch_type` réapparaît à côté de `launch_handler` ;
+- `robots.txt` interdit le parcours, ou annonce un plan du site que la build ne produit pas — ce
+  qui est arrivé une fois, sans que rien ne s'en aperçoive ;
+- le plan du site n'annonce pas exactement les pages indexables, porte un `changefreq` ou un
+  `priority` que les moteurs ignorent de toute façon, ou déclare des langues qui contredisent les
+  `hreflang` de la page ;
+- le canonique d'une page ne pointe pas sur elle-même, ou `og:url` le contredit ;
+- le JSON-LD d'une page n'est pas du JSON valide, ou cesse de décrire l'application, le site et son
+  éditeur ;
+- une page indexable porte `noindex`, ou la page 404 le perd.
 
 ## Déploiement
 

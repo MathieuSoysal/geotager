@@ -28,7 +28,9 @@ import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
 import { createHash } from 'node:crypto';
 import { commandePour } from '../scripts/deploy.mjs';
-import { MATRICE, cellules } from '../src/lib/exif/capacites.ts';
+import { MATRICE, capacitesDe, cellules } from '../src/lib/exif/capacites.ts';
+import { manifeste } from '../src/lib/manifeste.ts';
+import { DICOS, LANGUES } from '../src/lib/i18n/index.ts';
 import {
   LAT_MAX,
   ZOOM_MAX,
@@ -1380,6 +1382,95 @@ scenario('Précision d’un clic — la table du Gate 1 fait foi', () => {
   check('la précision s’améliore à chaque cran de zoom, sans exception', croissante);
   check('elle reste positive jusqu’au dernier cran, aux hautes latitudes',
     metresParPixel(80, ZOOM_MAX) > 0);
+});
+
+scenario('« Ouvrir avec » ne promet que ce que le tableau tient', () => {
+  /*
+   * Le manifeste n'était lu par AUCUN test. Il déclare pourtant les deux portes
+   * par lesquelles le système remet des fichiers, et son entrée « Ouvrir avec »
+   * a été livrée en V1.3 avec un champ jamais normalisé — `launch_type` — qui
+   * promettait « une seule fenêtre reçoit tout le lot » sans que rien ne le
+   * tienne. `check-build.mjs` relit désormais le manifeste PRODUIT ; ceci relit
+   * la fonction qui l'écrit, avant même qu'une build existe.
+   */
+  const PAR_TYPE: Record<string, Format> = {
+    'image/jpeg': 'jpeg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/heic': 'heic',
+    'image/heif': 'heic',
+    'image/avif': 'avif',
+    'image/tiff': 'tiff',
+    'image/gif': 'gif',
+  };
+
+  for (const langue of LANGUES) {
+    const m = JSON.parse(manifeste(langue));
+    const T = DICOS[langue];
+
+    check(`${langue} : l’identité d’installation reste « / »`, m.id === '/', String(m.id));
+    check(`${langue} : la fenêtre ouverte reçoit le lot sans être renavigée`,
+      m.launch_handler?.client_mode === 'focus-existing',
+      String(m.launch_handler?.client_mode));
+
+    const h = m.file_handlers?.[0];
+    check(`${langue} : « Ouvrir avec » ouvre la page de cette langue`,
+      h?.action === T.base, String(h?.action));
+    // La barre oblique finale décide : sans elle, l'hébergeur redirige, et une
+    // entrée préchargée qui redirige met TOUTE l'application hors service hors
+    // ligne. Voir le contrôle correspondant dans `check-build.mjs`.
+    check(`${langue} : l’adresse d’ouverture finit par une barre oblique`,
+      typeof h?.action === 'string' && h.action.endsWith('/'), String(h?.action));
+    check(`${langue} : elle reste dans la portée du manifeste`,
+      typeof h?.action === 'string' && h.action.startsWith(m.scope), `${h?.action} / ${m.scope}`);
+    check(`${langue} : le champ jamais normalisé ne revient pas`,
+      h !== undefined && !('launch_type' in h));
+
+    /*
+     * Le tableau fait foi, comme partout ailleurs. S'inscrire pour un format
+     * auquel on ne sait pas donner de lieu, c'est se proposer pour un travail
+     * qu'on ne sait pas faire à quelqu'un qui ne l'a pas demandé — le
+     * raisonnement déjà écrit pour les vidéos. Un GIF et une vidéo tombent sur
+     * `RIEN` dans `capacitesDe`, donc la case « ajouter » les refuse d'office :
+     * il n'y a rien à tenir à jour ici quand la matrice bouge.
+     */
+    for (const type of Object.keys(h?.accept ?? {})) {
+      const format = PAR_TYPE[type];
+      check(`${langue} : « ${type} » est un format que l’outil connaît`,
+        format !== undefined, type);
+      if (format) {
+        check(`${langue} : et le tableau lui accorde « ajouter »`,
+          capacitesDe(format).ajouter, `${type} → ${format}`);
+      }
+    }
+    for (const [type, exts] of Object.entries(h?.accept ?? {})) {
+      check(`${langue} : « ${type} » liste des extensions pointées`,
+        Array.isArray(exts) && exts.length > 0 && (exts as string[]).every((e) => /^\.[a-z0-9]+$/.test(e)),
+        JSON.stringify(exts));
+    }
+
+    /*
+     * Et l'autre sens, qui est celui qu'aucun œil ne voit : un format ajouté au
+     * moteur sans être ajouté ici resterait invisible du système. L'outil saurait
+     * le lire, et il n'apparaîtrait pas dans « Ouvrir avec » pour lui.
+     */
+    const proposes = new Set(Object.keys(h?.accept ?? {}).map((t) => PAR_TYPE[t]));
+    for (const ligne of MATRICE) {
+      if (!ligne.capacites.ajouter) continue;
+      for (const f of ligne.formats) {
+        check(`${langue} : le tableau sait donner un lieu à « ${f} », le manifeste le propose`,
+          proposes.has(f));
+      }
+    }
+
+    // Le partage, lui, accepte `image/*` : prendre une vidéo et expliquer qu'on
+    // ne sait pas encore la travailler vaut mieux que la refuser sans un mot.
+    // « Ouvrir avec » n'a pas ce luxe — s'y inscrire, c'est apparaître dans un
+    // menu du système. Les deux listes n'ont donc aucune raison d'être égales.
+    check(`${langue} : le partage reste plus large que l’ouverture`,
+      m.share_target.params.files[0].accept.includes('image/*') &&
+        !Object.keys(h?.accept ?? {}).includes('image/*'));
+  }
 });
 
 console.log(`\n${passed} réussis, ${failed} échoués`);

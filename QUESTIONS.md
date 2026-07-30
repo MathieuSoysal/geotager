@@ -1455,3 +1455,198 @@ Une précision inscrite sur certains fichiers et pas sur d'autres, présentée c
 exactement le genre de demi-vérité que le reste des tests existe pour empêcher.
 
 **Bloque :** non.
+
+---
+
+## [V1.5] Q-045 — « Ouvrir avec » ouvrait une fenêtre, et n'y mettait rien
+
+**Contexte :** l'outil s'inscrit dans « Ouvrir avec » depuis la V1.3. Sur Chrome et Edge de bureau,
+un clic droit sur une photo ouvre bien la fenêtre de l'application, et rien n'y arrive : l'état
+vide, sans un mot. Deux causes indépendantes, et chacune suffisait.
+
+1. **Le rechargement de la première prise de contrôle.** La page se rechargeait sans condition dès
+   qu'un service worker prenait le contrôle. À la toute première ouverture — ou après un vidage des
+   données du site, une éviction du stockage, un désenregistrement — le document est chargé SANS
+   contrôleur : le worker s'enregistre, s'active, réclame ses clients, et la page se recharge. Elle
+   se recharge pour rien, puisqu'elle vient du réseau et qu'elle est déjà la plus récente ; mais
+   `setConsumer` appelle son consommateur sur-le-champ, les fichiers du lancement sont donc déjà
+   consommés, et ils sont remis une fois et une seule. Il n'y a rien à revenir chercher. Le bandeau
+   de mise à jour savait pourtant faire exactement cette distinction, dix lignes au-dessus, depuis
+   la V1.3.
+2. **Aucun mot en cas d'échec.** Le chemin du lancement n'avait ni `try`, ni `catch`, ni délai. Les
+   poignées étaient ouvertes par un `Promise.all` : une seule photo déplacée depuis que le système
+   avait dressé sa liste faisait échouer le lot entier, en silence, et le rejet n'était rattrapé par
+   personne. Un fichier annonçant zéro octet — un fichier resté dans un espace de stockage distant,
+   typiquement — était écarté deux fois de suite, puis `charger` sortait sur une liste vide sans
+   rien dire. Le chemin du partage, écrit trois semaines plus tôt, a un contrôle de contrôleur, un
+   délai de trois secondes et une phrase visible. Le projet interdit l'échec silencieux ; celui-ci
+   en avait deux, côte à côte, dans le même fichier.
+
+Le registre lui-même a un trou, et c'est l'occasion de le nommer : tout le programme V1.3 et V1.4 —
+installabilité, service worker, cible de partage, ouverture de fichiers, partage sortant — a été
+livré **sans une seule entrée ici**, alors que la règle ajoutée au Gate 1 en exige une pour toute
+divergence, « même quand la divergence est manifestement justifiée ». Une fonctionnalité livrée sans
+entrée est une fonctionnalité que personne ne relit, et « Ouvrir avec » vient de montrer ce que cela
+coûte.
+
+**Options :**
+
+- **A.** Le rechargement n'a lieu que si CETTE fenêtre a demandé la mise à jour. Chaque poignée est
+  ouverte pour elle-même, avec un délai, et une ouverture dont rien n'est utilisable reçoit une
+  phrase visible et annoncée, dans l'état qui est à l'écran. Le manifeste dit enfin dans quelle
+  fenêtre une arrivée est posée, et un lot qui arrive REJOINT les photos déjà ouvertes.
+- **B.** Se contenter de demander « y avait-il un contrôleur au chargement ? ». Retenu en plus de A,
+  mais insuffisant seul : la condition est juste pour la première installation et ne dit rien du
+  voisinage. `clients.claim()` atteint TOUTES les fenêtres, et l'une d'elles pouvait avoir quarante
+  photos ouvertes et rien d'exporté.
+- **C.** Ouvrir une fenêtre neuve à chaque lancement (`navigate-new`). Écarté : `client_mode`
+  gouverne TOUS les lancements, et pas seulement « Ouvrir avec ». Cliquer l'icône de l'application
+  ouvrirait une deuxième fenêtre vide à côté des quarante photos chargées dans la première. On
+  échangerait une perte contre un abandon.
+- **D.** Remplacer les photos ouvertes, mais l'annoncer. Écarté : une phrase ne rend pas un travail.
+  Le projet refuse déjà le rechargement automatique pour cette raison exacte, en deux endroits.
+- **E.** Garder `launch_type` à côté de `launch_handler`. Écarté : `launch_type` n'est lu par
+  personne, et le commentaire au-dessus affirmait pourtant « une seule fenêtre reçoit tout le lot ».
+  Un champ que rien n'applique n'est pas une garantie, c'est un commentaire. Deux déclarations qui
+  peuvent se contredire ne valent pas mieux qu'une seule.
+
+**Retenu : A**, avec la condition de B comme premier garde.
+
+**Un lancement SANS fichier n'est pas un échec, et il fallait le décider.** Cliquer l'icône de
+l'application passe aussi par la file de lancement, avec une liste de fichiers vide, et
+`focus-existing` la remet à la fenêtre ouverte comme le reste. Annoncer « cette photo n'est pas
+arrivée » à chaque clic sur l'icône aurait été un mensonge dit très régulièrement. La règle est donc
+plus fine que « toute arrivée vide se dit » : une liste vide se tait, une liste non vide dont rien
+n'est utilisable parle. Le test de bout en bout juge les deux séparément.
+
+**Ce que la correction ne peut pas faire, et qui doit être écrit.** La moitié JavaScript n'atteint
+une application déjà installée qu'au moment où son propriétaire accepte le bandeau. C'est voulu, et
+il n'y a pas de manière honnête de contourner cela : rien n'est persisté ici, et un rechargement
+imposé abandonnerait des photos. La moitié MANIFESTE, en revanche, n'avait aucune raison d'attendre
+— et elle attendait quand même, le manifeste étant servi depuis le cache sans revalidation. C'est le
+seul fichier du lot que le SYSTÈME lit pour son compte : il se demande désormais au réseau d'abord,
+le cache derrière pour l'ouverture hors ligne. Les formats confiés et la fenêtre d'arrivée se
+corrigent donc d'eux-mêmes, à la vérification que le navigateur fait déjà, sans que personne ait
+rien à cliquer.
+
+**Le plafond du lot cesse d'être muet, au passage.** `charger` coupait à trois cents fichiers depuis
+la V1 sans le dire, et l'annonce rapportait le compte TRONQUÉ : elle affirmait donc avoir reçu moins
+qu'on ne lui avait donné. Le défaut devenait plus facile à atteindre maintenant qu'un lot ouvert
+depuis le système s'ajoute à celui qui est là.
+
+**Trois défauts voisins, trouvés en même temps et corrigés dans le même lot :**
+
+1. **Le contrôle de la cible de partage ne contrôlait rien.** Son motif était
+   `\$\{?\w*\}?|partager`, dont la première branche accepte un simple « $ » — et `dist/sw.js` en
+   contient toujours un, `geotager-${VERSION}` survivant à la substitution. Le contrôle passait donc
+   sur n'importe quel worker, y compris sur un worker qui aurait cessé de reconnaître la cible : le
+   404 que son propre commentaire dit prévenir serait parti en production sans un mot. Le worker
+   porte maintenant une liste nommée, en guillemets doubles pour être relue par `JSON.parse` et non
+   par une expression régulière de plus, et le contrôle exige que l'action déclarée y figure. Il a
+   été vérifié en échec avant d'être vérifié au vert.
+2. **Hors ligne, une page française manquante servait la page anglaise.** Le dernier recours rendait
+   « / » pour n'importe quel échec de navigation. L'îlot lit `lang` sur le document servi, il ne
+   devine pas la langue de l'adresse : toute l'interface basculait en anglais à une adresse
+   française, ce qui est plus déroutant que la panne qu'on rattrapait. Le recours est celui de la
+   langue demandée, comme il l'était déjà pour le partage entrant.
+3. **Une fenêtre se rechargeait parce qu'une autre avait dit oui.** `SKIP_WAITING` est accepté de
+   n'importe quel client, et l'activation réclame tous les clients : le clic d'une fenêtre
+   rechargeait toutes les autres et emportait leurs photos non exportées. La règle 2 interdisait le
+   rechargement imposé aux mises à jour, pas aux voisins. Le rechargement demande désormais que ce
+   soit CETTE fenêtre qui l'ait demandé ; une fenêtre dont le worker en attente est déjà passé
+   devant se recharge elle-même sur son propre clic.
+
+**Ce que le lot ne prétend pas avoir vérifié.** Le troisième défaut n'a pas de test : le reproduire
+demande deux builds successives dans le même banc, pour qu'un second worker existe et attende. Il
+est corrigé et raisonné, il n'est pas prouvé. La correction du manifeste servi au réseau d'abord non
+plus : elle se juge sur une installation réelle, à la vérification que le navigateur déclenche
+lui-même.
+
+**Bloque :** non.
+
+---
+
+## [V1.5] Q-046 — Le plan du site disait « mensuel » à un moteur qui ne l'écoute pas
+
+**Contexte :** la demande était d'ajouter « des choses SEO : plan du site, robots.txt ». Elles
+existaient déjà, et elles étaient bonnes : `robots.txt` avec sa ligne `Sitemap:`, un plan du site
+bilingue avec ses `xhtml:link` et son `x-default`, un canonique auto-référent, des `hreflang`
+réciproques, Open Graph complet avec une vraie image, une carte Twitter, du JSON-LD, un seul `<h1>`,
+des repères sémantiques, et tout le contenu rendu côté serveur. Un audit déterministe rend zéro
+erreur et zéro avertissement sur les deux pages. **Il n'y avait donc rien à ajouter là où on le
+demandait, et quatre choses fausses ailleurs.**
+
+1. `<changefreq>monthly</changefreq>` était écrit dans le plan du site. La documentation de Google
+   est sans nuance : « Google ignores `<priority>` and `<changefreq>` values. » La balise
+   n'annonçait rien à personne.
+2. `<lastmod>` manquait, et c'est la seule des trois qui compte : « Google uses the `<lastmod>` value
+   if it's consistently and verifiably accurate. »
+3. L'adresse du site était recopiée trois fois — la configuration, la coquille, le plan du site.
+   Trois occasions qu'un canonique, un `og:url` et un plan du site se contredisent, et un moteur qui
+   reçoit des signaux contradictoires ne tranche pas en notre faveur : il les ignore.
+4. Il n'y avait aucune page 404, et surtout aucun `not_found_handling` chez l'hébergeur — l'écrire
+   sans l'activer n'aurait rien servi.
+
+**Et surtout : rien ne surveillait ces deux fichiers.** `check-build.mjs` ne les mentionnait pas, le
+test de bout en bout ne les demandait pas. Ce n'est pas une hypothèse : l'en-tête de
+`sitemap-index.xml.ts` raconte que « `robots.txt` l'annonçait depuis le début sans que rien ne le
+produise : le fichier renvoyait 404 ». Le défaut a vécu jusqu'à ce qu'un humain le remarque, dans un
+dépôt qui attrape tout le reste par un contrôle bloquant. Ces fichiers-là ne sont lus QUE par des
+machines : personne ne les ouvre, personne ne voit qu'ils sont faux, et ils sont la première chose
+qu'un moteur demande.
+
+**Options :**
+
+- **A.** Corriger les quatre défauts, et adosser l'ensemble à un contrôle de build qui relit ce qui
+  est réellement produit : `robots.txt`, le plan du site, les canoniques, les `hreflang` croisés des
+  deux côtés, et le JSON-LD.
+- **B.** Ajouter ce qui manque et s'en tenir là. Écarté : c'est ce qui a été fait en V1.3, et c'est
+  exactement pour cela que le plan du site a pu renvoyer 404 sans que personne le sache.
+- **C.** Dater `lastmod` à l'heure de la build. Écarté sur la lettre de la documentation : une date
+  qui change à chaque déploiement sans qu'une ligne ait bougé n'est pas « verifiably accurate », et
+  serait écartée par le moteur. La date vient de l'historique, et **s'il ne peut pas répondre, la
+  balise n'est pas écrite.** Une absence est honnête ; une date inventée ne l'est pas.
+- **D.** Renommer `sitemap-index.xml`, dont la racine est un `urlset` et non un `sitemapindex`.
+  Écarté : cosmétiquement faux, fonctionnellement sans effet, et le renommer risquerait une
+  soumission Search Console déjà faite pour zéro gain.
+
+**Retenu : A.**
+
+**Ce qui a été refusé, et pourquoi c'est une décision et non un oubli :**
+
+- **`<meta name="robots" content="index, follow">`.** Google écrit que `all` « is the default value
+  and has no effect if explicitly listed ». C'est une balise-talisman ; la seule page du site qui
+  porte désormais une directive est la page 404, avec `noindex`.
+- **`rel="nofollow"` sur les liens sortants** vers OpenStreetMap, GitHub, MDN et ExifTool. « For
+  regular links that you expect Google to fetch and parse without any qualifications, you don't need
+  to add a `rel` attribute. » Les qualifier retirerait un signal normal et suggérerait la défiance
+  envers des sources qu'on cite justement pour se rendre vérifiable.
+- **`FAQPage` et `HowTo`.** « Mode d'emploi » et « Ce qu'est une donnée GPS » en ont exactement la
+  forme. `HowTo` est abandonné depuis 2023 et les questions-réponses ont été retirées de la
+  recherche : les baliser ne produirait rigoureusement rien. Écrire un balisage pour un affichage qui
+  n'existe plus, c'est se mentir dans un fichier que personne ne relit.
+- **`notranslate`.** On publie une vraie version française ; laisser un moteur proposer une
+  traduction aux autres langues est un gain, pas un risque.
+- **Un `preconnect` vers l'hôte des tuiles**, que l'audit suggère par défaut. Il émettrait une
+  requête tierce avant tout clic et détruirait la promesse que le §2 du contrôle de build et le
+  journal de requêtes du test de bout en bout existent pour tenir. **À ne jamais « corriger ».**
+
+**Ce que le plan du site vaut ici, écrit pour qu'on cesse d'y revenir.** D'après les propres critères
+de Google — « about 500 pages or fewer », « comprehensively linked internally » — ce site n'en a pas
+besoin. On le garde parce qu'il ne coûte rien et qu'il est déjà annoncé, pas parce qu'il rapporte
+quelque chose. Il en va de même des trois nœuds de données structurées ajoutés : aucun résultat
+enrichi, aucune vignette, rien de visible. Le seul gain est que les moteurs sachent relier
+l'application, le site et son éditeur au lieu de le deviner.
+
+**Une conséquence du format de sortie, à ne pas perdre.** La page 404 française sortait en
+`fr/404/index.html`, un nom que l'hébergeur ne va jamais chercher. `build.format` passe donc à
+`preserve` : les deux pages du site ne bougent pas — `index.astro` donnait déjà `index.html` — et la
+page d'erreur sort en `fr/404.html`, qui est le seul nom servi.
+
+**Ce que ce lot ne prouve pas.** Le test de bout en bout atteint les pages 404 par leur chemin : il
+ne peut pas provoquer un vrai 404, puisque c'est l'hébergeur qui remonte au fichier le plus proche et
+que le serveur du banc ne l'imite pas. Ce qui est jugé est la page ; le réglage qui la sert ne l'est
+que par relecture. De même, la validation du JSON-LD produit et la soumission du plan du site
+demandent des outils en ligne qu'aucun test local ne remplace.
+
+**Bloque :** non.

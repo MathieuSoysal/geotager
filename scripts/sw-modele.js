@@ -50,6 +50,18 @@ const CACHE = `geotager-${VERSION}`;
 const PRECACHE = __PRECACHE__;
 
 /*
+ * Les cibles de partage déclarées par les manifestes, en clair et non dans une
+ * expression régulière.
+ *
+ * `/partager` n'existe dans aucun fichier : il n'a d'existence que dans ce
+ * gestionnaire. Si le worker cessait de reconnaître le chemin, le partage
+ * tomberait en 404 pendant que le manifeste continuerait de le promettre au
+ * système — et le contrôle de build ne savait pas le voir, faute de pouvoir
+ * interroger une expression régulière. Cette liste, il sait la relire.
+ */
+const PARTAGE = ["/partager", "/fr/partager"];
+
+/*
  * Le code de la carte n'est PAS préchargé. Il est chargé à la demande, et c'est
  * tout l'accord du site : tant que personne n'ouvre la carte, pas un octet de
  * ce qui sait parler aux tuiles n'est demandé. Le précharger reviendrait à le
@@ -164,10 +176,9 @@ self.addEventListener('fetch', (event) => {
 
   /*
    * La cible du partage. C'est le seul `POST` que ce site connaisse, et il
-   * n'atteint aucun serveur — `/partager` n'existe pas dans `dist/`, il n'a
-   * d'existence que dans ce gestionnaire.
+   * n'atteint aucun serveur. Voir `PARTAGE` en tête de fichier.
    */
-  if (requete.method === 'POST' && /^\/(fr\/)?partager$/.test(url.pathname)) {
+  if (requete.method === 'POST' && PARTAGE.includes(url.pathname)) {
     event.respondWith(recevoirPartage(event, url));
     return;
   }
@@ -189,10 +200,42 @@ self.addEventListener('fetch', (event) => {
         try {
           return await fetch(requete);
         } catch {
-          // Dernier recours : la racine, qui est toujours préchargée.
-          const racine = await cache.match('/');
-          if (racine) return racine;
+          /*
+           * Dernier recours : la page d'accueil de la MÊME langue. Servir « / »
+           * pour une adresse en « /fr/ » rendait toute l'interface en anglais à
+           * une adresse française — l'îlot lit `lang` sur le document servi, il
+           * ne devine pas la langue de l'adresse. La racine ne reste que le
+           * recours du recours, car elle est toujours préchargée.
+           */
+          const langue = url.pathname.startsWith('/fr/') ? '/fr/' : '/';
+          const page = (await cache.match(langue)) ?? (await cache.match('/'));
+          if (page) return page;
           throw new Error('hors ligne');
+        }
+      }
+
+      /*
+       * Le manifeste se demande au RÉSEAU d'abord, le cache derrière.
+       *
+       * C'est le seul fichier du lot que le SYSTÈME lit pour son compte, et non
+       * la page : c'est de lui qu'il tient les formats qu'il nous confie et la
+       * fenêtre dans laquelle il pose une arrivée. Servi depuis le cache sans
+       * revalidation, une correction de « Ouvrir avec » n'atteignait une
+       * application installée qu'après une mise à jour acceptée à la main — pour
+       * un fichier que son propriétaire ne voit pas et dont il n'a pas idée. Le
+       * navigateur vérifie le manifeste de lui-même ; encore faut-il le laisser
+       * lire autre chose que la copie d'hier.
+       *
+       * Il reste dans la liste de préchargement : c'est ce qui fait que son
+       * contenu compte dans l'empreinte du worker, donc qu'une correction
+       * produise bien un nouveau worker, et c'est ce qui répond hors ligne.
+       */
+      if (url.pathname.endsWith('.webmanifest')) {
+        try {
+          const frais = await fetch(requete);
+          if (frais.ok) return frais;
+        } catch {
+          /* Hors ligne : le cache répond, comme pour tout le reste. */
         }
       }
 

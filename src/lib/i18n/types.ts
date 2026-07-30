@@ -142,9 +142,20 @@ export interface Dictionnaire {
     nouvellePosition: string;
     pretsVerifies: (n: number) => string;
     pretsAvecEchecs: (n: number, e: number) => string;
-    /** Bandeau de mise à jour — jamais automatique, voir `sw-modele.js`. */
     /** Le partage est arrivé mais les octets n'ont pas survécu au trajet. */
     partagePerdu: string;
+    /**
+     * « Ouvrir avec » n'a rien apporté d'exploitable — fichier déplacé, effacé,
+     * ou pas encore rapatrié depuis un espace distant.
+     */
+    ouverturePerdue: string;
+    /** Une partie du lot seulement est arrivée ; le reste est chargé. */
+    ouvertureIncomplete: (n: number) => string;
+    /** Des photos rejoignent un lot déjà chargé, sans rien remplacer. */
+    ajoutees: (n: number) => string;
+    /** Le lot est plein : ce qui dépasse n'est pas ajouté, et c'est dit. */
+    lotPlafonne: (n: number) => string;
+    /** Bandeau de mise à jour — jamais automatique, voir `sw-modele.js`. */
     majDispo: string;
     majTravaux: string;
     majRecharger: string;
@@ -190,4 +201,17 @@ export interface Dictionnaire {
   pitch: Array<{ titre: string; texte: string }>;
 
   pied: string;
+
+  /**
+   * La page servie quand l'adresse ne mène nulle part.
+   *
+   * Elle vit hors de la coquille de l'outil : y afficher le sélecteur de photo
+   * ferait croire que la page demandée existe et fonctionne.
+   */
+  introuvable: {
+    titre: string;
+    phrase: string;
+    retour: string;
+    autreLangue: string;
+  };
 }
