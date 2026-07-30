@@ -1,0 +1,139 @@
+---
+/** French: taking the location out, and proving it is gone. */
+import Guide from '../../../../components/Guide.astro';
+import { fr } from '../../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../../lib/guides/index.ts';
+---
+
+<Guide dico={fr} id="supprimer">
+  <p class="reponse">
+    Déposez la photo sur <a href="/fr/">Geotager</a> et appuyez sur <strong>Effacer la
+    position</strong>. Les coordonnées sont retirées du fichier — des deux endroits où elles peuvent
+    se cacher — et le résultat est relu avant de vous parvenir. Sur un iPhone, vous pouvez aussi
+    désactiver le lieu dans les Options de la feuille de partage avant d'envoyer.
+  </p>
+
+  <h2 id="etapes">L'effacer ici, en trois étapes</h2>
+  <ol>
+    <li>Déposez la photo, ou plusieurs à la fois.</li>
+    <li>
+      Appuyez sur <strong>Effacer la position</strong>. Pour retirer aussi la date, le modèle de
+      l'appareil et tout le reste de ce qui est enregistré dans le fichier, choisissez plutôt
+      <strong>Tout effacer</strong>.
+    </li>
+    <li>
+      Téléchargez. Le fichier arrive nommé <code>-sans-position</code> : la copie nettoyée ne peut
+      donc jamais être confondue avec l'original.
+    </li>
+  </ol>
+  <p>
+    Rien n'est envoyé, rien n'est conservé. La photo est ouverte par votre propre navigateur ;
+    coupez la connexion d'abord et cela fonctionne exactement pareil, ce qui est la façon la plus
+    courte de le prouver.
+  </p>
+
+  <h2 id="deux-copies">Pourquoi effacer un lieu est plus difficile qu'il n'y paraît</h2>
+  <p>
+    Une photo peut ranger la position <strong>deux fois</strong>. Une fois dans le bloc EXIF, là où
+    l'appareil l'a écrite, et une fois dans un paquet de texte descriptif appelé XMP, que les
+    logiciels d'édition ajoutent et dont la plupart des gens n'entendent jamais parler. Les outils
+    qui ne nettoient que le premier rendent un fichier qui paraît propre sous Windows et livre
+    toujours l'adresse à tout ce qui lit le second.
+  </p>
+  <p>
+    L'effacement d'ici purge donc les deux, puis <strong>balaie le fichier une seconde fois</strong>.
+    Si une trace subsiste — ou si ce second paquet est compressé, donc illisible pour ce moteur —
+    l'effacement est déclaré en échec et votre original vous est rendu intact. C'est délibéré, et
+    c'est tout le principe de conception : sur un outil comme celui-ci, l'échec silencieux est le
+    pire défaut possible, puisqu'il vous ferait publier une photo en la croyant nettoyée.
+  </p>
+  <div class="note">
+    <p>
+      L'effacement est la seule opération ouverte sur tous les formats que l'outil sait ouvrir, y
+      compris les fichiers bruts d'appareil. Ajouter un lieu à un fichier brut est refusé — ce sont
+      des originaux irremplaçables — mais lui en retirer un, non.
+    </p>
+  </div>
+
+  <h2 id="telephone">Sur un téléphone, avant d'envoyer</h2>
+  <p>
+    <strong>iPhone.</strong> Choisissez la photo, touchez Partager, puis touchez
+    <strong>Options</strong> tout en haut de la feuille de partage et désactivez
+    <strong>Lieu</strong>. Ce que vous envoyez alors ne porte aucune coordonnée. Le réglage vaut
+    pour ce partage et se réinitialise : il protège la copie envoyée, pas celle de votre
+    bibliothèque — <a href={cheminGuide('fr', 'iphone')}>le guide iPhone</a> détaille le reste.
+  </p>
+  <p>
+    <strong>Android.</strong> Google Photos propose un réglage de suppression de la géolocalisation
+    au partage, mais sa portée dépend de l'application <em>par laquelle</em> vous partagez, et un
+    gestionnaire de fichiers qui envoie l'original en pièce jointe n'y touchera pas. Relire le
+    fichier envoyé est le seul moyen de savoir.
+  </p>
+
+  <h2 id="windows">Sous Windows, et ce que cela laisse</h2>
+  <p>
+    Clic droit ▸ Propriétés ▸ Détails porte en bas un lien
+    <em>Supprimer les propriétés et les informations personnelles</em>. Il fonctionne, et il est
+    déjà là, ce qui est sa plus grande qualité. Deux choses à savoir : il propose d'écrire une copie
+    nettoyée plutôt que de modifier l'original, ce qui est généralement ce qu'on veut ; et il retire
+    les propriétés que Windows lui-même comprend, ce qui n'est pas le même ensemble que tout ce
+    qu'une photo peut porter.
+  </p>
+
+  <h2 id="exiftool">Avec ExifTool</h2>
+  <p>Retirer la position seulement :</p>
+  <pre><code>exiftool -gps:all= photo.jpg</code></pre>
+  <p>Retirer tout ce que le fichier porte :</p>
+  <pre><code>exiftool -all= photo.jpg</code></pre>
+  <p>
+    Pour une vidéo, pensez à <code>-ee</code>, sans quoi les positions rangées dans les pistes
+    horodatées passent inaperçues :
+  </p>
+  <pre><code>exiftool -a "-gps*" -ee video.mp4</code></pre>
+
+  <h2 id="verifier">Prouver que c'est parti</h2>
+  <p>
+    Quel que soit l'outil employé, voici la vérification. Tout ce qui s'affiche ici signifie que
+    quelque chose a survécu :
+  </p>
+  <pre><code>exiftool -a -G1 -s -gps:all photo-sans-position.jpg</code></pre>
+  <p>
+    Une réponse vide est la réponse qu'on veut. La relire soi-même protège aussi de la panne dont
+    aucun outil ne peut protéger : nettoyer un fichier et en joindre un autre.
+    <a href={cheminGuide('fr', 'verifier')}>Vérifier la géolocalisation d'une photo</a> présente les
+    autres façons de regarder.
+  </p>
+
+  <h2 id="quand">Quand cela vaut la peine</h2>
+  <p>
+    Une photo géolocalisée porte une position précise à quelques mètres. C'est sans conséquence pour
+    un paysage, et cela cesse de l'être dans trois situations très ordinaires : une annonce
+    immobilière, où les photos de l'intérieur d'un logement publient l'adresse de ce logement ; une
+    photo d'enfant, prise dans un jardin ou devant une école ; et une vente entre particuliers, où
+    la photo de l'objet a été prise chez vous et part chez un inconnu.
+  </p>
+  <p>
+    Le réconfort habituel — « de toute façon les réseaux sociaux l'enlèvent » — est vrai plus
+    souvent qu'il ne l'est pas, et c'est un effet de bord de leur recompression plutôt qu'une
+    promesse faite par quiconque.
+    <a href={cheminGuide('fr', 'reseaux')}>Quelles applications retirent le lieu d'une photo</a>
+    dit où cela cesse d'être vrai. La règle sûre est de nettoyer avant d'envoyer, plutôt que de
+    compter sur le logiciel du destinataire.
+  </p>
+
+  <h2 id="limites">Ce que retirer le lieu ne fait pas</h2>
+  <ul>
+    <li>
+      <strong>Cela ne change pas l'image.</strong> Une plaque de rue, un numéro de porte ou une vue
+      depuis une fenêtre restent dans la photo, et aucun outil de ce genre n'y touche.
+    </li>
+    <li>
+      <strong>Cela ne retire pas la date</strong> tant que vous ne le demandez pas : c'est à cela
+      que sert « Tout effacer ».
+    </li>
+    <li>
+      <strong>Cela n'atteint pas les copies déjà envoyées.</strong> L'effacement porte sur le
+      fichier que vous avez sous les yeux, pas sur celui qui est dans la boîte de quelqu'un d'autre.
+    </li>
+  </ul>
+</Guide>

@@ -34,6 +34,7 @@ export const en: Dictionnaire = {
     viePrivee: 'Privacy',
     modeEmploi: 'How to use it',
     verifier: 'Check for yourself',
+    guides: 'Guides',
     sections: 'Sections',
     aller: 'Skip to content',
   },
@@ -122,8 +123,6 @@ export const en: Dictionnaire = {
       n > 1
         ? `${n} photos beyond the limit: they were not added.`
         : 'One photo beyond the limit: it was not added.',
-    installer: 'Install the app',
-    installee: 'Geotager is installed. You will find it with your other apps.',
     majDispo: 'A new version of Geotager is available.',
     majTravaux: 'A new version is available. Download your photos first — reloading discards the ones you have open.',
     majRecharger: 'Reload',
@@ -216,6 +215,19 @@ export const en: Dictionnaire = {
       tiff: { libelle: 'TIFF', mention: 'excluding camera raw' },
       video: { libelle: 'Videos (MOV, MP4)' },
     },
+  },
+
+  guides: {
+    filAriane: 'Breadcrumb',
+    accueil: 'Home',
+    essayerTitre: 'Do it now, in this browser',
+    essayerTexte:
+      'Geotager reads and changes the location inside the file itself, on your device. The photo is never uploaded, and there is nothing to install or sign up for.',
+    essayerBouton: 'Open the tool',
+    autres: 'Other guides',
+    lire: 'Read the guide',
+    publie: (d) => `Published ${d}`,
+    misAJour: (d) => `updated ${d}`,
   },
 
   titres: {

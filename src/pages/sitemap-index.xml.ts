@@ -4,59 +4,79 @@
  * `robots.txt` announced it from the start with nothing producing it: the file
  * answered 404. With two languages it stops being a detail, since it is what
  * tells an engine the two pages are two versions of the same thing rather than
- * duplicate content.
+ * duplicate content. With the guides it says as much about fourteen more pages.
  *
- * Derived from `LANGUES`: adding a language adds it here without anyone
- * thinking about it.
+ * Nothing here is written by hand: the addresses come from `LANGUES` and the
+ * guide registry, so adding a language or a guide adds it here without anyone
+ * thinking about it. The build check compares the announced set against the set
+ * actually produced: too many, and we ask for pages that do not exist to be
+ * indexed; too few, and we hide a page from an engine without having decided to.
  *
  * On what a sitemap is worth here, so nobody expects too much: Google's
  * documentation says you do not need one below roughly five hundred pages when
  * they link to each other, which is exactly our case. It is kept because it
  * costs nothing and is already announced, not because it earns anything.
  */
-import { execFileSync } from 'node:child_process';
 import type { APIRoute } from 'astro';
 import { DICOS, LANGUES } from '../lib/i18n/index.ts';
 import type { Langue } from '../lib/i18n/types.ts';
+import {
+  ORDRE_GUIDES,
+  alternatesGuide,
+  alternatesSommaire,
+  cheminGuide,
+  cheminSommaire,
+  sourcesGuide,
+  sourcesSommaire,
+} from '../lib/guides/index.ts';
+import { derniereMaj } from '../lib/histoire.ts';
 
 /**
- * The files that actually carry a page's content, per language.
+ * The files that actually carry the tool page's content.
  *
  * The shell and the dictionary are part of it: a sentence changed in either
- * changes the page as much as a paragraph of the article.
+ * changes the page as much as a paragraph of the article. So are the `<head>`
+ * and footer shells, since they were moved out of `Page.astro`; forgetting them
+ * would have the sitemap claim a page had not moved on the day its canonical
+ * changed.
  */
-const SOURCES: Record<Langue, string[]> = {
-  en: ['src/pages/index.astro', 'src/components/Page.astro', 'src/lib/i18n/en.ts'],
-  fr: ['src/pages/fr/index.astro', 'src/components/Page.astro', 'src/lib/i18n/fr.ts'],
+const SOURCES_OUTIL: Record<Langue, string[]> = {
+  en: ['src/pages/index.astro'],
+  fr: ['src/pages/fr/index.astro'],
 };
+const COQUILLE_OUTIL = [
+  'src/components/Page.astro',
+  'src/components/Tete.astro',
+  'src/components/Pied.astro',
+];
 
-/**
- * The date this page last really changed, asked of the history.
- *
- * Google only reads `lastmod` if it is "consistently and verifiably accurate",
- * verifiable for instance by comparing it against the page's last modification.
- * A build timestamp would change on every deployment without a line having
- * moved: a false date, discarded by the engine and misleading to us.
- *
- * So we ask what knows. And if nobody can answer, on a shallow clone or a build
- * image without git, the tag is not written. An absence is honest; an invented
- * date is not.
- *
- * `changefreq` and `priority` are absent for a simpler reason still: "Google
- * ignores <priority> and <changefreq> values." Writing them would suggest a
- * freshness signal that does not exist.
- */
-function derniereMaj(chemins: string[]): string | null {
-  try {
-    const sortie = execFileSync('git', ['log', '-1', '--format=%cs', '--', ...chemins], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return /^\d{4}-\d{2}-\d{2}$/.test(sortie) ? sortie : null;
-  } catch {
-    return null;
-  }
+interface PagePlan {
+  /** The path from the site root, ending in a slash. */
+  chemin: string;
+  /** The same document in each language. */
+  jumeaux: Record<Langue, string>;
+  sources: string[];
 }
+
+const pages: PagePlan[] = [
+  ...LANGUES.map((l) => ({
+    chemin: DICOS[l].base,
+    jumeaux: Object.fromEntries(LANGUES.map((a) => [a, DICOS[a].base])) as Record<Langue, string>,
+    sources: [...SOURCES_OUTIL[l], ...COQUILLE_OUTIL, `src/lib/i18n/${l}.ts`],
+  })),
+  ...LANGUES.map((l) => ({
+    chemin: cheminSommaire(l),
+    jumeaux: alternatesSommaire(),
+    sources: sourcesSommaire(l),
+  })),
+  ...LANGUES.flatMap((l) =>
+    ORDRE_GUIDES.map((id) => ({
+      chemin: cheminGuide(l, id),
+      jumeaux: alternatesGuide(id),
+      sources: sourcesGuide(l, id),
+    })),
+  ),
+];
 
 export const GET: APIRoute = ({ site }) => {
   /*
@@ -73,20 +93,30 @@ export const GET: APIRoute = ({ site }) => {
   if (!site) throw new Error('sitemap : « site » manque dans astro.config.mjs');
   const racine = site.origin;
 
-  const urls = LANGUES.map((l) => {
-    const alternates = LANGUES.map(
-      (a) =>
-        `    <xhtml:link rel="alternate" hreflang="${a}" href="${racine}${DICOS[a].base}"/>`,
-    ).join('\n');
-    const maj = derniereMaj(SOURCES[l]);
-    return `  <url>
-    <loc>${racine}${DICOS[l].base}</loc>
+  const urls = pages
+    .map((p) => {
+      const alternates = LANGUES.map(
+        (a) => `    <xhtml:link rel="alternate" hreflang="${a}" href="${racine}${p.jumeaux[a]}"/>`,
+      ).join('\n');
+      /*
+       * `changefreq` and `priority` are absent for a simple reason: "Google
+       * ignores <priority> and <changefreq> values." Writing them would suggest
+       * a freshness signal that does not exist.
+       *
+       * `lastmod` is the only one of the three that counts, and only if it is
+       * "consistently and verifiably accurate". It comes from the history; if
+       * nobody can answer, the tag is not written.
+       */
+      const maj = derniereMaj(p.sources);
+      return `  <url>
+    <loc>${racine}${p.chemin}</loc>
 ${alternates}
-    <xhtml:link rel="alternate" hreflang="x-default" href="${racine}${DICOS.en.base}"/>${
+    <xhtml:link rel="alternate" hreflang="x-default" href="${racine}${p.jumeaux.en}"/>${
       maj ? `\n    <lastmod>${maj}</lastmod>` : ''
     }
   </url>`;
-  }).join('\n');
+    })
+    .join('\n');
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"

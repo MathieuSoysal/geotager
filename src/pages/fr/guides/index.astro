@@ -1,0 +1,20 @@
+---
+/** French: the page that gathers the guides. */
+import Sommaire from '../../../components/Sommaire.astro';
+import { fr } from '../../../lib/i18n/index.ts';
+---
+
+<Sommaire dico={fr}>
+  <p class="reponse">
+    Une photo prise avec la localisation active porte, à l'intérieur même du fichier, les
+    coordonnées du lieu où elle a été prise, à quelques mètres près. Ces guides expliquent comment
+    lire ce lieu, le modifier, en ajouter un, ou le retirer — sur un téléphone, sur un ordinateur,
+    ou dans ce navigateur sans rien installer.
+  </p>
+  <p>
+    Ils sont écrits pour être utiles même sans l'outil. Là où un téléphone, un explorateur de
+    fichiers ou ExifTool fait l'affaire, ils le disent ; là où Geotager est vraiment le chemin le
+    plus court, ils le disent aussi, et pourquoi. La seule chose qu'ils ne font jamais, c'est
+    affirmer qu'une opération a marché sans vous montrer comment le vérifier vous-même.
+  </p>
+</Sommaire>

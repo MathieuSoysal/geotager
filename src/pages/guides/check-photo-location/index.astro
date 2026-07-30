@@ -1,0 +1,124 @@
+---
+/** English: reading the location a photo carries. */
+import Guide from '../../../components/Guide.astro';
+import { en } from '../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../lib/guides/index.ts';
+---
+
+<Guide dico={en} id="verifier">
+  <p class="reponse">
+    Every operating system can already show you where a photo was taken. On Windows it is
+    right-click ▸ Properties ▸ Details; on a Mac it is Preview’s inspector; on a phone it is the
+    info button under the picture. To read it without installing anything, drop the photo on
+    <a href="/">Geotager</a> — the coordinates appear immediately.
+  </p>
+
+  <h2 id="navigateur">In a browser, with nothing installed</h2>
+  <p>
+    Drop the photo on the tool. If the file carries a location, it appears next to the file name,
+    along with the date, the camera, and the other information stored in the file. Nothing is
+    uploaded to read it: the file is opened by your own browser, and if you disconnect from the
+    network first it works exactly the same. That is worth doing at least once — it is the fastest
+    way to convince yourself of what a site like this can and cannot see.
+  </p>
+
+  <h2 id="windows">On Windows</h2>
+  <ol>
+    <li>Right-click the photo in File Explorer and choose <strong>Properties</strong>.</li>
+    <li>Open the <strong>Details</strong> tab.</li>
+    <li>
+      Scroll to the <strong>GPS</strong> section. Latitude, longitude and often altitude are listed
+      there.
+    </li>
+  </ol>
+  <p>
+    Windows shows the coordinates in degrees, minutes and seconds — <code>43; 56; 57.48</code> is
+    43° 56′ 57.48″ — which is the shape they are actually stored in, and not the shape a map wants.
+    The same Details panel has a <em>Remove Properties and Personal Information</em> link at the
+    bottom; it is a real removal tool, and it is
+    <a href={cheminGuide('en', 'supprimer')}>worth knowing what it does and does not clear</a>.
+  </p>
+
+  <h2 id="macos">On macOS</h2>
+  <p>
+    Open the photo in <strong>Preview</strong>, then Tools ▸ Show Inspector
+    (<kbd>⌘</kbd>+<kbd>I</kbd>), and pick the <strong>GPS</strong> tab. Preview draws the position on
+    a small map and gives the exact numbers underneath. In the Photos app, selecting a picture and
+    pressing <kbd>⌘</kbd>+<kbd>I</kbd> shows the place too — with the caveat in the next section.
+  </p>
+
+  <h2 id="iphone-android">On iPhone and on Android</h2>
+  <p>
+    On an iPhone, open the picture in Photos and tap the <strong>(i)</strong> button, or swipe up on
+    the photo. If it carries a location you get a map and a place name. On Android, open it in
+    Google Photos and do the same — swipe up, or use the info button — and the details panel shows
+    the map.
+  </p>
+  <p>
+    Both apps are telling you what <em>their library</em> knows, which is not always what the file
+    holds.
+    <a href={cheminGuide('en', 'iphone')}>What the Photos app changes, and what it does not</a>
+    goes into this in detail.
+  </p>
+
+  <h2 id="exiftool">With ExifTool, when the answer has to be exact</h2>
+  <p>
+    <a href="https://exiftool.org/">ExifTool</a> is the reference in this field, free and offline.
+    It reads what is in the file and nothing else, which is precisely what you want when a viewer
+    and a phone disagree.
+  </p>
+  <pre><code>exiftool -gps:all -n photo.jpg</code></pre>
+  <p>
+    The <code>-n</code> gives plain decimal degrees, ready to paste into a map. To see every block
+    the file carries, grouped by where it lives — which is how you spot a second copy of the
+    location hiding in the descriptive text packet:
+  </p>
+  <pre><code>exiftool -a -G1 photo.jpg</code></pre>
+
+  <h2 id="lire">Reading what you get back</h2>
+  <p>
+    A position is stored as degrees, minutes and seconds, with two extra fields for the hemisphere:
+    <code>GPSLatitudeRef</code> is “N” or “S”, <code>GPSLongitudeRef</code> is “E” or “W”. A
+    latitude of 43.9493° north is written 43° 56′ 57.48″ with the reference “N”. Drop either
+    reference and the coordinate is not merely imprecise, it is in the wrong hemisphere.
+  </p>
+  <p>
+    On the decimal form, the digits after the point are metres: the fifth decimal is roughly one
+    metre at the equator, the fourth about eleven. A photo that says
+    <code>43.94930, 4.80550</code> is claiming to know the spot to within a metre or so — which is
+    the whole reason a geotagged photo of a front door is a problem.
+  </p>
+  <p>
+    Altitude is often stored alongside, and so is a timestamp of the satellite reading, which is not
+    the same thing as the time the photo was taken.
+  </p>
+
+  <h2 id="pas-de-lieu">“No location shown” does not always mean “no location in the file”</h2>
+  <p>Three things can hide one, and they are easy to mistake for each other:</p>
+  <ul>
+    <li>
+      <strong>The viewer does not read the second copy.</strong> A location can be stored twice —
+      in EXIF and in a descriptive text packet. Some viewers read only the first.
+    </li>
+    <li>
+      <strong>The app is showing an estimate.</strong> Photo libraries can guess a place from other
+      pictures taken nearby at the same time. It looks identical to a real reading and it is not one.
+    </li>
+    <li>
+      <strong>The file went through something that stripped it.</strong> Sending a photo through a
+      messaging app or a social network often re-encodes it and drops the whole block.
+    </li>
+  </ul>
+  <p>
+    The reverse trap is worse: a viewer showing a place name proves nothing about what is in the
+    file you are about to send. If it matters — a listing, a photo of a child, an item you are
+    selling from home — read the exact file you are going to attach, not the one in your library.
+  </p>
+
+  <h2 id="ensuite">Once you know what is in there</h2>
+  <p>
+    If the location is wrong, <a href={cheminGuide('en', 'modifier')}>change it</a>. If it should not
+    be there at all, <a href={cheminGuide('en', 'supprimer')}>remove it</a> — and check afterwards,
+    with the same command, that nothing survived.
+  </p>
+</Guide>

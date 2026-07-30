@@ -1,0 +1,20 @@
+---
+/** English: the page that gathers the guides. */
+import Sommaire from '../../components/Sommaire.astro';
+import { en } from '../../lib/i18n/index.ts';
+---
+
+<Sommaire dico={en}>
+  <p class="reponse">
+    A photo taken with location switched on carries the coordinates of the place it was taken,
+    accurate to a few metres, inside the file itself. These guides explain how to read that
+    location, change it, add one, or take it out — on a phone, on a desktop, or in this browser
+    with nothing installed.
+  </p>
+  <p>
+    They are written to be useful without the tool. Where a phone, a file manager or ExifTool does
+    the job, that is what they say; where Geotager is genuinely the shorter route, they say that
+    too, and why. The one thing they never do is claim that an operation worked without telling you
+    how to check it yourself.
+  </p>
+</Sommaire>

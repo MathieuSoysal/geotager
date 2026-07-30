@@ -198,10 +198,14 @@ for (const f of fichiers.filter((x) => ['.js', '.mjs'].includes(extname(x)))) {
 // 3. Titles, metas and content served without JavaScript
 
 /*
- * The expected content blocks, per language. They must exist in the served
- * HTML, so without JavaScript. A language missing from this table fails the
- * build: adding a page without adding its checks would mean publishing a page
- * nothing verifies.
+ * The content blocks required on the tool page, per language. They must exist
+ * in the served HTML, so without JavaScript. A language missing from this table
+ * fails the build: adding a page without adding its checks would mean
+ * publishing a page nothing verifies.
+ *
+ * The guides do not carry them, and have no reason to: they are not copies of
+ * the home page. They are checked below, on what makes a guide a guide; see
+ * `controlerGuide`.
  */
 const BLOCS_OBLIGATOIRES = {
   fr: [
@@ -234,6 +238,91 @@ const estIntrouvable = (f) => /(^|[\\/])404\.html$/.test(f);
 
 /** The pages we ask an engine to index, and only those. */
 const pagesIndexables = fichiers.filter((x) => extname(x) === '.html' && !estIntrouvable(x));
+
+/** The URL path of a produced page: "", "fr/", "guides/change-x/". */
+const cheminDe = (f) => rel(f).split(/[\\/]/).join('/').replace(/index\.html$/, '');
+
+/*
+ * A page's family, derived from its address and the language it declares, never
+ * from a hand-written list.
+ *
+ * The site now has three kinds of document, and they do not share obligations:
+ * the tool carries six prose blocks and describes itself as an application, the
+ * contents page is a list, a guide is an article. Conflating them would mean
+ * either requiring a guide to copy the home page or, far worse, requiring
+ * nothing of it and letting fourteen pages ship with no check looking at them.
+ *
+ * The language is read from the page itself: the root serves English, and a
+ * language added tomorrow will bring its own directory without anyone touching
+ * this.
+ */
+function famille(chemin, lang) {
+  const sansLangue = chemin.startsWith(`${lang}/`) ? chemin.slice(lang.length + 1) : chemin;
+  const morceaux = sansLangue.split('/').filter(Boolean);
+  if (morceaux.length === 0) return 'outil';
+  if (morceaux[0] !== 'guides') return 'inconnue';
+  return morceaux.length === 1 ? 'sommaire' : morceaux.length === 2 ? 'guide' : 'inconnue';
+}
+
+/**
+ * What makes a guide a guide, verified on the served HTML.
+ *
+ * These rules are editorial as much as technical, deliberately. A guide that
+ * does not state its answer in its first paragraph is a guide nobody cites; a
+ * three-hundred-word guide is a thin page, which is exactly what an engine has
+ * learned to discard. Written here, these rules apply to the fifteenth guide as
+ * to the first, and they apply on the day somebody is in a hurry.
+ */
+const MOTS_MINIMUM_GUIDE = 700;
+
+function controlerGuide(nom, html, chemin, lang) {
+  const corps = html.match(/<article class="contenu guide">([\s\S]*?)<\/article>/i)?.[1];
+  if (!corps) {
+    echecs.push(`${nom} : aucun article de guide dans la page servie`);
+    return;
+  }
+
+  // The answer first. The styling highlights it; this check makes it
+  // mandatory, or it will end up missing where it counts.
+  if (!/<p class="reponse">/.test(corps)) {
+    echecs.push(`${nom} : pas de paragraphe de réponse en tête de guide`);
+  }
+
+  /*
+   * The word count covers the whole article, shell included: the call to the
+   * tool and the list of other guides contribute about a hundred and thirty
+   * between them. The floor allows for that; the point is not to measure prose
+   * to the word but to catch a page that has none.
+   */
+  const mots = texteVisible(corps.replace(/<[^>]+>/g, ' ')).split(/\s+/).filter(Boolean).length;
+  if (mots < MOTS_MINIMUM_GUIDE) {
+    echecs.push(`${nom} : ${mots} mots, plancher ${MOTS_MINIMUM_GUIDE} — page trop mince`);
+  } else {
+    // Printed, not merely compared: a floor you only see by hitting it never
+    // says how close you are getting.
+    infos.push(`guide ${String(mots).padStart(4)} mots — ${nom}`);
+  }
+
+  // The breadcrumb must exist in the page: that is what the `BreadcrumbList`
+  // markup declares, and markup describing absent navigation describes a page
+  // we do not serve.
+  if (!/<nav class="fil"/.test(html)) echecs.push(`${nom} : aucun fil d'Ariane`);
+
+  /*
+   * The language root is derived from the path, as in `famille`, rather than
+   * from "if it is English then the root". The day the language served at the
+   * root changes, this check follows on its own instead of wrongly accusing all
+   * fourteen pages at once.
+   */
+  const racine = chemin.startsWith(`${lang}/`) ? `/${lang}/` : '/';
+  if (!new RegExp(`href="${racine}"`).test(html)) {
+    echecs.push(`${nom} : aucun lien vers l'outil dans sa langue (${racine})`);
+  }
+  const sommaire = `${racine}guides/`;
+  if (!html.includes(`href="${sommaire}"`)) {
+    echecs.push(`${nom} : aucun lien vers le sommaire des guides (${sommaire})`);
+  }
+}
 
 for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   const html = readFileSync(f, 'utf8');
@@ -277,29 +366,31 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
     continue;
   }
 
-  /*
-   * The install button, present and hidden.
-   *
-   * The `hidden` is the whole mechanism: the button is revealed only by the
-   * browser's prompt, which never arrives if the app is already installed.
-   * Losing it, one attribute, one line, would show it to everybody, including
-   * where it can do nothing. Removing it outright would mean no longer offering
-   * installation at all, with nothing to say so.
-   */
-  const bouton = html.match(/<button[^>]*\bid=["']installer["'][^>]*>/i)?.[0];
-  if (!bouton) {
-    echecs.push(`${rel(f)} : le bouton d'installation est absent`);
-  } else if (!/\shidden(?=[\s>=])/i.test(bouton)) {
-    echecs.push(`${rel(f)} : le bouton d'installation doit être « hidden » dans le HTML servi`);
+  if (!BLOCS_OBLIGATOIRES[lang]) {
+    echecs.push(`${rel(f)} : langue « ${lang} » inconnue du contrôle de contenu`);
   }
 
-  const attendus = BLOCS_OBLIGATOIRES[lang];
-  if (!attendus) {
-    echecs.push(`${rel(f)} : langue « ${lang} » inconnue du contrôle de contenu`);
-  } else {
-    for (const [nom, re] of attendus) {
+  const genre = famille(cheminDe(f), lang);
+  if (genre === 'outil') {
+    for (const [nom, re] of BLOCS_OBLIGATOIRES[lang] ?? []) {
       if (!re.test(lisible)) echecs.push(`${rel(f)} : le bloc « ${nom} » est absent du HTML servi`);
     }
+  } else if (genre === 'guide') {
+    controlerGuide(rel(f), html, cheminDe(f), lang);
+  } else if (genre === 'sommaire') {
+    // A contents page that lists nothing is not a contents page. The
+    // cross-check, that every produced guide appears in it, is done below, once
+    // the list of produced pages is known.
+    if (!/<ul class="liste-guides">/.test(html)) {
+      echecs.push(`${rel(f)} : le sommaire n'affiche aucune liste de guides`);
+    }
+  } else {
+    /*
+     * A page of a shape no check knows. It would otherwise ship with nothing
+     * looking at anything but its title, which is exactly the failure this file
+     * exists to prevent.
+     */
+    echecs.push(`${rel(f)} : forme de page inconnue du contrôle de contenu`);
   }
 
   // Reciprocal links between languages: each page must announce every
@@ -318,6 +409,44 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
   // and it removes the site from results.
   if (/<meta\s+name=["']robots["']\s+content=["'][^"']*noindex/i.test(html)) {
     echecs.push(`${rel(f)} : une page du site porte « noindex »`);
+  }
+}
+
+// 3b. No word glued to its tag
+
+/*
+ * "collez-la avec<kbd>Ctrl</kbd>", "transmis à un<a>Web Worker</a>",
+ * "<code>GPSLatitudeRef</code>vaut".
+ *
+ * Those three were served for real, the last two on the home page and for
+ * months. The cause was `compressHTML`, which does not reduce end-of-line
+ * whitespace but removes it; see `astro.config.mjs`, where it is now off. This
+ * check is what stops the failure returning by another route: a space forgotten
+ * by hand would produce exactly the same page, and would show no more than the
+ * first did.
+ *
+ * The pattern is deliberately narrow. A letter immediately against the opening
+ * or closing of an inline tag has no reason to exist in prose; a parenthesis, a
+ * comma, a quotation mark or a dash does, and so is not looked for. Nor are
+ * structural tags: a `</p><p>` is adjacent by construction.
+ */
+const COLLE = [
+  /[A-Za-zÀ-ÖØ-öø-ÿ]<(?:a|code|kbd|em|strong|b|i)[\s>]/g,
+  /<\/(?:a|code|kbd|em|strong|b|i)>[A-Za-zÀ-ÖØ-öø-ÿ]/g,
+];
+for (const f of fichiers.filter((x) => extname(x) === '.html')) {
+  const html = readFileSync(f, 'utf8');
+  // The prose, and only the prose: the interface is made of deliberately
+  // adjacent elements, and judging them here would drown the check in false
+  // positives.
+  for (const [, corps] of html.matchAll(/<article class="contenu[^"]*">([\s\S]*?)<\/article>/gi)) {
+    for (const re of COLLE) {
+      re.lastIndex = 0;
+      for (const m of corps.matchAll(re)) {
+        const autour = texteVisible(corps.slice(Math.max(0, m.index - 40), m.index + 40));
+        echecs.push(`${rel(f)} : un mot est collé à sa balise — …${autour}…`);
+      }
+    }
   }
 }
 
@@ -522,9 +651,6 @@ for (const [fichierReadme, page] of [
       ...(m.file_handlers ?? []).map((h, n) => [`file_handlers[${n}].action`, h.action]),
       ...(m.icons ?? []).map((i, n) => [`icons[${n}].src`, i.src]),
       ...(m.screenshots ?? []).map((i, n) => [`screenshots[${n}].src`, i.src]),
-      // One more address the system reads: it inherits the refusal of foreign
-      // addresses, like all the others.
-      ...(m.related_applications ?? []).map((a, n) => [`related_applications[${n}].url`, a.url]),
     ];
     for (const [nom, adresse] of adresses) {
       if (typeof adresse !== 'string') {
@@ -545,81 +671,6 @@ for (const [fichierReadme, page] of [
     // white square, which is always ugly and often illegible.
     if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
       echecs.push(`${rel(cible)} : aucune icône « maskable »`);
-    }
-
-    /*
-     * What makes the application installable, and what nothing was checking.
-     *
-     * Chrome's published list, word for word: the app is not already installed,
-     * the engagement heuristics are met, the site is on HTTPS, and the manifest
-     * carries "short_name or name", icons that "must include a 192px and a
-     * 512px icon", a "start_url", a "display" among fullscreen / standalone /
-     * minimal-ui / window-controls-overlay, and "prefer_related_applications
-     * must not be present, or be false".
-     *
-     * Two things are worth noting, because we believed otherwise. The service
-     * worker is not on it: neither it, nor a `fetch` handler, nor any offline
-     * capability. And nor is `display_override`; it is `display` alone that is
-     * judged.
-     *
-     * While installation was only offered from the browser menu, losing one of
-     * these fields went unnoticed. Now that a button depends on it, the same
-     * loss makes it disappear from the page for everybody, with no message, no
-     * error, nothing.
-     */
-    for (const [cle, valeur] of [
-      ['name', m.name],
-      ['short_name', m.short_name],
-      ['description', m.description],
-    ]) {
-      if (typeof valeur !== 'string' || !valeur.trim()) {
-        echecs.push(`${rel(cible)} : « ${cle} » est vide — le navigateur ne proposera pas d'installer`);
-      }
-    }
-    if (!['standalone', 'fullscreen', 'minimal-ui'].includes(String(m.display))) {
-      echecs.push(
-        `${rel(cible)} : « display » vaut « ${m.display} » — seul un mode autonome rend installable`,
-      );
-    }
-    for (const taille of ['192x192', '512x512']) {
-      if (!(m.icons ?? []).some((i) => String(i.sizes ?? '').split(/\s+/).includes(taille))) {
-        echecs.push(`${rel(cible)} : aucune icône « ${taille} », exigée pour l'installation`);
-      }
-    }
-
-    /*
-     * `prefer_related_applications` set to true means "offer some other
-     * application rather than this one". The installability criterion then
-     * stops being met, no prompt is ever fired, and the install button
-     * disappears from every page. It is the least visible regression of the
-     * lot: nothing breaks, nothing is displayed, a button simply stops
-     * existing.
-     */
-    if (m.prefer_related_applications === true) {
-      echecs.push(
-        `${rel(cible)} : « prefer_related_applications » à vrai supprime l'invitation à installer`,
-      );
-    }
-
-    /*
-     * The manifest names itself so the page can ask the browser whether the app
-     * is already installed. A malformed entry throws nothing: the question
-     * simply gets an empty answer, and we fall back unknowingly on the
-     * inference it was meant to replace.
-     */
-    const parentes = m.related_applications ?? [];
-    if (!parentes.length) {
-      echecs.push(`${rel(cible)} : « related_applications » est absent — voir getInstalledRelatedApps`);
-    }
-    for (const [n, a] of parentes.entries()) {
-      const nom = `related_applications[${n}]`;
-      if (a.platform !== 'webapp') {
-        echecs.push(`${rel(cible)} : « ${nom}.platform » vaut « ${a.platform} », attendu « webapp »`);
-      }
-      const adresse = String(a.url ?? '');
-      if (!adresse.startsWith('/') || !existsSync(join(DIR, adresse.replace(/^\//, '')))) {
-        echecs.push(`${rel(cible)} : « ${nom}.url » ne désigne aucun manifeste — ${adresse}`);
-      }
     }
 
     /*
@@ -879,31 +930,42 @@ for (const [fichierReadme, page] of [
 
   // The <head> of indexable pages
 
-  for (const f of pagesIndexables) {
+  /*
+   * A first pass reads, a second checks, and that order is imposed by the
+   * structured data graph. A guide names the application by its `@id` without
+   * redefining it: that is what an `@id` is for, and it is what avoids copying
+   * a node describing an application that is not on the page twelve times. A
+   * reference can therefore only be judged once every identifier the site
+   * defines is known, page by page.
+   *
+   * What is being looked for is the quietest failure of the lot: an `@id`
+   * matching nothing links nothing. No console error, no broken page, nothing
+   * on screen, only a graph that has stopped saying what you believe it says.
+   */
+  const TYPES_ATTENDUS = {
+    outil: ['SoftwareApplication', 'WebSite', 'Organization'],
+    sommaire: ['CollectionPage', 'BreadcrumbList', 'WebSite', 'Organization'],
+    guide: ['Article', 'BreadcrumbList', 'WebSite', 'Organization'],
+  };
+
+/** The top-level nodes of a graph. */
+  const noeuds = (g) => (g ? (Array.isArray(g['@graph']) ? g['@graph'] : [g]) : []);
+
+/** Every `{"@id": …}` used as a reference, that is, without a `@type`. */
+  function renvois(valeur, trouves = []) {
+    if (Array.isArray(valeur)) {
+      for (const v of valeur) renvois(v, trouves);
+    } else if (valeur && typeof valeur === 'object') {
+      if (typeof valeur['@id'] === 'string' && !valeur['@type']) trouves.push(valeur['@id']);
+      for (const v of Object.values(valeur)) renvois(v, trouves);
+    }
+    return trouves;
+  }
+
+  const lues = pagesIndexables.map((f) => {
     const html = readFileSync(f, 'utf8');
-    const adresse = `${racine}/${rel(f).replace(/index\.html$/, '')}`;
-
-    // A self-referencing canonical on every indexable page. Only the French
-    // page was checked, and only by the end-to-end test.
-    const canonique = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1];
-    if (canonique !== adresse) {
-      echecs.push(`${rel(f)} : canonique « ${canonique ?? '(absent)'} », attendu « ${adresse} »`);
-    }
-
-    const balise = (p) =>
-      html.match(new RegExp(`<meta[^>]+property=["']${p}["'][^>]+content=["']([^"']*)["']`, 'i'))?.[1];
-    for (const p of ['og:title', 'og:description', 'og:url', 'og:locale']) {
-      if (!balise(p)) echecs.push(`${rel(f)} : « ${p} » manque`);
-    }
-    if (!/<meta[^>]+name=["']twitter:card["']/i.test(html)) {
-      echecs.push(`${rel(f)} : « twitter:card » manque`);
-    }
-    // "canonical = internal links = sitemap = og:url". Signals that contradict
-    // each other are signals an engine discards.
-    if (balise('og:url') && balise('og:url') !== canonique) {
-      echecs.push(`${rel(f)} : « og:url » et le canonique diffèrent`);
-    }
-
+    const lang = html.match(/<html[^>]+lang=["']([a-z-]+)["']/i)?.[1] ?? '';
+    const chemin = cheminDe(f);
     /*
      * Nobody was parsing the JSON-LD. One comma too many would have broken it
      * silently: the block stays in the page, it throws no console error, since
@@ -911,19 +973,116 @@ for (const [fichierReadme, page] of [
      * more. So it is genuinely parsed.
      */
     const ld = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
-    if (!ld) {
-      echecs.push(`${rel(f)} : aucun bloc « application/ld+json »`);
-    } else {
+    let graphe = null;
+    let erreurLd = null;
+    if (ld) {
       try {
-        const graphe = JSON.parse(ld);
-        const types = (graphe['@graph'] ?? [graphe]).map((n) => n['@type']);
-        for (const attendu of ['SoftwareApplication', 'WebSite', 'Organization']) {
-          if (!types.includes(attendu)) {
-            echecs.push(`${rel(f)} : le JSON-LD ne déclare pas « ${attendu} » — ${types.join(', ')}`);
-          }
-        }
+        graphe = JSON.parse(ld);
       } catch (e) {
-        echecs.push(`${rel(f)} : le JSON-LD n'est pas du JSON valide — ${e.message}`);
+        erreurLd = e.message;
+      }
+    }
+    return {
+      f,
+      html,
+      lang,
+      chemin,
+      genre: famille(chemin, lang),
+      adresse: `${racine}/${chemin}`,
+      ld,
+      graphe,
+      erreurLd,
+    };
+  });
+
+/** The identifiers the site defines: a node, with its type. */
+  const identifiants = new Set();
+  for (const p of lues) {
+    for (const n of noeuds(p.graphe)) {
+      if (n && typeof n['@id'] === 'string' && n['@type']) identifiants.add(n['@id']);
+    }
+  }
+
+  for (const p of lues) {
+    const nom = rel(p.f);
+
+    // A self-referencing canonical on every indexable page. Only the French
+    // page was checked, and only by the end-to-end test.
+    const canonique = p.html.match(
+      /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i,
+    )?.[1];
+    if (canonique !== p.adresse) {
+      echecs.push(`${nom} : canonique « ${canonique ?? '(absent)'} », attendu « ${p.adresse} »`);
+    }
+
+    const balise = (b) =>
+      p.html.match(
+        new RegExp(`<meta[^>]+property=["']${b}["'][^>]+content=["']([^"']*)["']`, 'i'),
+      )?.[1];
+    for (const b of ['og:title', 'og:description', 'og:url', 'og:locale']) {
+      if (!balise(b)) echecs.push(`${nom} : « ${b} » manque`);
+    }
+    if (!/<meta[^>]+name=["']twitter:card["']/i.test(p.html)) {
+      echecs.push(`${nom} : « twitter:card » manque`);
+    }
+    // "canonical = internal links = sitemap = og:url". Signals that contradict
+    // each other are signals an engine discards.
+    if (balise('og:url') && balise('og:url') !== canonique) {
+      echecs.push(`${nom} : « og:url » et le canonique diffèrent`);
+    }
+
+    /*
+     * An alternate link that leads nowhere is worse than an absent one: the
+     * page swears a version exists in another language, an engine goes looking,
+     * and finds a 404. The `hreflang` check looked only at the languages
+     * declared, never at the addresses; with two pages that had no
+     * consequence, with sixteen it does.
+     */
+    for (const [, cible] of p.html.matchAll(
+      /<link[^>]+rel=["']alternate["'][^>]+href=["']([^"']+)["']/gi,
+    )) {
+      if (!cible.startsWith(`${racine}/`)) {
+        echecs.push(`${nom} : lien alternatif hors de l'origine — ${cible}`);
+      } else if (!existsSync(join(DIR, cible.slice(racine.length + 1), 'index.html'))) {
+        echecs.push(`${nom} : le lien alternatif ${cible} ne désigne aucune page produite`);
+      }
+    }
+
+    if (!p.ld) {
+      echecs.push(`${nom} : aucun bloc « application/ld+json »`);
+      continue;
+    }
+    if (p.erreurLd) {
+      echecs.push(`${nom} : le JSON-LD n'est pas du JSON valide — ${p.erreurLd}`);
+      continue;
+    }
+
+    const types = noeuds(p.graphe).map((n) => n?.['@type']);
+    for (const attendu of TYPES_ATTENDUS[p.genre] ?? []) {
+      if (!types.includes(attendu)) {
+        echecs.push(`${nom} : le JSON-LD ne déclare pas « ${attendu} » — ${types.join(', ')}`);
+      }
+    }
+    for (const renvoi of renvois(p.graphe)) {
+      if (!identifiants.has(renvoi)) {
+        echecs.push(`${nom} : le JSON-LD renvoie à « ${renvoi} », que rien ne définit`);
+      }
+    }
+  }
+
+  /*
+   * No orphan guide.
+   *
+   * The contents page is the only one that gathers them, and a guide missing
+   * from it is reachable only through other guides' cross-links, that is, by
+   * nobody, on the day it is added without being linked. The sitemap would
+   * announce it anyway, which is precisely the kind of page an engine files as
+   * isolated.
+   */
+  for (const s of lues.filter((p) => p.genre === 'sommaire')) {
+    for (const g of lues.filter((p) => p.genre === 'guide' && p.lang === s.lang)) {
+      if (!s.html.includes(`href="/${g.chemin}"`)) {
+        echecs.push(`${rel(s.f)} : le guide /${g.chemin} n'est listé nulle part`);
       }
     }
   }

@@ -7,9 +7,13 @@
  *
  * What goes in, and why:
  *
- *   - the two pages, in their URL form ("/" and "/fr/") rather than their file
- *     form: that is what the browser asks for, and so what the cache must key
- *     on;
+ *   - every page, in its URL form ("/", "/fr/", "/guides/…") rather than its
+ *     file form: that is what the browser asks for, and so what the cache must
+ *     key on. They are derived from the `index.html` files produced, never
+ *     listed by hand. Rule 3 of the template requires it, and it only holds if
+ *     the inventory is automatic: a page forgotten here would be a navigation
+ *     the fallback would catch by serving the home page, so a guide address
+ *     quietly answering with something other than the guide;
  *   - the stylesheet and the interface island;
  *   - the reading worker. It is loaded by `new Worker(new URL(...))`, so it
  *     appears in no tag and a scan of the HTML would never see it. Without it
@@ -51,10 +55,20 @@ const actifs = tous.map(adresse);
 /** The map chunk, recognised by its entry name. Never precached. */
 const estCarte = (a) => /^\/_astro\/carte\./.test(a);
 
+/*
+ * Navigation URLs, not file paths.
+ *
+ * An error page is not one: `404.html` is not called `index.html`, so it drops
+ * out on its own, which is what we want. Precaching a page that says "this
+ * address does not exist" would be the one cache entry whose presence helps
+ * nobody.
+ */
+const navigations = tous
+  .filter((f) => /(^|[\\/])index\.html$/.test(f))
+  .map((f) => adresse(f).replace(/index\.html$/, ''));
+
 const precache = [
-  // Navigation URLs, not file paths.
-  '/',
-  '/fr/',
+  ...navigations,
   ...actifs.filter((a) => a.startsWith('/_astro/') && extname(a) === '.css'),
   ...actifs.filter((a) => a.startsWith('/_astro/') && extname(a) === '.js' && !estCarte(a)),
   ...actifs.filter((a) => a.startsWith('/icons/')),
@@ -76,9 +90,33 @@ if (!precache.some((a) => extname(a) === '.css')) {
 if (precache.some(estCarte)) {
   echecs.push('le morceau de la carte ne doit pas être préchargé');
 }
+// The root is the last resort of the offline navigation handler. Without it,
+// an unknown address leads nowhere at all.
+if (!navigations.includes('/')) echecs.push("la racine n'est pas dans la liste de préchargement");
 for (const a of precache) {
-  if (a === '/' || a === '/fr/') continue;
-  if (!existsSync(join(DIR, a.slice(1)))) echecs.push(`${a} n'existe pas dans ${DIR}/`);
+  const cible = a.endsWith('/') ? `${a.slice(1)}index.html` : a.slice(1);
+  if (!existsSync(join(DIR, cible))) echecs.push(`${a} n'existe pas dans ${DIR}/`);
+}
+
+/*
+ * A cap, because `addAll` is atomic and is paid for at install time.
+ *
+ * The precache carried two pages; it carries sixteen, and it will carry more
+ * the day a guide is added. A derived list grows on its own and silently: that
+ * is its virtue, and it is also what means that one day a first visit would
+ * download several megabytes before having served any purpose. The cap does not
+ * say "do not add guides", it says "beyond this it is no longer a shell, and
+ * what to precache has to be decided". The figure is printed on every build,
+ * not merely compared.
+ */
+const BUDGET_PRECACHE = 2 * 1024 * 1024;
+const fichierDe = (a) => join(DIR, a.endsWith('/') ? `${a.slice(1)}index.html` : a.slice(1));
+const poids = precache.reduce(
+  (n, a) => n + (existsSync(fichierDe(a)) ? statSync(fichierDe(a)).size : 0),
+  0,
+);
+if (poids > BUDGET_PRECACHE) {
+  echecs.push(`précache de ${poids} o, plafond ${BUDGET_PRECACHE} o`);
 }
 if (echecs.length) {
   console.error('\ngen-sw en échec :');
@@ -95,7 +133,7 @@ if (echecs.length) {
 const empreinte = createHash('sha256');
 for (const a of precache.slice().sort()) {
   empreinte.update(a);
-  const f = join(DIR, a === '/' ? 'index.html' : a === '/fr/' ? 'fr/index.html' : a.slice(1));
+  const f = fichierDe(a);
   if (existsSync(f) && statSync(f).isFile()) empreinte.update(readFileSync(f));
 }
 const version = empreinte.digest('hex').slice(0, 12);
@@ -110,4 +148,8 @@ if (/__VERSION__|__PRECACHE__/.test(code)) {
 }
 
 writeFileSync(SORTIE, code);
-console.log(`  service worker ${version} — ${precache.length} entrées précachées`);
+console.log(
+  `  service worker ${version} — ${precache.length} entrées précachées ` +
+    `(${navigations.length} pages, ${Math.round(poids / 1024)} Ko, ` +
+    `${((poids / BUDGET_PRECACHE) * 100).toFixed(1)} % du budget)`,
+);

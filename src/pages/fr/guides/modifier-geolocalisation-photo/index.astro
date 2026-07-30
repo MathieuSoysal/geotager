@@ -1,0 +1,168 @@
+---
+/** French: changing the location a photo already carries. */
+import Guide from '../../../../components/Guide.astro';
+import { fr } from '../../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../../lib/guides/index.ts';
+---
+
+<Guide dico={fr} id="modifier">
+  <p class="reponse">
+    Modifier la géolocalisation d'une photo, c'est réécrire les coordonnées enregistrées à
+    l'intérieur du fichier. Déposez la photo sur <a href="/fr/">Geotager</a>, saisissez ou collez
+    une nouvelle latitude et une nouvelle longitude, et téléchargez. L'image n'est jamais
+    recompressée, et le fichier ressort exactement à la taille où il est entré.
+  </p>
+
+  <h2 id="etapes">Modifier le lieu en quatre étapes</h2>
+  <ol>
+    <li>
+      Ouvrez l'outil et déposez la photo sur le cercle rose — ou collez-la avec
+      <kbd>Ctrl</kbd>+<kbd>V</kbd>, ou cliquez pour la choisir dans vos fichiers.
+    </li>
+    <li>
+      Le lieu déjà enregistré dans le fichier s'affiche aussitôt, à côté du nom. Si rien
+      n'apparaît, la photo n'en porte aucun, et ce que vous cherchez est
+      <a href={cheminGuide('fr', 'ajouter')}>en ajouter un</a> plutôt que d'en modifier un.
+    </li>
+    <li>
+      Saisissez ou collez les nouvelles coordonnées. Le format décimal
+      (<code>43,9493, 4,8055</code>) et le format degrés-minutes-secondes
+      (<code>43° 56′ 57,5″ N, 4° 48′ 19,8″ E</code>) sont acceptés tous les deux. Dans Google Maps,
+      un clic droit sur le lieu puis un clic sur les chiffres les copie sous la première forme. Une
+      carte est également disponible, repliée tant que vous ne la demandez pas.
+    </li>
+    <li>
+      Téléchargez. Le nom d'origine est conservé, avec <code>-geotager</code> ajouté : le nouveau
+      fichier ne remplace jamais l'ancien sans le dire.
+    </li>
+  </ol>
+
+  <h2 id="dans-le-fichier">Ce qui change réellement dans le fichier</h2>
+  <p>
+    Les appareils photo et les téléphones rangent un bloc d'informations dans le fichier, appelé
+    EXIF. La position y vit sous une forme un peu curieuse : pas le nombre décimal que vous avez
+    tapé, mais des degrés, des minutes et des secondes, plus deux champs séparés qui disent
+    l'hémisphère — <code>GPSLatitudeRef</code> vaut « N » ou « S »,
+    <code>GPSLongitudeRef</code> vaut « E » ou « W ». Écrire les bons chiffres et les mauvaises
+    lettres place la photo dans le mauvais quart du globe : c'est le défaut le plus fréquent des
+    outils qui écrivent ce bloc.
+  </p>
+  <p>
+    Modifier un lieu déjà présent remplace ces valeurs <strong>sur place</strong> : le fichier
+    produit fait exactement la taille de l'original, et rien ne bouge. Cela compte plus qu'il n'y
+    paraît. Le MakerNote d'un appareil — le bloc propre au constructeur, qui porte les corrections
+    d'objectif et les données de prise de vue — est plein d'adresses qui désignent des positions
+    absolues dans le fichier. Un outil qui réécrit tout le bloc décale ces positions et le casse
+    sans un mot. Geotager n'écrit que les octets du lieu, puis compare le fichier produit à
+    l'original <em>partout ailleurs</em>.
+  </p>
+  <p>
+    Les pixels, eux, ne sont jamais touchés. Beaucoup d'outils en ligne décodent l'image dans un
+    canevas et la ré-encodent : on y perd de la qualité à chaque passage, et tout ce qu'ils n'ont
+    pas pensé à recopier. Ici rien ne décode l'image ; une photo de quarante mégapixels est modifiée
+    sans jamais être dessinée.
+  </p>
+  <div class="note">
+    <p>
+      Une photo peut porter le lieu <strong>deux fois</strong> — une fois dans l'EXIF, une fois dans
+      un paquet de texte descriptif appelé XMP. Modifier l'un et oublier l'autre, et une visionneuse
+      qui lit le second affiche toujours l'ancien endroit. Les deux sont traités ensemble, ce qui
+      explique aussi pourquoi l'effacement est vérifié à deux reprises.
+    </p>
+  </div>
+
+  <h2 id="photos-apps">Le modifier dans Google Photos ou Photos d'Apple n'est pas la même chose</h2>
+  <p>
+    Les deux permettent de corriger le lieu d'une image, et les deux modifient <em>leur propre
+    fiche</em>. La bibliothèque affiche immédiatement le nouvel endroit ; le fichier sur le disque,
+    lui, peut continuer d'annoncer l'ancien. Si vous exportez ensuite l'original pour l'envoyer à
+    quelqu'un, ce sont les coordonnées du fichier qui voyagent — d'où la surprise de retrouver un
+    lieu qu'on croyait corrigé depuis des mois.
+  </p>
+  <p>
+    La question se tranche en dix secondes : exportez la photo, puis
+    <a href={cheminGuide('fr', 'verifier')}>relisez le lieu dans le fichier exporté</a>. Si les
+    anciennes coordonnées y sont encore, la correction vivait dans l'application, pas dans la photo.
+  </p>
+
+  <h2 id="formats">Quels fichiers acceptent une modification</h2>
+  <p>
+    JPEG, HEIC et AVIF (ce que produisent les iPhone), PNG, WebP sous sa forme étendue et TIFF
+    peuvent tous voir leur lieu lu, modifié, ajouté et effacé. Trois limites méritent d'être connues
+    <em>avant</em> d'agir plutôt qu'après :
+  </p>
+  <ul>
+    <li>
+      <strong>Les fichiers bruts d'appareil</strong> — DNG, NEF, CR2 — acceptent qu'on retire un
+      lieu, jamais qu'on en ajoute un. Un fichier brut est un original irremplaçable, et un fichier
+      brut est un TIFF : l'abîmer serait irréversible.
+    </li>
+    <li>
+      <strong>Un WebP de forme simple</strong> n'a nulle part où ranger un lieu. On sait le lire,
+      pas lui en créer un.
+    </li>
+    <li>
+      <strong>Les vidéos</strong> restent hors de portée pour l'instant, lecture comprise. Une vidéo
+      range le lieu à plusieurs endroits à la fois, parfois en toutes lettres, et un effacement à
+      moitié fait est pire que pas d'effacement du tout.
+    </li>
+  </ul>
+  <p>
+    L'outil dit laquelle de ces limites concerne <em>votre</em> fichier dès que vous le déposez,
+    avant que vous ayez fait quoi que ce soit. Le tableau complet est sur la
+    <a href="/fr/#limites">page d'accueil</a>, et il est rendu depuis le code que le moteur lit
+    lui-même : il ne peut pas annoncer une capacité qui n'existe pas.
+  </p>
+
+  <h2 id="lot">Modifier plusieurs photos d'un coup</h2>
+  <p>
+    Déposez tout le lot. Chaque fichier est lu, le lieu que vous indiquez est écrit dans tous ceux
+    qui l'acceptent, et le résultat revient dans une seule archive ZIP. Les fichiers qui ne peuvent
+    pas recevoir la modification sont nommés et rendus intacts, jamais écartés en silence : un lot
+    qui annonce quarante réussites en ayant abandonné trois photos est le pire résultat possible
+    pour ce genre d'outil.
+  </p>
+
+  <h2 id="verifier">Vérifier que la modification a bien eu lieu</h2>
+  <p>
+    Chaque fichier produit ici est relu avant de vous parvenir, par notre lecteur et par un second
+    écrit par d'autres. Si le lieu relu ne correspond pas à celui demandé, ou si les deux lecteurs
+    ne disent pas la même chose, l'opération est déclarée en échec et votre original vous est rendu
+    intact. C'est la vérification que nous pouvons faire ; la vôtre vaut mieux, parce qu'elle ne
+    dépend pas de nous :
+  </p>
+  <pre><code>exiftool -gps:all -n photo-geotager.jpg</code></pre>
+  <p>
+    <a href="https://exiftool.org/">ExifTool</a> est la référence du domaine, gratuit et hors ligne.
+    Le <code>-n</code> demande des degrés décimaux plutôt que des degrés et des minutes, ce qui les
+    rend directement collables dans une carte.
+  </p>
+
+  <h2 id="questions">Les questions qui reviennent</h2>
+  <h3>Est-ce que modifier le lieu change aussi la date ?</h3>
+  <p>
+    Non. Seuls les octets de la position sont écrits. La date, l'appareil, les réglages de prise de
+    vue et l'objectif restent exactement ce qu'ils étaient — et l'outil le prouve, en comparant tous
+    les autres octets du fichier à l'original.
+  </p>
+  <h3>Le nouveau lieu survivra-t-il à une mise en ligne ?</h3>
+  <p>
+    Souvent non. La plupart des réseaux sociaux recompressent la photo à l'envoi et perdent tout le
+    bloc d'informations au passage, le lieu avec.
+    C'est un effet de bord de leur chaîne de traitement, pas une promesse, et ce n'est pas uniforme :
+    <a href={cheminGuide('fr', 'reseaux')}>quelles applications retirent le lieu d'une photo</a>
+    détaille ce qui se passe réellement.
+  </p>
+  <h3>Peut-on modifier le lieu d'une capture d'écran ou d'un scan ?</h3>
+  <p>
+    Ces fichiers n'ont généralement aucun lieu, donc rien à modifier. Leur en donner un est une
+    autre opération, avec d'autres limites :
+    <a href={cheminGuide('fr', 'ajouter')}>ajouter un lieu à une photo qui n'en a pas</a>.
+  </p>
+  <h3>Et si je veux le faire disparaître plutôt que le déplacer ?</h3>
+  <p>
+    Alors n'inscrivez pas de coordonnées leurres — retirez-le.
+    <a href={cheminGuide('fr', 'supprimer')}>Supprimer la géolocalisation</a> la retire des deux
+    endroits où elle peut se cacher, et vérifie ensuite qu'aucune trace n'a survécu.
+  </p>
+</Guide>

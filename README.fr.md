@@ -68,23 +68,42 @@ aussi&nbsp;; il ne peut donc pas dériver de ce que le code sait faire.*
   en subsiste la moindre trace, ou si le paquet est compressé et donc illisible pour ce moteur,
   l'effacement échoue plutôt que de rendre un fichier qu'on croirait propre.
 
+## Les guides
+
+En plus de l'outil, le site publie six guides écrits dans chaque langue&nbsp;: modifier la
+géolocalisation d'une photo, la vérifier, la supprimer, en ajouter une, faire tout cela sur un
+iPhone, et ce que les réseaux sociaux et les messageries en font réellement. Ils vivent sous
+`/guides/` et `/fr/guides/`.
+
+Leur structure est **dérivée**, jamais écrite deux fois. `src/lib/guides/` porte une fiche typée par
+langue — le segment d'adresse, le titre, la description, le résumé d'une ligne — et tout le reste
+lit d'ici&nbsp;: le sommaire, les liens croisés entre guides, les `hreflang` réciproques, le plan du
+site et les contrôles. Un guide ajouté dans une langue et pas dans l'autre est une erreur de
+compilation, puisque toute page indexable doit annoncer toutes les langues. La prose, elle, reste
+dans la page qui la porte.
+
+Quatre choses sont **imposées au build** plutôt que confiées à la bonne volonté&nbsp;:
+
+- **Rien de mince.** Un guide de moins de 700 mots fait échouer la build. Le compte est affiché pour
+  chacun.
+- **La réponse d'abord.** Un guide doit s'ouvrir sur un `<p class="reponse">`&nbsp;: une réponse
+  directe dans le premier paragraphe, pas un préambule.
+- **Aucun orphelin.** Chaque guide doit figurer au sommaire de sa langue, et ramener à l'outil comme
+  à ce sommaire.
+- **Aucun `@id` dans le vide.** Un guide désigne l'application dans ses données structurées par
+  référence plutôt qu'en la redéfinissant&nbsp;; le contrôle résout chaque référence contre les
+  identifiants que le site définit vraiment, toutes pages confondues.
+
+Les guides n'embarquent **aucun JavaScript** — le test de bout en bout vérifie les deux moitiés&nbsp;:
+aucune balise de script ne subsiste, et aucun module n'est demandé au réseau. Astro réunit les
+scripts hissés en un seul paquet&nbsp;: importer la décoration de la page y amènerait tout l'outil,
+sur une page qui n'en a pas.
+
 ## L'installer, et s'en servir hors ligne
 
 Geotager s'installe, et fonctionne sans le moindre réseau — ce qui est bien le sujet&nbsp;: l'outil
 tournait déjà entièrement sur votre appareil, et la seule raison pour laquelle il cessait de marcher
 hors ligne, c'est que personne n'en gardait de copie.
-
-**Un bouton «&nbsp;Installer l'application&nbsp;» apparaît dans la barre du haut, et seulement quand
-il peut servir à quelque chose.** Il est `hidden` dans le HTML servi, et seule l'invitation du
-navigateur le découvre — invitation qu'aucun navigateur n'émet quand l'application est déjà
-installée. Il est donc absent pour qui l'a installée, absent dans la fenêtre installée, et absent là
-où l'installation n'existe pas&nbsp;; le menu du navigateur y reste le chemin. Rien n'est mémorisé si
-vous refermez la boîte&nbsp;: ce site ne persiste rien, et le navigateur décide déjà lui-même de la
-fréquence à laquelle il repropose.
-
-L'outil ne se contente d'ailleurs pas de déduire&nbsp;: le manifeste se désigne lui-même, dans les
-deux langues, ce qui permet de DEMANDER au navigateur si l'application est déjà installée — le seul
-cas où déduire de l'absence d'invitation pouvait se tromper.
 
 Un service worker écrit à la main (`scripts/sw-modele.js`, ~120 lignes, sans Workbox) précharge les
 deux pages, la feuille de style, l'interface et le worker de lecture. Trois règles le gouvernent&nbsp;:

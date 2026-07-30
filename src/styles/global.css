@@ -643,6 +643,89 @@ article.contenu table { width: 100%; border-collapse: collapse; font-size: .88re
 article.contenu th, article.contenu td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--bordure); }
 article.contenu th { color: var(--clair); font-weight: 500; }
 
+/* The guides */
+/*
+ * A guide is a document, not an application: it has no height-locked stage, no
+ * decor and no script. What it needs is for the footer to stay at the bottom of
+ * a screen a short guide does not fill, or it floats in the middle of the void
+ * and looks like a truncated page.
+ */
+.page-doc { min-height: 100svh; display: flex; flex-direction: column; }
+.page-doc main { flex: 1 1 auto; }
+
+/* The breadcrumb. A real ordered list: the steps have an order, and that is
+   what a screen reader must hear. The chevron is decorative and set in CSS, so
+   it is never read aloud. */
+.fil { padding: .6rem 0 0; font-size: .8rem; color: var(--muted); }
+.fil ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem .55rem; }
+.fil li { display: flex; align-items: center; gap: .55rem; }
+.fil li + li::before { content: "›"; color: var(--bordure); }
+.fil a { color: var(--clair); text-decoration: none; }
+.fil a:hover { color: var(--pink); text-decoration: underline; }
+.fil [aria-current="page"] { color: var(--muted); }
+
+article.contenu h1 {
+  font-weight: 800; font-size: clamp(1.8rem, 1.3rem + 2.2vw, 2.6rem);
+  letter-spacing: -.03em; line-height: 1.08; margin: 1.2rem 0 .6rem;
+}
+.contenu .dates { font-size: .78rem; color: var(--muted); margin: 0 0 1.6rem; }
+
+/*
+ * The answer first. A guide page that opens with "there are several methods"
+ * wastes the time of somebody who came for one sentence, and an engine that
+ * quotes an answer quotes the first one it finds.
+ */
+.contenu .reponse {
+  font-size: 1.06rem; line-height: 1.55; color: var(--text);
+  border-inline-start: 3px solid var(--pink);
+  padding: .1rem 0 .1rem 1rem; margin: 0 0 1.4rem;
+}
+
+/* A remark better read before acting than discovered afterwards. */
+.contenu .note {
+  background: var(--panel); border: 1px solid var(--bordure);
+  border-radius: 1.2rem .9rem 1.1rem .8rem; padding: .95rem 1.15rem;
+  margin: 1.5rem 0; font-size: .92rem;
+}
+.contenu .note > :first-child { margin-top: 0; }
+.contenu .note > :last-child { margin-bottom: 0; }
+
+/* The way back to the tool. One per page, and it looks like the application's
+   main button because it is the same gesture. */
+.contenu .essayer {
+  background: var(--panel); border: 1px solid rgba(255, 51, 133, .3);
+  border-radius: 2rem 1.4rem 1.8rem 1.2rem; padding: 1.5rem; margin: 2.8rem 0 0;
+}
+.contenu .essayer h2 { margin-top: 0; font-size: 1.28rem; }
+.contenu .essayer p { margin-bottom: .9rem; }
+.contenu .essayer p:last-child { margin-bottom: 0; }
+/* `.btn.primary` carries `width: 100%`, which has no effect on a link, since it
+   is inline. It is made inline-block so the vertical padding counts, and left at
+   its text width: a 44rem pink bar in the middle of an article shouts louder
+   than everything around it. */
+.contenu a.btn { display: inline-block; width: auto; text-decoration: none; color: var(--encre); }
+.contenu a.btn:hover { filter: brightness(1.1); }
+
+/* The list of other guides, and the contents page. Same object, two densities.
+   The selectors are prefixed with `.contenu` for weight rather than style:
+   `article.contenu h2` and `article.contenu li` are more specific than a class
+   alone and would win, and the card titles inherited an article heading's
+   2.4rem top margin, which dug a hole above each one. */
+.contenu .autres-guides ul,
+.contenu .liste-guides { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .8rem; }
+.contenu .autres-guides li,
+.contenu .liste-guides li {
+  background: var(--panel); border: 1px solid var(--bordure);
+  border-radius: 1.2rem .9rem 1.1rem .8rem; padding: 1rem 1.15rem; margin: 0;
+}
+.contenu .autres-guides li a { font-weight: 600; display: block; margin-bottom: .2rem; }
+.contenu .autres-guides li span { display: block; font-size: .88rem; color: var(--muted); }
+.contenu .liste-guides h2 { margin: 0 0 .35rem; font-size: 1.2rem; }
+.contenu .liste-guides h2 a { text-decoration: none; }
+.contenu .liste-guides h2 a:hover { text-decoration: underline; }
+.contenu .liste-guides p { margin: 0; color: var(--muted); font-size: .92rem; }
+.contenu .liste-guides .lire { margin-top: .55rem; font-size: .85rem; }
+
 footer { padding: 3rem 0; font-size: .82rem; color: var(--clair); border-top: 1px solid var(--bordure); margin-top: 3rem; }
 footer a { color: var(--clair); }
 /* The negative indent offsets the pills' horizontal padding, so the first link

@@ -1,0 +1,139 @@
+---
+/** English: "they strip it anyway", and where that stops being true. */
+import Guide from '../../../components/Guide.astro';
+import { en } from '../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../lib/guides/index.ts';
+---
+
+<Guide dico={en} id="reseaux">
+  <p class="reponse">
+    Most social networks do drop a photo’s GPS coordinates — because they re-encode every image you
+    post, and the information block does not survive that. It is a side effect of their pipeline,
+    not a promise, and it stops being true the moment a photo travels as a <em>file</em> rather than
+    as a post.
+  </p>
+
+  <h2 id="mecanisme">Why it usually disappears, and why that is not reassuring</h2>
+  <p>
+    When you post a picture, the platform does not keep your file. It decodes the image, resizes it,
+    re-compresses it for its own delivery network, and stores the result. The EXIF block — date,
+    camera, exposure, coordinates — is not part of the image; it is carried alongside it, and a
+    re-encoding that does not deliberately copy it simply loses it.
+  </p>
+  <p>
+    That is genuinely why the location vanishes from the copy other people can download. It also
+    means three things people tend to skip over:
+  </p>
+  <ul>
+    <li>
+      <strong>Nobody promised it.</strong> It is a consequence of an image pipeline, and image
+      pipelines change without anyone announcing it to photographers.
+    </li>
+    <li>
+      <strong>It is not uniform inside one product.</strong> The website, the phone app, the direct
+      messages and the “send as a file” path are different code, and they do not all re-encode.
+    </li>
+    <li>
+      <strong>Stripped is not the same as never sent.</strong> The platform received your original,
+      coordinates included. What was removed is what <em>other users</em> can read.
+    </li>
+  </ul>
+
+  <h2 id="tableau">What each kind of channel does with it</h2>
+  <div class="tableau-defilant" role="region" aria-label="How each kind of channel treats a photo’s location" tabindex="0">
+    <table>
+      <caption>How each kind of channel treats a photo’s location</caption>
+      <thead>
+        <tr>
+          <th scope="col">How the photo travels</th>
+          <th scope="col">The location usually…</th>
+          <th scope="col">Because</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Posted to a public feed</th>
+          <td>is dropped</td>
+          <td>the image is resized and re-compressed for delivery</td>
+        </tr>
+        <tr>
+          <th scope="row">Sent in a chat as a “photo”</th>
+          <td>is dropped</td>
+          <td>the same compression, applied to save bandwidth</td>
+        </tr>
+        <tr>
+          <th scope="row">Sent as a “document” or “file”</th>
+          <td>survives intact</td>
+          <td>the point of that mode is to deliver the bytes unchanged</td>
+        </tr>
+        <tr>
+          <th scope="row">Attached to an email</th>
+          <td>survives intact</td>
+          <td>an attachment is a file copy, not an upload pipeline</td>
+        </tr>
+        <tr>
+          <th scope="row">Shared from cloud storage as a link</th>
+          <td>survives intact</td>
+          <td>the recipient downloads your original file</td>
+        </tr>
+        <tr>
+          <th scope="row">AirDropped or transferred device to device</th>
+          <td>survives intact</td>
+          <td>nothing re-encodes it on the way</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    The pattern is worth more than any list of brand names, because it holds when the brands change
+    their apps: <strong>anything that compresses your photo tends to lose the location, and anything
+    that delivers your file keeps it.</strong> The “send as document” option exists precisely to
+    stop the compression — which is exactly why it also stops the accidental cleaning.
+  </p>
+
+  <h2 id="pas-tout">What no upload removes</h2>
+  <p>
+    Removing coordinates removes coordinates. The photograph itself is untouched, and a photograph
+    is often a better location clue than its metadata: a street sign, a house number, a shopfront, a
+    view from a window, a school uniform. A pipeline that strips EXIF does nothing about any of it.
+  </p>
+  <p>
+    There is also a second copy to think about. A location can be stored twice in a file — in the
+    EXIF block and in a descriptive text packet — and a tool that clears only the first hands you a
+    file that still gives the address to anything that reads the second.
+    <a href={cheminGuide('en', 'supprimer')}>Removing a photo’s location properly</a> covers both,
+    and checks afterwards.
+  </p>
+
+  <h2 id="tester">Test it yourself, in two minutes</h2>
+  <p>
+    This is the only method that survives a redesign, and it costs nothing:
+  </p>
+  <ol>
+    <li>
+      Take a photo with location switched on, and confirm it carries coordinates —
+      <a href={cheminGuide('en', 'verifier')}>reading a photo’s location</a> shows how.
+    </li>
+    <li>Send it to yourself through the channel you actually use, in the way you actually use it.</li>
+    <li>Download what arrives — the file, not the preview.</li>
+    <li>Read that file:</li>
+  </ol>
+  <pre><code>exiftool -gps:all -n arrived.jpg</code></pre>
+  <p>
+    Silence means the channel dropped it. Numbers mean it did not. Either way you now know something
+    about your own workflow instead of about someone’s blog post, and the answer stays true for as
+    long as you keep using that path.
+  </p>
+
+  <h2 id="regle">The rule that does not need updating</h2>
+  <p>
+    Clean before sending, rather than counting on the recipient’s software. It costs one step, it
+    does not depend on which app is in fashion, and it is the only version of this advice that is
+    still correct after the next redesign.
+  </p>
+  <p>
+    If you would rather move the location than remove it — for a photo you want on a map, in the
+    right place — <a href={cheminGuide('en', 'modifier')}>changing it</a> writes the coordinates you
+    choose into the file, without re-encoding the image.
+  </p>
+</Guide>

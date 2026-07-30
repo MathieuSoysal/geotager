@@ -1,0 +1,56 @@
+---
+/**
+ * The footer, shared by the tool and the guides.
+ *
+ * Navigation lives here rather than at the top: these links lead to reading
+ * sections, not to the tool. Moving them above the title would compete with the
+ * only gesture that matters, dropping a photo. The language switch goes with
+ * them.
+ *
+ * The anchors are prefixed with the language root, `/#vie-privee` rather than
+ * `#vie-privee`. On the tool page that changes nothing, since the browser
+ * recognises the current page and simply scrolls. On a guide it is the
+ * difference between a link back to the right section and a link that leads
+ * nowhere, the anchor not existing on that page.
+ *
+ * The language link receives the address of this page in the other language,
+ * not the root: a guide that sent you to the home page would make you start
+ * reading again from the beginning after merely switching language.
+ */
+import type { Dictionnaire, Langue } from '../lib/i18n/types.ts';
+import { DICOS, LANGUES } from '../lib/i18n/index.ts';
+import { cheminSommaire } from '../lib/guides/index.ts';
+
+interface Props {
+  dico: Dictionnaire;
+  alternatives: Record<Langue, string>;
+}
+const { dico: T, alternatives } = Astro.props;
+---
+
+<footer>
+  <nav class="main" aria-label={T.nav.sections}>
+    <a href={cheminSommaire(T.langue)}>{T.nav.guides}</a>
+    <a href={`${T.base}#vie-privee`}>{T.nav.viePrivee}</a>
+    <a href={`${T.base}#mode-emploi`}>{T.nav.modeEmploi}</a>
+    <a href={`${T.base}#verifier`}>{T.nav.verifier}</a>
+    {
+      LANGUES.filter((l) => l !== T.langue).map((l) => (
+        <a
+          href={alternatives[l]}
+          lang={DICOS[l].htmlLang}
+          hreflang={DICOS[l].htmlLang}
+          rel="alternate">
+          {DICOS[l].meta.nomLangue}
+        </a>
+      ))
+    }
+  </nav>
+  <!-- L'espace est explicite : entre une expression et la balise qui la
+       suit, celui de la mise en forme est supprimé au rendu, et la ligne
+       se lisait « licence MIT :github.com/… ». -->
+  <p>
+    {T.pied}{' '}
+    <a href="https://github.com/MathieuSoysal/geotager">github.com/MathieuSoysal/geotager</a>.
+  </p>
+</footer>

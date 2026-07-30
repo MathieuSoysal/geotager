@@ -73,22 +73,38 @@ same capability matrix; only the words differ, and they live in `src/lib/i18n/`.
 returns a sentence — it returns a key — so a missing translation is a compile error, not a French
 sentence on an English page.
 
+## The guides
+
+Beyond the tool, the site publishes six written guides in each language — changing a photo's
+location, checking it, removing it, adding one, doing all of that on an iPhone, and what social
+networks and messaging apps actually do with it. They live at `/guides/` and `/fr/guides/`.
+
+Their structure is derived, never written twice. `src/lib/guides/` holds one typed record per
+language — the URL segment, the title, the description, the one-line summary — and everything else
+reads from it: the contents page, the cross-links between guides, the reciprocal `hreflang`, the
+sitemap, and the checks. A guide added in one language and not the other is a compile error, because
+every indexable page must declare every language. The prose itself stays in the page that carries it.
+
+Four things are enforced at build time rather than trusted:
+
+- **Nothing thin.** A guide under 700 words fails the build. The count is printed for each one.
+- **The answer first.** A guide must open with a `<p class="reponse">` — a direct answer in its first
+  paragraph, not a preamble.
+- **No orphans.** Every guide must be listed on the contents page of its own language, and must link
+  back to the tool and to that contents page.
+- **No dangling `@id`.** A guide names the application in its structured data by reference rather
+  than redefining it; the check resolves every reference against the identifiers the site actually
+  defines, across all pages.
+
+Guides ship **no JavaScript at all** — the end-to-end test asserts both that no script tag survives
+and that no module is fetched. Astro bundles hoisted scripts together, so importing the page
+decoration would drag the whole tool along with it, onto a page that has no tool.
+
 ## Installing it, and using it offline
 
 Geotager is installable, and it works with no network at all — which is the point: the tool already
 ran entirely on your device, and the only reason it used to stop working offline is that nothing
 kept a copy of it.
-
-**An “Install the app” button appears in the top bar, and only when it can do something.** It ships
-`hidden` in the served HTML and is revealed solely by the browser's install prompt — which browsers
-do not fire when the app is already installed. So it is absent for anyone who has installed it,
-absent inside the installed window, and absent in browsers that cannot install at all; there, the
-browser's own menu remains the way in. Nothing is remembered if you dismiss the dialog: this site
-persists nothing, and the browser already decides how often to offer again.
-
-The app also *asks* rather than infers: the manifest lists its own two manifest URLs under
-`related_applications`, so `getInstalledRelatedApps()` can confirm the app is installed even from an
-ordinary tab — the one case where inferring from a missing install event could be wrong.
 
 A hand-written service worker (`scripts/sw-modele.js`, ~120 lines, no Workbox) precaches both pages,
 the stylesheet, the interface and the reading worker. Three rules govern it:

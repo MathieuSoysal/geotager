@@ -16,14 +16,22 @@
  *    'self', so a pass-through `fetch(request)` on a tile would be refused and
  *    would break the map; and above all a cached tile would write to disk a
  *    durable trace of the places consulted, which the site promises not to do.
+ *    A promise the cache contradicts is no longer a promise.
  *
  * 2. No unconditional `skipWaiting()`. Somebody may have forty photos loaded
  *    and nothing exported: nothing is persisted, so a forced reload destroys
  *    their work. The new worker waits, and only takes over on an explicit
- *    message from the page.
+ *    message from the page, that is, after the user has said yes.
  *
- * 3. No offline page. Both real pages are precached: no navigation is left for
- *    a fallback to catch. The application itself beats its own death notice.
+ * 3. No offline page. Every real page is precached, the tool in both languages
+ *    and the guides: no navigation is left for a fallback to catch. The
+ *    application itself beats its own death notice.
+ *
+ *    This rule is what forces `gen-sw.mjs`'s inventory to be derived. A page
+ *    forgotten from the list would cause nothing visible: the fallback below
+ *    would serve the home page in the right language, and a guide address would
+ *    quietly answer with something other than the guide. A failure disguised as
+ *    a valid page is the only kind that never announces itself.
  *
  * Emergency stop. To withdraw the service worker from the field, replace the
  * contents of `dist/sw.js` with:
@@ -41,7 +49,7 @@
 const VERSION = '__VERSION__';
 const CACHE = `geotager-${VERSION}`;
 
-/** The shell: both pages, the stylesheet, the island, the reading worker. */
+/** The shell: every page, the stylesheet, the island, the reading worker. */
 const PRECACHE = __PRECACHE__;
 
 /*

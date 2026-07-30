@@ -1,0 +1,131 @@
+---
+/** English: taking the location out, and proving it is gone. */
+import Guide from '../../../components/Guide.astro';
+import { en } from '../../../lib/i18n/index.ts';
+import { cheminGuide } from '../../../lib/guides/index.ts';
+---
+
+<Guide dico={en} id="supprimer">
+  <p class="reponse">
+    Drop the photo on <a href="/">Geotager</a> and press <strong>Remove the location</strong>. The
+    coordinates are taken out of the file — out of both places they can hide — and the result is
+    read back before you get it. On an iPhone you can also turn Location off in the share sheet’s
+    Options before sending.
+  </p>
+
+  <h2 id="etapes">Remove it here, in three steps</h2>
+  <ol>
+    <li>Drop the photo, or several at once.</li>
+    <li>
+      Press <strong>Remove the location</strong>. To clear the date, the camera model and everything
+      else stored in the file as well, press <strong>Remove everything</strong> instead.
+    </li>
+    <li>
+      Download. The file arrives named <code>-no-location</code>, so the cleaned copy can never be
+      confused with the original.
+    </li>
+  </ol>
+  <p>
+    Nothing is uploaded, and nothing is kept. The photo is opened by your own browser; disconnect
+    from the network first and it works exactly the same, which is the shortest way to prove it.
+  </p>
+
+  <h2 id="deux-copies">Why removing a location is harder than it looks</h2>
+  <p>
+    A photo can store the position <strong>twice</strong>. Once in the EXIF block, where the camera
+    wrote it, and once in a descriptive text packet called XMP, which editing software adds and
+    which most people never hear about. Tools that clear only the first hand you back a file that
+    looks clean in Windows and still gives up the address to anything that reads the second.
+  </p>
+  <p>
+    So the removal here purges both, then <strong>sweeps the file again</strong>. If any trace
+    survives — or if that second packet is compressed, and therefore unreadable to this engine — the
+    removal is declared failed and your original is handed back untouched. That is deliberate, and
+    it is the whole design principle: on a tool like this, a silent failure is the worst possible
+    defect, because it would have you publish a photo believing you had cleaned it.
+  </p>
+  <div class="note">
+    <p>
+      Removal is the one operation available on every format the tool can open, camera raw files
+      included. Adding a location to a raw file is refused — those are irreplaceable originals —
+      but taking one out of them is not.
+    </p>
+  </div>
+
+  <h2 id="telephone">On a phone, before you send</h2>
+  <p>
+    <strong>iPhone.</strong> Pick the photo, tap Share, then tap <strong>Options</strong> at the top
+    of the share sheet and turn <strong>Location</strong> off. What you send then carries no
+    coordinates. It is per-share and it resets, so it protects the copy you are sending and not the
+    one in your library —
+    <a href={cheminGuide('en', 'iphone')}>the iPhone guide</a> goes through the rest.
+  </p>
+  <p>
+    <strong>Android.</strong> Google Photos has a “remove geo location” setting that applies when
+    you share, but coverage depends on the app you share <em>through</em>, and a file manager
+    sending the original as an attachment will not touch it. Reading the sent file back is the only
+    way to know.
+  </p>
+
+  <h2 id="windows">On Windows, and what it leaves behind</h2>
+  <p>
+    Right-click ▸ Properties ▸ Details has a <em>Remove Properties and Personal Information</em>
+    link at the bottom. It works, and it is right there, which is the best thing about it. Two
+    things to know: it offers to write a cleaned copy rather than change the original, which is
+    usually what you want; and it clears the properties Windows itself understands, which is not
+    the same set as everything a photo can carry.
+  </p>
+
+  <h2 id="exiftool">With ExifTool</h2>
+  <p>Remove the location only:</p>
+  <pre><code>exiftool -gps:all= photo.jpg</code></pre>
+  <p>Remove everything the file carries:</p>
+  <pre><code>exiftool -all= photo.jpg</code></pre>
+  <p>
+    For a video, remember <code>-ee</code>, without which locations stored in timed tracks go
+    unnoticed:
+  </p>
+  <pre><code>exiftool -a "-gps*" -ee video.mp4</code></pre>
+
+  <h2 id="verifier">Prove it is gone</h2>
+  <p>Whatever removed it, this is the check. Anything printed here means something survived:</p>
+  <pre><code>exiftool -a -G1 -s -gps:all photo-no-location.jpg</code></pre>
+  <p>
+    An empty answer is the answer you want. Reading it back yourself also protects you from the
+    failure mode no tool can protect you from: cleaning one file and attaching another.
+    <a href={cheminGuide('en', 'verifier')}>Checking a photo’s location</a> covers the other ways to
+    look.
+  </p>
+
+  <h2 id="quand">When it is worth doing</h2>
+  <p>
+    A geotagged photo carries a position accurate to a few metres. That is harmless for a landscape
+    and not harmless in three very ordinary situations: a property listing, where photos of the
+    inside of a home publish that home’s address; a photo of a child, taken in a garden or outside a
+    school; and a private sale, where the photo of the item was taken at your home and goes to a
+    stranger.
+  </p>
+  <p>
+    The usual reassurance — “social networks strip it anyway” — is true more often than not, and it
+    is a side effect of their re-encoding rather than a promise anyone has made.
+    <a href={cheminGuide('en', 'reseaux')}>Which apps remove a photo’s location</a> sets out where
+    it stops being true. The safe rule is to clean before sending rather than to count on the
+    recipient’s software.
+  </p>
+
+  <h2 id="limites">What removing the location does not do</h2>
+  <ul>
+    <li>
+      <strong>It does not change the picture.</strong> A street sign, a house number or a view from
+      a window is still in the image, and no metadata tool touches that.
+    </li>
+    <li>
+      <strong>It does not remove the date</strong> unless you ask for it — that is what “Remove
+      everything” is for.
+    </li>
+    <li>
+      <strong>It does not reach copies already sent.</strong> Removal works on the file in front of
+      you, not on the one in somebody else’s inbox.
+    </li>
+  </ul>
+</Guide>

@@ -28,6 +28,7 @@ export const fr: Dictionnaire = {
     viePrivee: 'Vie privée',
     modeEmploi: "Mode d'emploi",
     verifier: 'Vérifier vous-même',
+    guides: 'Guides',
     sections: 'Sections',
     aller: 'Aller au contenu',
   },
@@ -118,8 +119,6 @@ export const fr: Dictionnaire = {
       n > 1
         ? `${n} photos de plus que la limite : elles n'ont pas été ajoutées.`
         : 'Une photo de plus que la limite : elle n\'a pas été ajoutée.',
-    installer: 'Installer l\'application',
-    installee: 'Geotager est installé. Vous le retrouverez avec vos autres applications.',
     majDispo: 'Une nouvelle version de Geotager est disponible.',
     majTravaux: 'Une nouvelle version est disponible. Récupérez vos photos avant de recharger : celles qui sont ouvertes seraient abandonnées.',
     majRecharger: 'Recharger',
@@ -212,6 +211,19 @@ export const fr: Dictionnaire = {
       tiff: { libelle: 'TIFF', mention: 'hors fichiers bruts' },
       video: { libelle: 'Vidéos (MOV, MP4)' },
     },
+  },
+
+  guides: {
+    filAriane: "Fil d'Ariane",
+    accueil: 'Accueil',
+    essayerTitre: 'Le faire maintenant, dans ce navigateur',
+    essayerTexte:
+      "Geotager lit et modifie le lieu à l'intérieur du fichier lui-même, sur votre appareil. La photo n'est jamais envoyée, et il n'y a rien à installer ni de compte à créer.",
+    essayerBouton: "Ouvrir l'outil",
+    autres: 'Les autres guides',
+    lire: 'Lire le guide',
+    publie: (d) => `Publié le ${d}`,
+    misAJour: (d) => `mis à jour le ${d}`,
   },
 
   titres: {

@@ -63,6 +63,8 @@ export interface Dictionnaire {
     viePrivee: string;
     modeEmploi: string;
     verifier: string;
+    /** The guides contents page, also the name of its breadcrumb step. */
+    guides: string;
     sections: string;
     aller: string;
     /** Accessible name of the landmark holding the cards and the article. */
@@ -154,14 +156,6 @@ export interface Dictionnaire {
     ajoutees: (n: number) => string;
     /** The batch is full: the excess is not added, and that is said. */
     lotPlafonne: (n: number) => string;
-    /**
-     * The install button, and what is said once installation succeeds.
-     *
-     * The button only exists if the browser offers to install, which it never
-     * does when the app already is.
-     */
-    installer: string;
-    installee: string;
     /** Update banner, never automatic. See `sw-modele.js`. */
     majDispo: string;
     majTravaux: string;
@@ -192,6 +186,30 @@ export interface Dictionnaire {
     pasEncore: string;
     /** Label and note for each row, keyed by the row's leading format. */
     lignes: Partial<Record<Format, { libelle: string; mention?: string }>>;
+  };
+
+  /**
+   * The labels of the guide shell.
+   *
+   * They appear on each of a language's seven documents: writing them in the
+   * pages would mean committing to fix seven copies the day a sentence
+   * changes. The guides' prose stays in the pages.
+   */
+  guides: {
+    /** Accessible name of the breadcrumb, and the name of its first step. */
+    filAriane: string;
+    accueil: string;
+    /** The block linking back to the tool, in the middle of each guide. */
+    essayerTitre: string;
+    essayerTexte: string;
+    essayerBouton: string;
+    /** The list of other guides, at the end of the page. */
+    autres: string;
+    /** The contents page link to a guide, and the waiting word. */
+    lire: string;
+    /** The two declared dates, when the history can answer. */
+    publie: (d: string) => string;
+    misAJour: (d: string) => string;
   };
 
   /** The article below the fold keeps its headings here: the build check looks

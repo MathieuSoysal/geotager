@@ -1,0 +1,162 @@
+---
+/**
+ * The page that gathers the guides.
+ *
+ * It exists for two reasons, and the second matters as much as the first. For a
+ * reader: one place from which everything written is visible, rather than six
+ * addresses you would have to know. For an engine: `/guides/` is the parent of
+ * six addresses, and a parent that answers 404 is a hole in the middle of a
+ * path, the first thing a human tries when walking a URL back up, and one of
+ * the first things a crawler follows.
+ *
+ * Like the guide shell, it loads no script and lays down no decor; see the
+ * header of `Guide.astro`, where both reasons are written out.
+ */
+import '../styles/global.css';
+import Tete from './Tete.astro';
+import Pied from './Pied.astro';
+import type { Dictionnaire } from '../lib/i18n/types.ts';
+import { LANGUES } from '../lib/i18n/index.ts';
+import {
+  GUIDES,
+  ORDRE_GUIDES,
+  alternatesSommaire,
+  cheminGuide,
+  cheminSommaire,
+} from '../lib/guides/index.ts';
+import { idEditeur, idSite, noeudEditeur, noeudFilAriane, noeudSite } from '../lib/jsonld.ts';
+
+interface Props {
+  dico: Dictionnaire;
+}
+const { dico: T } = Astro.props;
+
+const site = Astro.site?.origin;
+if (!site) throw new Error('Sommaire : « site » manque dans astro.config.mjs');
+
+const sommaire = GUIDES[T.langue].sommaire;
+const chemin = cheminSommaire(T.langue);
+const url = site + chemin;
+const titre = `${sommaire.titre} — Geotager`;
+
+const jumeaux = alternatesSommaire();
+const alternates = LANGUES.map((l) => ({ lang: l, href: site + jumeaux[l] }));
+
+const fiches = ORDRE_GUIDES.map((id) => ({
+  chemin: cheminGuide(T.langue, id),
+  fiche: GUIDES[T.langue].fiches[id],
+}));
+
+const marches = [
+  { nom: T.guides.accueil, chemin: T.base },
+  { nom: T.nav.guides, chemin },
+];
+
+/*
+ * `CollectionPage`, and an `ItemList` that really is what the page shows.
+ *
+ * No rich result will come of it, as with the home page's three nodes: the gain
+ * is that the six guides are understood as one set rather than six pages that
+ * resemble each other, which is the only thing they really are. The breadcrumb
+ * does display.
+ */
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'CollectionPage',
+      '@id': `${url}#sommaire`,
+      name: sommaire.h1,
+      description: sommaire.description,
+      url,
+      inLanguage: T.htmlLang,
+      isPartOf: { '@id': idSite(site) },
+      publisher: { '@id': idEditeur(site) },
+      mainEntity: {
+        '@type': 'ItemList',
+        itemListOrder: 'https://schema.org/ItemListOrderAscending',
+        numberOfItems: fiches.length,
+        itemListElement: fiches.map((f, i) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          name: f.fiche.h1,
+          url: site + f.chemin,
+        })),
+      },
+    },
+    noeudFilAriane(site, marches),
+    noeudSite(site),
+    noeudEditeur(site),
+  ],
+};
+---
+
+<!doctype html>
+<html lang={T.htmlLang}>
+  <head>
+    <Tete
+      dico={T}
+      titre={titre}
+      description={sommaire.description}
+      url={url}
+      alternates={alternates}
+      xDefault={site + jumeaux.en}
+      jsonLd={jsonLd}
+    />
+  </head>
+  <body>
+    <a class="saut" href="#contenu">{T.nav.aller}</a>
+
+    <div class="wrap page-doc">
+      <header class="bar">
+        <a class="brand" href={T.base}>
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <path
+              d="M20 2.5c10.4 0 16.8 6.6 15.4 15.7C34 27.6 26.6 33.7 20 37.5 13.4 33.7 6 27.6 4.6 18.2 3.2 9.1 9.6 2.5 20 2.5z"
+              fill="#FF3385"></path>
+            <circle cx="20" cy="17.4" r="5.7" fill="#17161B"></circle>
+          </svg>
+          Geotager
+        </a>
+      </header>
+
+      <main id="contenu" tabindex="-1">
+        <nav class="fil" aria-label={T.guides.filAriane}>
+          <ol>
+            <li><a href={T.base}>{T.guides.accueil}</a></li>
+            <li aria-current="page">{T.nav.guides}</li>
+          </ol>
+        </nav>
+
+        <article class="contenu guide">
+          <h1>{sommaire.h1}</h1>
+          <slot />
+
+          <ul class="liste-guides">
+            {
+              fiches.map((f) => (
+                <li>
+                  <h2>
+                    <a href={f.chemin}>{f.fiche.h1}</a>
+                  </h2>
+                  <p>{f.fiche.resume}</p>
+                  <p class="lire">
+                    <a href={f.chemin}>{T.guides.lire}</a>
+                  </p>
+                </li>
+              ))
+            }
+          </ul>
+
+          <aside class="essayer">
+            <h2>{T.guides.essayerTitre}</h2>
+            <p>{T.guides.essayerTexte}</p>
+            <p><a class="btn primary" href={T.base}>{T.guides.essayerBouton}</a></p>
+          </aside>
+        </article>
+      </main>
+
+      <Pied dico={T} alternatives={jumeaux} />
+    </div>
+  </body>
+</html>
