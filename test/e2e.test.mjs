@@ -40,7 +40,6 @@ const EN_TETES = (() => {
   }
   return entetes;
 })();
-const CSP = EN_TETES['Content-Security-Policy'];
 
 const MIME = {
   // Without those two the test server returns `application/octet-stream`:
@@ -277,7 +276,7 @@ check('la position de la photo iPhone est affichée',
 
 // The interface announces the route before the action: here, fixing and erasing
 // are possible, adding is not, and that is exactly what has to be said.
-const alerte = await page.locator('#alerte-format');
+const alerte = page.locator('#alerte-format');
 check('la voie retenue est annoncée avant toute action',
   await alerte.isVisible() && (await alerte.textContent()).trim().length > 0,
   (await alerte.textContent()).trim().slice(0, 80));
