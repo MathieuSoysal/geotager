@@ -108,6 +108,18 @@ Geotager s'installe, et fonctionne sans le moindre réseau — ce qui est bien l
 tournait déjà entièrement sur votre appareil, et la seule raison pour laquelle il cessait de marcher
 hors ligne, c'est que personne n'en gardait de copie.
 
+**Un bouton «&nbsp;Installer l'application&nbsp;» apparaît dans la barre du haut, et seulement quand
+il peut servir à quelque chose.** Il est `hidden` dans le HTML servi, et seule l'invitation du
+navigateur le découvre — invitation qu'aucun navigateur n'émet quand l'application est déjà
+installée. Il est donc absent pour qui l'a installée, absent dans la fenêtre installée, et absent là
+où l'installation n'existe pas&nbsp;; le menu du navigateur y reste le chemin. Rien n'est mémorisé si
+vous refermez la boîte&nbsp;: ce site ne persiste rien, et le navigateur décide déjà lui-même de la
+fréquence à laquelle il repropose.
+
+L'outil ne se contente d'ailleurs pas de déduire&nbsp;: le manifeste se désigne lui-même, dans les
+deux langues, ce qui permet de DEMANDER au navigateur si l'application est déjà installée — le seul
+cas où déduire de l'absence d'invitation pouvait se tromper.
+
 Un service worker écrit à la main (`scripts/sw-modele.js`, ~120 lignes, sans Workbox) précharge les
 deux pages, la feuille de style, l'interface et le worker de lecture. Trois règles le gouvernent&nbsp;:
 

@@ -55,6 +55,7 @@ const el = {
   majTexte: $('maj-texte'),
   majRecharger: $<HTMLButtonElement>('maj-recharger'),
   majPlusTard: $<HTMLButtonElement>('maj-plus-tard'),
+  installer: $<HTMLButtonElement>('installer'),
   titreActif: $('titre-actif'),
   annonce: $('annonce'),
 };
@@ -962,6 +963,141 @@ if (filePeutEtreLancee.launchQueue) {
     void ouvrir(poignees).catch(() => signalerArriveeVide(T.app.ouverturePerdue));
   });
 }
+
+/* --- installation --------------------------------------------------- */
+
+/*
+ * Proposer l'installation, et seulement quand elle est possible.
+ *
+ * L'application est installable depuis la V1.3 — le manifeste a tout ce qu'il
+ * faut et le service worker répond aux requêtes — mais rien ne l'a jamais
+ * PROPOSÉ. Elle ne s'installait que par le menu du navigateur, que presque
+ * personne n'ouvre.
+ *
+ * LE BOUTON N'APPARAÎT QUE SI L'APPLICATION N'EST PAS DÉJÀ INSTALLÉE, et cela
+ * tient à quatre choses plutôt qu'à une :
+ *
+ *  1. il naît caché dans le HTML servi — l'état par défaut, pour tout le monde,
+ *     est « absent ». Il faut un événement pour le faire apparaître, jamais
+ *     l'inverse : une régression ne peut donc pas le faire surgir par accident ;
+ *  2. seule l'invitation du navigateur le découvre, et le navigateur n'en émet
+ *     pas quand l'application est déjà installée. C'est le verrou principal, et
+ *     c'est la plate-forme qui le tient, pas nous ;
+ *  3. `dejaInstallee()` refuse de le montrer si la page tourne DANS la fenêtre
+ *     installée, même si une invitation arrivait tout de même ;
+ *  4. `appinstalled` le retire sur-le-champ, sans attendre un rechargement.
+ *
+ * Rien n'est mémorisé. Refermer la boîte du navigateur ne laisse aucune trace :
+ * ce site ne persiste rien, et faire une exception pour se souvenir d'un refus
+ * coûterait plus que cela ne rapporte. Le navigateur décide lui-même de la
+ * fréquence à laquelle il repropose.
+ */
+interface InviteInstall extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+let invite: InviteInstall | null = null;
+/** Le navigateur a CONFIRMÉ que l'application est installée. Voir plus bas. */
+let installationConfirmee = false;
+
+/** Les modes qui signifient « on tourne dans une fenêtre à soi, pas dans un onglet ». */
+const MODES_INSTALLES = ['standalone', 'minimal-ui', 'fullscreen', 'window-controls-overlay'];
+
+/** L'application tourne dans sa propre fenêtre : il n'y a plus rien à installer. */
+function dejaInstallee(): boolean {
+  // Les quatre modes, et pas seulement les deux qu'on demande aujourd'hui : le
+  // jour où `display_override` en réclame un autre, cette garde continue de
+  // valoir sans qu'on ait à y repenser.
+  if (MODES_INSTALLES.some((m) => matchMedia(`(display-mode: ${m})`).matches)) return true;
+  // Une application Android empaquetée ouvre le site sans qu'aucun mode
+  // d'affichage ne le dise : elle se reconnaît à la provenance.
+  if (document.referrer.startsWith('android-app://')) return true;
+  // iOS ne connaît pas `display-mode` et répond par cette propriété non
+  // normalisée — que la documentation ne mentionne pas, mais qui ne coûte rien.
+  // L'ignorer laisserait le bouton apparaître dans une application déjà posée
+  // sur l'écran d'accueil.
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
+function cacherInstallation(): void {
+  invite = null;
+  el.installer.hidden = true;
+}
+
+/*
+ * DEMANDER au navigateur, au lieu de déduire.
+ *
+ * Les quatre verrous ci-dessus reposent sur une déduction : pas d'invitation,
+ * donc probablement déjà installée. C'est vrai, et ce n'est pas une
+ * vérification — depuis un onglet ordinaire, rien ne la confirme. Cette
+ * interface-ci répond pour de bon : un tableau vide veut dire « pas installée »,
+ * et c'est le seul cas où la déduction pouvait se tromper.
+ *
+ * Elle n'existe pas partout. Là où elle manque, on retombe exactement sur la
+ * déduction d'avant, qui n'était pas fausse — d'où le silence en cas d'échec.
+ */
+async function verifierInstallation(): Promise<void> {
+  const nav = navigator as Navigator & {
+    getInstalledRelatedApps?: () => Promise<unknown[]>;
+  };
+  if (typeof nav.getInstalledRelatedApps !== 'function') return;
+  try {
+    const posees = await nav.getInstalledRelatedApps();
+    if (!posees.length) return;
+    installationConfirmee = true;
+    // La réponse peut arriver APRÈS que l'invitation a découvert le bouton :
+    // dans ce sens-là aussi, il doit disparaître.
+    cacherInstallation();
+  } catch {
+    /* Pas de réponse, et c'est tout : les autres verrous tiennent. */
+  }
+}
+void verifierInstallation();
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Sans cela, le navigateur pose EN PLUS sa propre barrette en bas de l'écran :
+  // deux propositions concurrentes pour un seul geste.
+  e.preventDefault();
+  if (dejaInstallee() || installationConfirmee) return;
+  invite = e as InviteInstall;
+  el.installer.hidden = false;
+});
+
+el.installer.addEventListener('click', () => {
+  const invitee = invite;
+  if (!invitee) return;
+  /*
+   * L'invitation est retirée tout de suite — elle ne sert qu'une fois, et un
+   * second appel sur le même événement ne rejoue rien — mais LE BOUTON RESTE
+   * tant que la boîte du navigateur est ouverte. C'est l'ordre que la
+   * documentation retient : demander, attendre la décision, et seulement
+   * ensuite ranger. L'inverse faisait disparaître le bouton avant même de
+   * savoir si la demande avait abouti.
+   *
+   * Un refus n'est PAS une panne — le même raisonnement que pour le partage
+   * sortant : on n'insiste pas, et on n'en dit rien. Le navigateur réémettra
+   * une invitation à la visite suivante, et le bouton reparaîtra de lui-même.
+   */
+  invite = null;
+  void (async () => {
+    try {
+      await invitee.prompt();
+      await invitee.userChoice;
+    } catch {
+      /* Rien à ajouter : le bouton s'en va dans tous les cas. */
+    } finally {
+      el.installer.hidden = true;
+    }
+  })();
+});
+
+window.addEventListener('appinstalled', () => {
+  cacherInstallation();
+  // Le bouton qui disparaît est le retour visuel. L'annonce est le retour pour
+  // qui ne regarde pas l'écran.
+  annoncer(T.app.installee);
+});
 
 /* --- service worker ------------------------------------------------ */
 

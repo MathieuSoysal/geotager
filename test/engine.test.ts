@@ -1427,6 +1427,27 @@ scenario('« Ouvrir avec » ne promet que ce que le tableau tient', () => {
       h !== undefined && !('launch_type' in h));
 
     /*
+     * Le manifeste se désigne lui-même, dans LES DEUX langues. Une installation
+     * retient l'adresse du manifeste par lequel elle s'est faite : n'annoncer
+     * que le sien laisserait une application installée depuis « /fr/ »
+     * méconnaissable depuis la page anglaise, et le bouton d'installation
+     * reparaîtrait devant quelqu'un qui a déjà installé.
+     */
+    const parentes: Array<{ platform: string; url: string }> = m.related_applications ?? [];
+    check(`${langue} : les deux manifestes sont désignés`,
+      parentes.length === LANGUES.length,
+      JSON.stringify(parentes.map((a) => a.url)));
+    for (const l of LANGUES) {
+      check(`${langue} : « ${l} » est désigné par son manifeste`,
+        parentes.some(
+          (a) => a.platform === 'webapp' && a.url === `${DICOS[l].base}manifest.webmanifest`,
+        ));
+    }
+    // À vrai, il supprimerait l'invitation à installer — donc le bouton.
+    check(`${langue} : rien ne détourne vers une autre application`,
+      m.prefer_related_applications !== true);
+
+    /*
      * Le tableau fait foi, comme partout ailleurs. S'inscrire pour un format
      * auquel on ne sait pas donner de lieu, c'est se proposer pour un travail
      * qu'on ne sait pas faire à quelqu'un qui ne l'a pas demandé — le

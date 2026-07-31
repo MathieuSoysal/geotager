@@ -1643,6 +1643,17 @@ l'application, le site et son éditeur au lieu de le deviner.
 `preserve` : les deux pages du site ne bougent pas — `index.astro` donnait déjà `index.html` — et la
 page d'erreur sort en `fr/404.html`, qui est le seul nom servi.
 
+**Le bouton vit sur la page de l'outil, et pas sur les guides.** Il avait d'abord été retenu de l'y
+porter aussi — un visiteur qui arrive d'une recherche sur un guide est un candidat plausible. La
+fusion avec la V1.6 a montré que celle-ci impose l'inverse et l'écrit : « Guides ship no JavaScript
+at all », promesse tenue par deux contrôles du test de bout en bout. Y poser le bouton aurait donc
+demandé de casser une promesse publiée dans les deux README et de supprimer deux contrôles écrits
+exprès quelques jours plus tôt, pour un bouton que rien n'aurait pu découvrir sur une page sans
+script — c'est-à-dire très exactement le « contrôle qui ne peut pas agir » que ce projet refuse
+partout, invisible au lieu d'être grisé. La décision a été renversée devant ce coût. Les guides
+ramènent à l'outil ; l'offre y est à un clic. Le contrôle de build refuse désormais les deux
+débordements : le bouton absent de l'outil, et le bouton présent ailleurs.
+
 **Ce que ce lot ne prouve pas.** Le test de bout en bout atteint les pages 404 par leur chemin : il
 ne peut pas provoquer un vrai 404, puisque c'est l'hébergeur qui remonte au fichier le plus proche et
 que le serveur du banc ne l'imite pas. Ce qui est jugé est la page ; le réglage qui la sert ne l'est
@@ -1752,5 +1763,150 @@ c'est un choix raisonné, pas une mesure, et il faut le dire plutôt que d'inven
 attrapent ce qui est vérifiable sur l'artefact produit — le titre, la description, le canonique, les
 langues, le balisage, l'épaisseur du texte, l'absence de page orpheline. Le classement se mesure dans
 la Search Console, des semaines plus tard, et aucun test local ne le remplace.
+
+---
+## [V1.5] Q-048 — L'application était installable, et personne ne le proposait
+
+**Contexte :** l'outil est installable depuis la V1.3. Le manifeste porte tout ce qu'un navigateur
+exige — `id`, `start_url`, `scope`, `display: 'standalone'`, une icône 192, une 512, une 512
+masquable — et le service worker répond aux requêtes. Chromium émettait donc déjà son invitation à
+installer sur ce site. **Personne ne l'écoutait.** L'installation n'était offerte que par le menu du
+navigateur, que presque personne n'ouvre. Recherche dans tout le dépôt de `beforeinstallprompt`,
+`appinstalled`, `getInstalledRelatedApps`, `display-mode` : zéro occurrence.
+
+La demande venait avec une contrainte : **le bouton ne doit apparaître que si l'application n'est pas
+déjà installée.**
+
+**Options :**
+
+- **A.** Un bouton qui naît caché dans le HTML servi, et que seule l'invitation du navigateur
+  découvre.
+- **B.** Un bouton toujours affiché, qui ouvre une explication quand l'installation n'est pas
+  possible. Écarté : c'est exactement « un bouton qui n'agit pas », que le projet refuse ailleurs
+  nommément. Et il resterait affiché pour qui a déjà installé, c'est-à-dire l'inverse du demandé.
+- **C.** Interroger `navigator.getInstalledRelatedApps()` pour savoir si l'application est déjà là.
+  Écarté : il faudrait ajouter `related_applications` au manifeste, l'interface n'existe que sur une
+  partie des navigateurs, et elle ne répondrait à une question à laquelle l'absence d'invitation
+  répond déjà. Un mécanisme de plus pour un fait qu'on connaît sans lui.
+- **D.** Un bandeau, comme celui des mises à jour. Écarté : c'est la forme que les gens ont appris à
+  fermer sans lire, et elle recouvre le seul geste qui compte — déposer une photo.
+
+**Retenu : A.**
+
+**Pourquoi cela suffit à ne l'afficher que si l'application n'est pas installée**, et pourquoi cela
+ne tient pas à un seul mécanisme :
+
+1. Il naît `hidden` dans le HTML servi. L'état par défaut, pour tout le monde, est « absent » : il
+   faut un événement pour le faire apparaître, jamais l'inverse. Une régression échoue donc du bon
+   côté.
+2. Seule l'invitation le découvre — et un navigateur n'en émet pas quand l'application est déjà
+   installée. C'est le verrou principal, et c'est la plate-forme qui le tient, pas nous.
+3. `dejaInstallee()` refuse de le montrer si la page tourne dans la fenêtre installée
+   (`display-mode`, et `navigator.standalone` sous iOS), même si une invitation arrivait tout de
+   même.
+4. `appinstalled` le retire sur-le-champ, sans attendre un rechargement.
+
+Le test de bout en bout juge les quatre séparément, pour qu'aucun ne puisse tomber en silence
+derrière un autre.
+
+**Ce qui a été refusé, et pourquoi c'est une décision et non un oubli :**
+
+- **Mémoriser un refus.** Refermer la boîte du navigateur ne laisse aucune trace. Ce site ne
+  persiste rien — ni `localStorage`, ni `IndexedDB`, ni serveur — et c'est une promesse affichée sur
+  les deux pages. Y faire une exception pour se souvenir qu'on a dit non coûterait plus que cela ne
+  rapporte, d'autant que le navigateur décide déjà lui-même de la fréquence à laquelle il repropose.
+- **Renifler le navigateur pour aider iOS.** Une phrase « Partager → Sur l'écran d'accueil » serait
+  utile, et elle exigerait de deviner le navigateur à sa chaîne d'identification — ce que ce dépôt
+  n'a jamais fait nulle part. Écarté pour cette raison, pas par indifférence. À rouvrir si quelqu'un
+  le redemande.
+- **Un état inactif.** Le bouton n'en a aucun, donc pas d'`aria-disabled` et pas
+  d'`aria-describedby` : il est là et il marche, ou il n'est pas là. C'est la forme la plus simple
+  de la règle du projet, et elle ne s'obtient que parce qu'on a refusé l'option B.
+
+**Le contrôle de build ne surveillait pas ce dont l'installation dépend.** Le §8 vérifiait `id`,
+`scope`, `start_url`, l'existence des icônes et la présence d'une masquable. Il ne regardait ni
+`name`, ni `short_name`, ni `description`, ni `display`, ni qu'il existe une icône de 192 et une de
+512 — c'est-à-dire précisément les champs sans lesquels un navigateur n'émet jamais son invitation.
+Tant que l'installation passait par son menu, en perdre un serait passé inaperçu. Depuis qu'un
+bouton en dépend, la même perte le ferait disparaître de la page pour tout le monde, sans message et
+sans erreur. Le §8 les contrôle désormais, et le §3 exige que le bouton soit présent **et** `hidden`
+dans le HTML servi : perdre cet attribut l'afficherait partout, y compris là où il ne peut rien
+faire.
+
+**Ce que ce lot ne prouve pas.** Le test remet à la page exactement ce que le navigateur lui
+remettrait, mais il ne peut pas provoquer une vraie invitation : elle est décidée par le navigateur
+sur des critères qu'aucun test ne pilote. Ce qui est jugé est donc ce que la page en fait, et non le
+fait qu'elle arrive. De même, `emulateMedia` de Playwright ne connaît pas `display-mode` : la fenêtre
+installée est simulée en truquant `matchMedia`, ce qui vérifie notre garde et non le comportement
+réel du système. Le parcours complet — installer, désinstaller, rouvrir — se vérifie à la main sur
+Chrome ou Edge de bureau.
+
+**Bloque :** non.
+
+---
+
+## [V1.5] Q-049 — Le bouton déduisait l'installation au lieu de la vérifier
+
+**Contexte :** le chapitre « Installation » de *Learn PWA* et les pages auxquelles il renvoie ont été
+lus après coup, sur le bouton déjà livré en Q-048. **L'essentiel était conforme** : le bouton
+n'apparaît qu'après l'invitation du navigateur — « Do not show the install button unless the
+`beforeinstallprompt` has been fired » —, il appelle `preventDefault()` pour supprimer la barrette
+que le navigateur poserait sinon, il écoute `appinstalled`, et un bouton fixe en tête de page est
+l'un des emplacements que la documentation catalogue elle-même. Restaient quatre écarts.
+
+1. **On ne savait pas reconnaître une application installée depuis un onglet ordinaire.** Le seul
+   qui compte. Le bouton restait caché parce que le navigateur n'émet pas d'invitation pour une
+   application déjà posée : c'est une déduction, pas une vérification.
+   `getInstalledRelatedApps()` répond pour de bon, et `related_applications` dans le manifeste est ce
+   qui le permet.
+2. **La liste des modes d'affichage était incomplète** : deux testés sur les cinq que l'assistant de
+   la documentation énumère, et le cas d'une application Android empaquetée — reconnaissable à
+   `document.referrer` — n'était pas traité du tout.
+3. **L'ordre du clic était inversé.** Le modèle est `prompt()`, puis `userChoice`, puis ranger. On
+   cachait le bouton AVANT de demander : s'il ne se passait rien, il avait déjà disparu pour rien.
+4. **`prefer_related_applications` devenait dangereux** dès qu'on ajoutait `related_applications` :
+   à vrai, le critère d'installabilité cesse d'être rempli, plus aucune invitation n'est émise, et
+   le bouton disparaît de toutes les pages sans que rien ne casse.
+
+**Retenu : les quatre corrections**, plus deux contrôles de build — `prefer_related_applications`
+refusé à vrai, et `related_applications` exigé bien formé et pointant sur des manifestes réels.
+
+**Une croyance corrigée, et elle mérite d'être écrite.** La liste publiée des critères
+d'installabilité **ne mentionne ni service worker, ni gestionnaire `fetch`, ni capacité hors ligne**.
+Elle tient en : application pas déjà installée, heuristiques d'engagement, HTTPS, et un manifeste
+portant `short_name` ou `name`, des icônes de 192 **et** 512, `start_url`, un `display` autonome, et
+`prefer_related_applications` absent ou faux. `display_override` n'y figure pas davantage : c'est
+`display` seul qui est jugé. Les contrôles ajoutés en Q-048 visaient donc les bons champs — mais
+écrits de mémoire, pas d'après la source. Le commentaire la cite désormais.
+
+**Ce qu'on continue de refuser, et l'argument a changé :**
+
+- **Mémoriser un refus.** La documentation le recommande : « If the user dismisses your banner,
+  don't show it again unless the user triggers a conversion event. » On maintient le refus, et il
+  faut être honnête sur pourquoi. Ce conseil vise les **bandeaux**, qui recouvrent le contenu et
+  reviennent à chaque page ; un bouton discret en tête de page ne harcèle personne, et le navigateur
+  limite déjà de lui-même la fréquence à laquelle il réémet ses invitations. À quoi s'ajoute la
+  raison de fond, inchangée : ce site ne persiste rien, et c'est une promesse affichée sur les deux
+  pages.
+- **Des consignes sous iOS.** La documentation recommande explicitement de rendre des instructions
+  manuelles là où aucune interface n'existe, et de ne les montrer qu'en mode navigateur : « You
+  should only render these instructions in browser mode ; other display options … mean the user has
+  already installed the app. » On maintient le refus, parce qu'il faudrait deviner le navigateur à
+  sa chaîne d'identification et que ce dépôt ne l'a jamais fait. **Mais la recommandation est
+  consignée ici pour que la décision puisse être rouverte en connaissance de cause** — c'est la
+  seule chose qu'un visiteur d'iPhone perd, et elle n'est pas nulle.
+
+**Ce qui n'est pas fait, et n'a pas à l'être.** Le fichier sous `/.well-known/` ne sert qu'à
+reconnaître une application **hors de sa portée**, ce dont on n'a pas besoin puisqu'on ne cherche que
+la nôtre. Les icônes de 384 et 1024 sont recommandées, pas exigées, et la 512 est celle qui compte.
+Et aucune mesure d'audience : `userChoice` est attendu pour l'ordre des opérations, jamais pour
+compter quoi que ce soit — la documentation propose de s'en servir en analytique, ce site n'en a pas
+et n'en aura pas.
+
+**Ce que ce lot ne prouve pas.** Le cinquième verrou est jugé sur une réponse truquée : le banc
+répond « installée » à la place du navigateur. Que le vrai `getInstalledRelatedApps()` reconnaisse
+notre `related_applications` ne se vérifie que sur une machine où l'application est réellement
+installée, en rouvrant le site dans un onglet ordinaire. C'est précisément le cas que ce lot ajoute,
+et c'est le seul qu'aucun test local ne remplace.
 
 **Bloque :** non.

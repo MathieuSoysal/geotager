@@ -123,6 +123,18 @@ const jsonLd = {
             </svg>
             Geotager
           </a>
+          <!-- `hidden` dans le HTML SERVI, et c'est tout le dispositif.
+               Un navigateur ne propose pas d'installer une application qui
+               l'est déjà : ce bouton ne devine donc rien et n'interroge
+               personne, il attend d'être découvert par l'invitation. Sans
+               invitation — déjà installée, ou navigateur qui n'en émet pas — il
+               n'existe simplement pas, plutôt que d'être là sans pouvoir agir.
+
+               Aucune règle de style à écrire : `.bar` est déjà réparti aux deux
+               bouts, le bouton se pose donc à droite tout seul. -->
+          <button class="btn ghost xs" type="button" id="installer" hidden>
+            {T.app.installer}
+          </button>
         </header>
 
         <!-- `main` : l'outil est le contenu principal, et il n'avait jusqu'ici

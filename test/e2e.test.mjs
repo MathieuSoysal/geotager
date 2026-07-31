@@ -431,7 +431,7 @@ for (const langue of LANGUES) {
    * « -sans-metadonnees ». Ce n'est pas une phrase du parcours, et la règle du
    * §5 porte sur les phrases du parcours.
    */
-  for (const cle of ['partagePerdu', 'ouverturePerdue']) {
+  for (const cle of ['partagePerdu', 'ouverturePerdue', 'installer', 'installee']) {
     const p = T.app[cle];
     check(`${langue} / « ${cle} » : une phrase sans jargon`,
       Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
@@ -1003,6 +1003,124 @@ check("elle a un texte de remplacement",
   ((await page.locator('meta[property="og:image:alt"]').getAttribute('content')) ?? '').length > 10);
 check("elle existe vraiment",
   await page.evaluate(() => fetch('/og.png').then((r) => r.ok)));
+
+/*
+ * LE BOUTON D'INSTALLATION.
+ *
+ * On ne peut pas provoquer une vraie invitation à installer depuis un test :
+ * elle vient du navigateur, qui la décide sur des critères qu'on ne pilote pas.
+ * Ce qui suit, si — on lui remet exactement ce qu'il remettrait, et on juge ce
+ * que la page en fait.
+ *
+ * Les quatre verrous du « caché si déjà installée » sont jugés SÉPARÉMENT, pour
+ * qu'aucun ne puisse tomber en silence derrière un autre.
+ */
+console.log("\nProposer l'installation, et seulement quand elle est possible");
+
+const POSER_INVITE = () => {
+  // `addInitScript` et non `addScriptTag` : le second injecte un script EN
+  // LIGNE, que `script-src 'self'` refuse. Celui-ci passe par le protocole de
+  // débogage, hors de portée de la politique de la page.
+  window.__invites = { prompt: 0, choix: null };
+  window.__inviterInstall = () => {
+    const e = new Event('beforeinstallprompt');
+    e.prompt = () => {
+      window.__invites.prompt++;
+      return Promise.resolve();
+    };
+    e.userChoice = Promise.resolve({ outcome: 'accepted' });
+    window.dispatchEvent(e);
+  };
+  window.__installee = () => window.dispatchEvent(new Event('appinstalled'));
+  // Le navigateur du banc pourrait répondre ce qu'il veut à la question « cette
+  // application est-elle installée ? ». On répond à sa place, pour que le cas
+  // « pas installée » soit un fait du test et non une chance.
+  navigator.getInstalledRelatedApps = async () => [];
+};
+
+const pageInstall = await contexte.newPage();
+const erreursInstall = [];
+pageInstall.on('pageerror', (e) => erreursInstall.push(String(e)));
+pageInstall.on('console', (m) => {
+  if (m.type() === 'error') erreursInstall.push(m.text());
+});
+await pageInstall.addInitScript(POSER_INVITE);
+await pageInstall.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+
+// VERROU 1 — l'état par défaut est « absent ». C'est ce que voit tout navigateur
+// qui n'émet pas d'invitation, et toute application déjà installée.
+check("sans invitation, le bouton n'est pas là",
+  await pageInstall.locator('#installer').isHidden());
+
+// VERROU 2 — seule l'invitation le découvre.
+await pageInstall.evaluate(() => window.__inviterInstall());
+check("l'invitation du navigateur fait apparaître le bouton",
+  await pageInstall.locator('#installer').isVisible());
+check('et il est atteignable au clavier',
+  await pageInstall.evaluate(() => {
+    const b = document.getElementById('installer');
+    b.focus();
+    return document.activeElement === b;
+  }));
+
+await pageInstall.click('#installer');
+check("cliquer demande l'installation au navigateur",
+  (await pageInstall.evaluate(() => window.__invites.prompt)) === 1);
+// Une invitation ne se rejoue pas : un second appel sur le même événement lève.
+check('et le bouton s\'efface, l\'invitation étant consommée',
+  await pageInstall.locator('#installer').isHidden());
+
+// VERROU 4 — l'installation aboutit : le bouton s'en va, et on le dit.
+await pageInstall.evaluate(() => window.__inviterInstall());
+check('une nouvelle invitation le fait revenir',
+  await pageInstall.locator('#installer').isVisible());
+await pageInstall.evaluate(() => window.__installee());
+check("une fois installée, le bouton disparaît",
+  await pageInstall.locator('#installer').isHidden());
+check('et le lecteur d\'écran l\'apprend',
+  (await pageInstall.locator('#annonce').textContent()).includes('Geotager'));
+
+/*
+ * VERROU 3 — dans la fenêtre installée, même une invitation ne doit rien
+ * montrer. `emulateMedia` de Playwright ne connaît pas `display-mode` : on
+ * truque donc `matchMedia` avant que l'îlot ne s'exécute, ce qui est exactement
+ * ce que le navigateur répondrait là-bas.
+ */
+const pageInstallee = await contexte.newPage();
+await pageInstallee.addInitScript(POSER_INVITE);
+await pageInstallee.addInitScript(() => {
+  const vrai = window.matchMedia.bind(window);
+  window.matchMedia = (q) =>
+    q.includes('display-mode') ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : vrai(q);
+});
+await pageInstallee.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await pageInstallee.evaluate(() => window.__inviterInstall());
+check("dans la fenêtre installée, le bouton reste absent malgré l'invitation",
+  await pageInstallee.locator('#installer').isHidden());
+await pageInstallee.close();
+
+/*
+ * VERROU 5 — le navigateur RÉPOND que l'application est déjà installée.
+ *
+ * C'est le seul verrou qui ne déduit rien : les quatre autres reposent sur
+ * l'absence d'invitation ou sur le mode d'affichage, celui-ci pose la question.
+ * Il couvre le cas que les autres laissaient passer — l'application est
+ * installée, et on rouvre le site dans un onglet ordinaire.
+ */
+const pageDejaPosee = await contexte.newPage();
+await pageDejaPosee.addInitScript(POSER_INVITE);
+await pageDejaPosee.addInitScript(() => {
+  navigator.getInstalledRelatedApps = async () => [{ platform: 'webapp', url: '/manifest.webmanifest' }];
+});
+await pageDejaPosee.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await pageDejaPosee.evaluate(() => window.__inviterInstall());
+check("quand le navigateur confirme l'installation, le bouton reste absent",
+  await pageDejaPosee.locator('#installer').isHidden());
+await pageDejaPosee.close();
+
+const restantesInstall = erreursInstall.filter((e) => !/Failed to load resource|net::ERR_/.test(e));
+check("aucune exception sur le chemin de l'installation",
+  restantesInstall.length === 0, restantesInstall[0]);
 
 console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
 check('le décor est hors de l\'arbre d\'accessibilité',

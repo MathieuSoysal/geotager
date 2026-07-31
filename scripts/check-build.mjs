@@ -380,6 +380,30 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
     for (const [nom, re] of BLOCS_OBLIGATOIRES[lang] ?? []) {
       if (!re.test(lisible)) echecs.push(`${rel(f)} : le bloc « ${nom} » est absent du HTML servi`);
     }
+
+    /*
+     * Le bouton d'installation, présent et CACHÉ — et sur la page de l'outil
+     * SEULEMENT.
+     *
+     * Le `hidden` est tout le dispositif : le bouton n'est découvert que par
+     * l'invitation du navigateur, qui n'arrive jamais si l'application est déjà
+     * installée. Le perdre — un attribut, une ligne — l'afficherait pour tout
+     * le monde, y compris là où il ne peut rien faire, ce qui est exactement
+     * l'inverse de ce qu'on veut. Le retirer tout court reviendrait à ne plus
+     * proposer l'installation, sans que rien ne le dise.
+     *
+     * Pourquoi il s'arrête à l'outil : un guide et le sommaire ne chargent
+     * AUCUN script, et c'est une promesse écrite dans les deux README que le
+     * test de bout en bout tient. Un bouton posé là serait exactement ce que
+     * ce projet refuse ailleurs — un contrôle qui ne peut pas agir, invisible
+     * au lieu d'être grisé. Ils ramènent à l'outil, où l'offre existe.
+     */
+    const bouton = html.match(/<button[^>]*\bid=["']installer["'][^>]*>/i)?.[0];
+    if (!bouton) {
+      echecs.push(`${rel(f)} : le bouton d'installation est absent`);
+    } else if (!/\shidden(?=[\s>=])/i.test(bouton)) {
+      echecs.push(`${rel(f)} : le bouton d'installation doit être « hidden » dans le HTML servi`);
+    }
   } else if (genre === 'guide') {
     controlerGuide(rel(f), html, cheminDe(f), lang);
   } else if (genre === 'sommaire') {
@@ -396,6 +420,17 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
      * exactement la panne que ce fichier existe pour empêcher.
      */
     echecs.push(`${rel(f)} : forme de page inconnue du contrôle de contenu`);
+  }
+
+  /*
+   * Et l'inverse, qui est le vrai risque de débordement : un bouton posé sur
+   * une page qui ne charge aucun script. Il n'y serait jamais découvert, donc
+   * jamais utilisable — et il ne se verrait pas, puisqu'il est `hidden`. Le
+   * contrôle est ici, hors de la chaîne des familles, pour qu'une page fautive
+   * subisse AUSSI les contrôles de la sienne plutôt que de s'y soustraire.
+   */
+  if (genre !== 'outil' && /<button[^>]*\bid=["']installer["']/i.test(html)) {
+    echecs.push(`${rel(f)} : un bouton d'installation sur une page sans script`);
   }
 
   // Les liens réciproques entre langues : chaque page doit annoncer TOUTES les
@@ -658,6 +693,9 @@ for (const [fichierReadme, page] of [
       ...(m.file_handlers ?? []).map((h, n) => [`file_handlers[${n}].action`, h.action]),
       ...(m.icons ?? []).map((i, n) => [`icons[${n}].src`, i.src]),
       ...(m.screenshots ?? []).map((i, n) => [`screenshots[${n}].src`, i.src]),
+      // Une adresse de plus que le système lit : elle hérite du refus des
+      // adresses étrangères, comme toutes les autres.
+      ...(m.related_applications ?? []).map((a, n) => [`related_applications[${n}].url`, a.url]),
     ];
     for (const [nom, adresse] of adresses) {
       if (typeof adresse !== 'string') {
@@ -678,6 +716,81 @@ for (const [fichierReadme, page] of [
     // carré blanc — ce qui est toujours laid et souvent illisible.
     if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
       echecs.push(`${rel(cible)} : aucune icône « maskable »`);
+    }
+
+    /*
+     * CE QUI REND L'APPLICATION INSTALLABLE, et que rien ne vérifiait.
+     *
+     * La liste publiée par Chrome, mot pour mot : l'application n'est pas déjà
+     * installée, les heuristiques d'engagement sont remplies, le site est en
+     * HTTPS, et le manifeste porte « short_name or name », des icônes « must
+     * include a 192px and a 512px icon », « start_url », un « display » parmi
+     * fullscreen / standalone / minimal-ui / window-controls-overlay, et
+     * « prefer_related_applications must not be present, or be false ».
+     *
+     * Deux choses valent d'être notées, parce qu'on croyait le contraire. Le
+     * SERVICE WORKER n'y figure pas : ni lui, ni un gestionnaire `fetch`, ni la
+     * moindre capacité hors ligne. Et `display_override` non plus — c'est
+     * `display` seul qui est jugé.
+     *
+     * Tant que l'installation n'était offerte que par le menu du navigateur,
+     * perdre un de ces champs passait inaperçu. Depuis qu'un BOUTON en dépend,
+     * la même perte le fait disparaître de la page pour tout le monde — sans
+     * message, sans erreur, sans rien.
+     */
+    for (const [cle, valeur] of [
+      ['name', m.name],
+      ['short_name', m.short_name],
+      ['description', m.description],
+    ]) {
+      if (typeof valeur !== 'string' || !valeur.trim()) {
+        echecs.push(`${rel(cible)} : « ${cle} » est vide — le navigateur ne proposera pas d'installer`);
+      }
+    }
+    if (!['standalone', 'fullscreen', 'minimal-ui'].includes(String(m.display))) {
+      echecs.push(
+        `${rel(cible)} : « display » vaut « ${m.display} » — seul un mode autonome rend installable`,
+      );
+    }
+    for (const taille of ['192x192', '512x512']) {
+      if (!(m.icons ?? []).some((i) => String(i.sizes ?? '').split(/\s+/).includes(taille))) {
+        echecs.push(`${rel(cible)} : aucune icône « ${taille} », exigée pour l'installation`);
+      }
+    }
+
+    /*
+     * `prefer_related_applications` à « true » signifie « proposez plutôt une
+     * autre application que celle-ci ». Le critère d'installabilité cesse alors
+     * d'être rempli, plus aucune invitation n'est émise, et le bouton
+     * d'installation disparaît de toutes les pages. C'est la régression la moins
+     * visible du lot : rien ne casse, rien ne s'affiche, un bouton cesse
+     * simplement d'exister.
+     */
+    if (m.prefer_related_applications === true) {
+      echecs.push(
+        `${rel(cible)} : « prefer_related_applications » à vrai supprime l'invitation à installer`,
+      );
+    }
+
+    /*
+     * Le manifeste se désigne lui-même pour que la page puisse demander au
+     * navigateur si l'application est déjà installée. Une entrée mal formée ne
+     * lève rien : la question reçoit simplement une réponse vide, et on
+     * retombe sans le savoir sur la déduction qu'on voulait remplacer.
+     */
+    const parentes = m.related_applications ?? [];
+    if (!parentes.length) {
+      echecs.push(`${rel(cible)} : « related_applications » est absent — voir getInstalledRelatedApps`);
+    }
+    for (const [n, a] of parentes.entries()) {
+      const nom = `related_applications[${n}]`;
+      if (a.platform !== 'webapp') {
+        echecs.push(`${rel(cible)} : « ${nom}.platform » vaut « ${a.platform} », attendu « webapp »`);
+      }
+      const adresse = String(a.url ?? '');
+      if (!adresse.startsWith('/') || !existsSync(join(DIR, adresse.replace(/^\//, '')))) {
+        echecs.push(`${rel(cible)} : « ${nom}.url » ne désigne aucun manifeste — ${adresse}`);
+      }
     }
 
     /*
