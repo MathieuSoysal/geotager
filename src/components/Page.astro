@@ -184,7 +184,18 @@ const jsonLd = {
                    soit ouverte : mieux vaut prendre le fichier et EXPLIQUER
                    qu'on ne sait pas encore le traiter, que le refuser sans un
                    mot. La phrase existe pour ça. -->
-              <input id="picker" type="file" accept="image/*,video/*,.heic,.heif,.avif,.tif,.tiff" multiple />
+              <!-- RIEN QUE DES TYPES MIME, jamais d'extensions — n'ajoutez pas
+                   `.heic,.heif,.avif` en croyant bien faire. Chrome sous Android
+                   résout chaque entrée d'`accept` en type MIME, et ces
+                   extensions-là ne sont pas dans le `MimeTypeMap` du système.
+                   Dès qu'une entrée n'est ni `image/*` ni `video/*`, Chrome
+                   n'ouvre plus le sélecteur de photos mais l'explorateur de
+                   fichiers — auquel Android interdit `Android/media` depuis la
+                   11, c'est-à-dire précisément là où WhatsApp range ce qu'on
+                   reçoit. Le dossier `WhatsApp` s'affichait alors VIDE. `image/*`
+                   couvre déjà HEIC, AVIF et TIFF partout où le système sait les
+                   nommer ; on ne perd rien de ce que la page annonce. -->
+              <input id="picker" type="file" accept="image/*,video/*" multiple />
             </label>
             <p class="hero-titre" aria-hidden="true">{T.hero.titre} <em>{T.hero.titreEm}</em></p>
             <p class="sub">{T.hero.sous}</p>
