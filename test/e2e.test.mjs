@@ -436,13 +436,48 @@ await page.fill('#coords', '43.90811, 4.86387');
 await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
 check('le bouton devient actif', (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
 
+await page.addInitScript(() => {
+  const vrai = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (o) => { window.__typeProduit = o && o.type; return vrai(o); };
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'sans-lieu.mp4'));
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+await page.fill('#coords', '43.90811, 4.86387');
+await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
 const [videoDl] = await Promise.all([
   page.waitForEvent('download', { timeout: 60_000 }),
   page.click('#telecharger'),
 ]);
+const typeAnnonce = await page.evaluate(() => window.__typeProduit);
 const videoProduite = join('/tmp', videoDl.suggestedFilename());
 await videoDl.saveAs(videoProduite);
 check('un fichier est bien produit', statSync(videoProduite).size > 0);
+
+/*
+ * The advertised type, and not only the content.
+ *
+ * The produced file came out with no declared type. On a phone, a file filed
+ * under downloads with no type is not indexed as a video: the gallery shows no
+ * entry for it, and our own picker, restricted to images and videos, can stop
+ * offering it. The file was perfect, and the user saw nothing. No check looked
+ * at what the browser says about the file; this one does.
+ */
+check('le fichier produit s\'annonce comme une vidéo',
+  typeAnnonce === 'video/mp4', typeAnnonce || '(aucun type)');
+
+// And it goes back through the picker, which filters on that type.
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', videoProduite);
+await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+check('rechargé dans l\'outil, il montre le lieu écrit',
+  /43\.908/.test((await page.locator('#pill-position').textContent()).trim()));
+
+// And finally the words: no sentence may call a video a photo any more.
+const zoneVideo = (await page.locator('#etat-actif').innerText()).toLowerCase();
+check('aucune phrase n\'appelle « photo » une vidéo',
+  !zoneVideo.includes('photo'),
+  zoneVideo.split('\n').filter((l) => l.includes('photo')).slice(0, 3).join(' | '));
 
 const reluVideo = execFileSync(
   'exiftool',

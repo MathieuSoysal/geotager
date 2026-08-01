@@ -1420,7 +1420,10 @@ scenario('Un ajout ne fait que décaler, jamais réécrire', () => {
 
     const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
     const ajoute = pose.bytes.length - src.length;
-    check(`${nom} : le fichier grandit d'un seul rangement`, ajoute > 0 && ajoute < 64, `${ajoute} o`);
+    // Two boxes on an MP4, the plain one and Apple's, a single one on a
+    // QuickTime. In every case a few dozen bytes and no more.
+    check(`${nom} : le fichier ne grandit que de ses rangements`,
+      ajoute > 0 && ajoute < 512, `${ajoute} o`);
 
     // The insertion point is read from the structure, not from the first byte
     // that differs: the parents' sizes and the chunk offsets change too, and
@@ -1498,10 +1501,18 @@ scenario('Et ce contrôle sait échouer', () => {
 
   // What this check does not see, and what catches it elsewhere: if it is
   // `udta` that keeps its old size, the structure stays coherent, and the
-  // location box simply becomes `udta`'s sibling instead of its child.
-  // Rereading the position catches that, by no longer finding anything. The two
-  // checks complement each other, and neither is enough on its own.
-  const glisse = sain.slice();
+  // location box simply becomes `udta`'s sibling instead of its child. Rereading
+  // the position catches that, by no longer finding anything. The two checks
+  // complement each other, and neither is enough on its own.
+  //
+  // We exercise it on a QuickTime, which carries only one box: on an MP4 the
+  // second, Apple's, would still carry the location and would hide the
+  // demonstration. Two boxes covering for each other is good news; it is not a
+  // reason to stop exercising the net.
+  const seul = new Uint8Array(readFileSync(join(FIXTURES, 'tete-nue.mov')));
+  const seulEcrit = ecrirePositionVideo(seul, AVIGNON.lat, AVIGNON.lon).bytes;
+  check('le témoin à un seul rangement en a bien un', porteursDeLieu(seulEcrit).length === 1);
+  const glisse = seulEcrit.slice();
   const moov = boiteDeTete(glisse, 'moov');
   const udta = enfants(glisse, moov).find((x) => x.type === 'udta')!;
   writeU32(glisse, udta.debut, udta.taille - 34, 'BE');
@@ -1561,6 +1572,44 @@ scenario('fragmente.mp4 — un fichier fragmenté est refusé avant l\'action', 
   let leve = false;
   try { ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon); } catch { leve = true; }
   check('l\'écriture lève plutôt que d\'abîmer le fichier', leve);
+});
+
+scenario('Le lieu créé est écrit dans les deux rangements attendus', () => {
+  /*
+   * `moov/udta/©xyz` is what Android, FFmpeg, VLC and MediaInfo read. Apple's
+   * software reads only the named key. Writing both is the difference between
+   * "the file carries the location" and "the location shows up".
+   *
+   * The oracle is queried group by group rather than on the composed position:
+   * that would be satisfied by a single box and would say nothing about the
+   * other.
+   */
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'deux-rangements.mp4');
+  writeFileSync(out, pose.bytes);
+
+  const sortes = porteursDeLieu(pose.bytes).map((p) => p.sorte).sort();
+  check('les deux rangements sont là', JSON.stringify(sortes) === '["keys","xyz-udta"]',
+    sortes.join('+'));
+
+  for (const groupe of ['UserData', 'Keys']) {
+    const lu = exif(['-n', '-s3', `-${groupe}:GPSCoordinates`, out]).trim();
+    check(`l'oracle lit le lieu dans « ${groupe} »`, lu.startsWith('43.9'), lu || '(rien)');
+  }
+  check('la structure reste debout', structureIntacte(pose.bytes));
+  check('et le fichier reste identique partout ailleurs',
+    memesOctetsHorsPlages(src, pose.bytes, pose.changed));
+
+  // And erasing removes both: removing only one would return a file the user
+  // would believe clean.
+  const vide = effacerPositionVideo(pose.bytes);
+  const outVide = join(tmp, 'deux-rangements-vide.mp4');
+  writeFileSync(outVide, vide.bytes);
+  check('l\'effacement ne laisse aucun rangement porteur',
+    !copieDuLieuAilleursVideo(vide.bytes));
+  const reste = exif(['-a', '-G1', '-s', '-ee', '-gps*', outVide]).trim();
+  check('et l\'oracle ne trouve plus rien', reste === '', reste.slice(0, 120));
 });
 
 /** One real file carrying a location, per format. Without it, no proof. */
