@@ -27,7 +27,7 @@
 import { ExifError } from './erreurs.ts';
 import { type LatLon, distanceMetres, validerPosition } from './coords.ts';
 import { type Plage, type Pose } from './conteneurs.ts';
-import { porteUnLieu, purgerLeLieu } from './xmp.ts';
+import { lireLieuXmp, porteUnLieu, purgerLeLieu } from './xmp.ts';
 import {
   type Boite,
   boites,
@@ -263,23 +263,25 @@ function entreesDesKeys(
   b: Uint8Array,
   racine: Boite[],
 ): Array<{ nom: string; entree: Boite; valeur: { debut: number; longueur: number } }> {
-  const meta = chemin(b, 'moov/meta', racine);
-  if (!meta) return [];
-  const filles = enfants(b, meta);
-  const keys = filles.find((x) => x.type === 'keys');
-  const ilst = filles.find((x) => x.type === 'ilst');
-  if (!keys || !ilst) return [];
-
-  const parIndex = new Map<number, Boite>();
-  for (const entree of enfants(b, ilst)) {
-    parIndex.set(readU32(b, entree.debut + 4, 'BE'), entree);
-  }
   const out: Array<{ nom: string; entree: Boite; valeur: { debut: number; longueur: number } }> = [];
-  for (const [i, nom] of listerKeys(b, keys).entries()) {
-    const entree = parIndex.get(i + 1);
-    if (!entree) continue;
-    const valeur = valeurDeLEntree(b, entree);
-    if (valeur) out.push({ nom, entree, valeur });
+  // TOUS les `meta` du fichier, et non le seul `moov/meta`. Un couple
+  // nom/valeur reste un couple où qu'il soit accroché.
+  for (const meta of toutesLesBoites(b, 'meta', racine)) {
+    const filles = enfants(b, meta);
+    const keys = filles.find((x) => x.type === 'keys');
+    const ilst = filles.find((x) => x.type === 'ilst');
+    if (!keys || !ilst) continue;
+
+    const parIndex = new Map<number, Boite>();
+    for (const entree of enfants(b, ilst)) {
+      parIndex.set(readU32(b, entree.debut + 4, 'BE'), entree);
+    }
+    for (const [i, nom] of listerKeys(b, keys).entries()) {
+      const entree = parIndex.get(i + 1);
+      if (!entree) continue;
+      const valeur = valeurDeLEntree(b, entree);
+      if (valeur) out.push({ nom, entree, valeur });
+    }
   }
   return out;
 }
@@ -288,10 +290,11 @@ function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
   const out: Porteur[] = [];
   const valeurDe = (entree: Boite) => valeurDeLEntree(b, entree);
 
-  // Google Photos : la clé est le nom même de la boîte.
-  const ilstUdta = chemin(b, 'moov/udta/meta/ilst', racine);
-  if (ilstUdta) {
-    for (const entree of enfants(b, ilstUdta)) {
+  // Clé en quatre lettres — ce qu'écrit Google Photos. Dans TOUS les `ilst` :
+  // celui de `moov/udta/meta` est le plus courant, mais un fichier peut
+  // accrocher le sien à `moov/meta`, et le lieu s'y lit tout aussi bien.
+  for (const ilst of toutesLesBoites(b, 'ilst', racine)) {
+    for (const entree of enfants(b, ilst)) {
       if (!TYPES_XYZ.includes(entree.type)) continue;
       const v = valeurDe(entree);
       if (!v) continue;
@@ -351,10 +354,12 @@ function listerKeys(b: Uint8Array, keys: Boite): string[] {
 /** Toutes les copies du lieu que ce fichier porte, quel qu'en soit l'auteur. */
 export function porteursDeLieu(b: Uint8Array): Porteur[] {
   const racine = boites(b, 0, b.length);
-  const udta = chemin(b, 'moov/udta', racine);
+  // TOUS les `udta`, et non le seul `moov/udta` : une piste peut avoir le sien,
+  // et un fichier peut en porter plusieurs. Un rangement compte où qu'il soit.
+  const udtas = toutesLesBoites(b, 'udta', racine);
   return [
-    ...porteursUdta(b, udta),
-    ...porteurLoci(b, udta),
+    ...udtas.flatMap((u) => porteursUdta(b, u)),
+    ...udtas.flatMap((u) => porteurLoci(b, u)),
     ...porteursIlst(b, racine),
   ];
 }
@@ -426,13 +431,14 @@ function affichable(s: string): boolean {
  */
 function textesDUdta(b: Uint8Array, racine: Boite[]): Map<string, string> {
   const out = new Map<string, string>();
-  const udta = chemin(b, 'moov/udta', racine);
-  if (!udta) return out;
+  for (const udta of toutesLesBoites(b, 'udta', racine)) {
   for (const x of enfants(b, udta)) {
     const c = chaineDAtome(b, x) ?? valeurDeLEntree(b, x);
     if (!c) continue;
     const valeur = texte(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
-    if (affichable(valeur)) out.set(x.type, valeur);
+    // Le premier trouvé gagne : celui du film prime sur celui d'une piste.
+    if (affichable(valeur) && !out.has(x.type)) out.set(x.type, valeur);
+  }
   }
   return out;
 }
@@ -547,8 +553,9 @@ export function lieuEnMouvement(b: Uint8Array): boolean {
       if (PISTES_DE_LIEU.includes(description.type)) return true;
     }
   }
-  const udta = chemin(b, 'moov/udta', racine);
-  if (udta && enfants(b, udta).some((x) => CHARGES_OPAQUES.includes(x.type))) return true;
+  for (const udta of toutesLesBoites(b, 'udta', racine)) {
+    if (enfants(b, udta).some((x) => CHARGES_OPAQUES.includes(x.type))) return true;
+  }
   return false;
 }
 
@@ -563,11 +570,24 @@ function positionDe(p: Porteur): LatLon | null {
     : lireIso6709(p.texte);
 }
 
-/** La position d'une vidéo : celle du premier rangement qui en porte une. */
+/**
+ * La position d'une vidéo : celle du premier rangement qui en porte une.
+ *
+ * Et à défaut, celle du paquet de texte descriptif. Il vient en dernier parce
+ * qu'on ne sait pas le réécrire — mais l'ignorer laissait l'outil dire « aucun
+ * lieu » sur un fichier dont tous les autres lecteurs affichent le lieu.
+ */
 export function lirePositionVideo(b: Uint8Array): LatLon | null {
   for (const p of porteursDeLieu(b)) {
     const position = positionDe(p);
     if (position) return position;
+  }
+  for (const paquet of paquetsDeTexte(b)) {
+    const p = lireLieuXmp(lireTexte(b, paquet));
+    if (p) {
+      const valide = validerPosition(p);
+      if (valide) return valide;
+    }
   }
   return null;
 }
@@ -970,21 +990,34 @@ export function ecrirePositionVideo(b: Uint8Array, lat: number, lon: number): Po
   if (lieuEnMouvement(b)) throw REFUS_MOUVEMENT();
 
   const porteurs = porteursDeLieu(b);
+  // Le lieu peut n'exister QUE dans un paquet de texte : il n'y a alors aucun
+  // rangement à corriger, mais il y a bien un lieu à ne pas laisser derrière.
+  const aPurger = paquetsDeTexte(b).some((x) => porteUnLieu(lireTexte(b, x)));
+
+  // La copie du paquet de texte part dans tous les cas : nous ne savons pas la
+  // tenir à jour, et la laisser ferait dire deux lieux au même fichier.
+  const avecPurge = (pose: Pose): Pose => {
+    if (!aPurger) return pose;
+    const changed = [...pose.changed];
+    purgerLesPaquets(pose.bytes, changed);
+    return { bytes: pose.bytes, changed };
+  };
+
   if (porteurs.length) {
     // Première voie : réécrire chaque rangement là où il est. Aucun octet ne
     // bouge, donc rien de ce que le fichier désigne par son rang ne devient
     // faux — et le fichier produit fait exactement la taille de l'original.
     const pose = corrigerSurPlace(b, porteurs, p);
-    if (pose) return pose;
+    if (pose) return avecPurge(pose);
     // Seconde voie, quand les rangements en place sont trop courts pour porter
     // le lieu demandé : on les efface tous et l'on en écrit UN seul, assez
     // long. Le fichier grandit, ce qui demande la même permission qu'un ajout.
     if (!accepteAjoutVideo(b)) throw REFUS_ECRITURE();
-    return ajouterLeLieu(b, p, porteurs);
+    return avecPurge(ajouterLeLieu(b, p, porteurs));
   }
 
   if (!accepteAjoutVideo(b)) throw REFUS_ECRITURE();
-  return ajouterLeLieu(b, p);
+  return avecPurge(ajouterLeLieu(b, p));
 }
 
 /* ------------------------------------------------------------------ */
@@ -1012,11 +1045,36 @@ function neutraliser(out: Uint8Array, x: Boite, changed: Plage[]): void {
  * le registre appelle « Avignon » — un fichier qui n'a plus de coordonnées mais
  * nomme encore la ville n'est pas effacé.
  */
+const UUID_XMP = 'be7acfcb97a942e89c71999491e3afac';
+
 function paquetsDeTexte(b: Uint8Array): Boite[] {
-  const udta = chemin(b, 'moov/udta', boites(b, 0, b.length));
-  if (!udta) return [];
-  return enfants(b, udta).filter((x) => x.type === 'XMP_' || x.type === 'uuid');
+  const racine = boites(b, 0, b.length);
+  const out: Boite[] = [];
+
+  // La forme QuickTime : une boîte `XMP_` dans un `udta`, n'importe lequel.
+  for (const udta of toutesLesBoites(b, 'udta', racine)) {
+    out.push(...enfants(b, udta).filter((x) => x.type === 'XMP_' || x.type === 'uuid'));
+  }
+
+  /*
+   * Et la forme que la norme prévoit pour un MP4 : une boîte `uuid` de PREMIER
+   * NIVEAU, reconnue à son identifiant.
+   *
+   * C'est là qu'ExifTool écrit, et c'est là que nous ne regardions pas. Le
+   * défaut ne se voyait pas seulement à l'affichage : le balayage résiduel ne
+   * voyait pas ce paquet non plus, si bien qu'un effacement pouvait rendre un
+   * fichier annoncé propre qui disait encore où il avait été tourné. C'est le
+   * résultat que ce moteur existe pour empêcher.
+   */
+  for (const x of racine) {
+    if (x.type !== 'uuid') continue;
+    if (texteHexa(b, x.debut + 8, 16) === UUID_XMP) out.push(x);
+  }
+  return out;
 }
+
+const texteHexa = (b: Uint8Array, o: number, n: number) =>
+  Array.from(b.subarray(o, o + n), (v) => v.toString(16).padStart(2, '0')).join('');
 
 const lireTexte = (b: Uint8Array, x: Boite) =>
   new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(charge(x), finDe(x)));
@@ -1028,18 +1086,20 @@ const lireTexte = (b: Uint8Array, x: Boite) =>
  * fait est pire que pas d'effacement du tout, parce que l'utilisateur croirait
  * le fichier propre.
  */
-export function effacerPositionVideo(b: Uint8Array): Pose {
-  if (lieuEnMouvement(b)) throw REFUS_MOUVEMENT();
-
-  const porteurs = porteursDeLieu(b);
-  const out = b.slice();
-  const changed: Plage[] = [];
-  for (const porteur of porteurs) neutraliser(out, porteur.boite, changed);
-
-  // Les paquets de texte, eux, ne se neutralisent pas en bloc : ils portent
-  // aussi le titre, l'auteur, l'historique. On en retire les seules propriétés
-  // de lieu, à longueur constante — `xmp.ts` fait déjà ce travail pour les
-  // photos, et il échoue plutôt que de laisser un marqueur derrière lui.
+/**
+ * Retire les propriétés de lieu des paquets de texte descriptif, sur place.
+ *
+ * Un paquet ne se neutralise pas en bloc : il porte aussi le titre, l'auteur,
+ * l'historique de retouche. `xmp.ts` sait n'en blanchir que le lieu, à longueur
+ * constante, et échouer plutôt que d'en laisser une trace.
+ *
+ * Appelé à l'EFFACEMENT comme à la CORRECTION. À la correction, c'est la règle
+ * du tout ou rien qui l'exige : les nombres y ont une longueur variable, donc
+ * les réécrire déplacerait des octets, et les laisser ferait dire deux lieux
+ * différents au même fichier. On retire donc la copie que nous ne savons pas
+ * tenir à jour, plutôt que de la laisser contredire celles que nous tenons.
+ */
+function purgerLesPaquets(out: Uint8Array, changed: Plage[]): void {
   for (const paquet of paquetsDeTexte(out)) {
     const avant = lireTexte(out, paquet);
     if (!porteUnLieu(avant)) continue;
@@ -1058,6 +1118,17 @@ export function effacerPositionVideo(b: Uint8Array): Pose {
     out.set(octets, charge(paquet));
     changed.push([charge(paquet), finDe(paquet)]);
   }
+}
+
+export function effacerPositionVideo(b: Uint8Array): Pose {
+  if (lieuEnMouvement(b)) throw REFUS_MOUVEMENT();
+
+  const porteurs = porteursDeLieu(b);
+  const out = b.slice();
+  const changed: Plage[] = [];
+  for (const porteur of porteurs) neutraliser(out, porteur.boite, changed);
+
+  purgerLesPaquets(out, changed);
 
   // Et l'on repasse derrière soi. Une purge qui se croit sur parole est une
   // purge qu'on ne peut pas défendre.
@@ -1216,7 +1287,11 @@ export interface SondeVideo {
 export function sonderVideo(b: Uint8Array): SondeVideo {
   const enMouvement = lieuEnMouvement(b);
   const porteurs = porteursDeLieu(b);
-  const position = porteurs.map(positionDe).find((x) => x !== null) ?? null;
+  // La MÊME lecture que celle affichée, et non une seconde qui en diverge : la
+  // sonde recalculait le lieu sur les seuls rangements ordinaires, si bien
+  // qu'une vidéo dont le lieu vit dans le paquet de texte s'annonçait sans
+  // lieu alors que le lecteur savait le lire.
+  const position = lirePositionVideo(b);
 
   if (enMouvement) {
     // Le lieu est aussi écrit tout au long de la vidéo, dans les données que ce

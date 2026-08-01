@@ -1184,7 +1184,7 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 const VIDEOS = [
   'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
   'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
-  'fragmente.mp4', 'appareil.mp4',
+  'fragmente.mp4', 'appareil.mp4', 'lieu-hors-piste.mp4',
 ];
 
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
@@ -1440,6 +1440,14 @@ scenario('Un ajout ne fait que décaler, jamais réécrire', () => {
     const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
     const s = sonderVideo(src);
     if (s.position || !s.capacites.ajouter) continue;
+    // Un fichier dont le paquet de texte porte une copie du lieu voit AUSSI ce
+    // paquet purgé pendant l'écriture — légitimement, sinon le fichier dirait
+    // deux lieux. La fin n'est alors plus un simple décalage, et ce contrôle-ci
+    // ne s'applique pas. Il est écarté explicitement plutôt qu'en silence.
+    if (copieDuLieuAilleursVideo(src)) {
+      check(`${nom} : écarté, son paquet de texte porte une copie à purger`, true);
+      continue;
+    }
 
     const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
     const ajoute = pose.bytes.length - src.length;
@@ -1698,6 +1706,56 @@ scenario('Une vidéo dit sa durée, ses dimensions et sa date', () => {
     check(`${nom} : rien d'illisible n'est affiché`, sale === undefined,
       sale ? `${sale.cle}=${JSON.stringify(sale.value)}` : '');
   }
+});
+
+scenario('Un lieu rangé ailleurs que là où l\'on regardait', () => {
+  /*
+   * Le lecteur cherchait chaque rangement à un CHEMIN FIXE, et ne prenait que
+   * la première boîte de chaque cran. Un fichier qui range son lieu dans un
+   * second `udta`, dans celui d'une piste, dans un `ilst` accroché ailleurs, ou
+   * dans le paquet de texte que la norme place en boîte de PREMIER NIVEAU
+   * passait à côté de nous — pendant que tous les autres lecteurs l'affichaient.
+   *
+   * Ce fichier-ci est le cas dangereux, et pas seulement un affichage manquant :
+   * le balayage résiduel ne voyait pas ce paquet, donc un effacement pouvait
+   * rendre un fichier annoncé propre qui disait encore où il avait été tourné.
+   */
+  const chemin = join(FIXTURES, 'lieu-hors-piste.mp4');
+  const src = new Uint8Array(readFileSync(chemin));
+
+  // Le paquet est bien là où la norme le met, et non dans `moov/udta`.
+  const haut = boites(src, 0, src.length);
+  check('le paquet de texte est une boîte de premier niveau',
+    haut.some((x) => x.type === 'uuid'), haut.map((x) => x.type).join(' '));
+  check('aucun rangement ordinaire ne porte le lieu', porteursDeLieu(src).length === 0);
+
+  // 1. Il est lu — c'est la plainte, telle quelle.
+  const mine = lirePositionVideo(src);
+  const theirs = exifPosition(chemin);
+  check('le lieu y est pourtant lu', mine !== null && theirs !== null &&
+    distanceMetres(mine, theirs) < 1, mine ? `${mine.lat}, ${mine.lon}` : 'null');
+
+  // 2. Le balayage résiduel le voit — sans quoi l'effacement mentirait.
+  check('et le balayage résiduel le voit', copieDuLieuAilleursVideo(src));
+
+  // 3. L'effacement le retire vraiment, et l'oracle le confirme.
+  const vide = effacerPositionVideo(src);
+  const out = join(tmp, 'hors-piste-vide.mp4');
+  writeFileSync(out, vide.bytes);
+  check('taille identique à l\'octet près', vide.bytes.length === src.length);
+  check('plus rien ne subsiste', !copieDuLieuAilleursVideo(vide.bytes));
+  check('et l\'oracle ne trouve plus de lieu', exifPosition(out) === null);
+
+  // 4. Une correction ne laisse pas les deux versions se contredire.
+  const ecrit = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const out2 = join(tmp, 'hors-piste-ecrit.mp4');
+  writeFileSync(out2, ecrit.bytes);
+  const relu = exifPosition(out2);
+  check('après correction, l\'oracle lit le lieu demandé',
+    relu !== null && distanceMetres(relu, AVIGNON) < 1);
+  // L'ancienne copie ne survit pas : deux lieux dans un fichier sont un mensonge.
+  const ancien = exif(['-a', '-G1', '-s', '-XMP:GPSLatitude', out2]).trim();
+  check('et l\'ancienne copie a disparu du paquet de texte', ancien === '', ancien.slice(0, 80));
 });
 
 /** Un fichier réel PORTEUR d'un lieu, par format. Sans lui, aucune preuve. */

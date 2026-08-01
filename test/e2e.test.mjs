@@ -410,6 +410,10 @@ for (const [fichier, attendu] of [
   ['DSCN0010.jpg', /Camera/],
   ['piste-de-lieu.mp4', /Length/],
   ['sans-lieu.mp4', /Size/],
+  // La plainte, telle quelle : le lieu est lisible par un outil mobile et
+  // n'apparaissait pas ici, parce qu'il est rangé dans le paquet de texte que
+  // la norme place en boîte de premier niveau — là où nous ne regardions pas.
+  ['lieu-hors-piste.mp4', /Location/],
 ]) {
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
   await page.setInputFiles('#picker', join(FIXTURES, fichier));

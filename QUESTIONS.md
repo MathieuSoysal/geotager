@@ -2218,3 +2218,60 @@ y est, et ce qui ne doit pas y être n'y est pas. Un fichier témoin a été pr�
 « Appareil », qu'aucune vidéo du corpus ne portait — sans lui, elle aurait été écrite sans preuve.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-054 — Le lecteur cherchait le lieu à des adresses fixes
+
+**Contexte :** « Pourquoi le lieu n'apparaît pas dans les informations de la vidéo ? Je peux
+pourtant le lire avec un outil mobile. » C'était exact, et c'était notre défaut.
+
+**Reproduit deux fois**, en rangeant le lieu ailleurs que là où nous regardions, puis en demandant à
+l'oracle indépendant :
+
+| Où est le lieu | ExifTool | Nous |
+|---|---|---|
+| `moov/meta/ilst/©xyz`, clé en quatre lettres | 43.90811 4.86387 | **rien** |
+| paquet de texte, boîte `uuid` de premier niveau | 43.90811 4.86387 | **rien** |
+
+La cause tenait en six lignes : chaque recherche passait par un **chemin fixe** — `moov/udta`,
+`moov/meta`, `moov/udta/meta/ilst` — et `chemin()` ne rend que la PREMIÈRE boîte de chaque cran. Un
+fichier qui range son lieu dans un second `udta`, dans celui d'une piste, dans un `ilst` accroché
+ailleurs, ou dans le paquet de texte que la norme place en boîte de premier niveau, passait à côté
+de nous. Ces quatre cas sont parfaitement réguliers ; c'est notre lecture qui était étroite.
+
+**Le second cas n'était pas qu'un affichage manquant.** Sur un fichier dont le lieu n'est QUE dans
+le paquet de texte, le balayage résiduel — celui qui doit faire ÉCHOUER un effacement incomplet —
+ne voyait rien non plus. Un effacement rendait donc un fichier annoncé propre **qui disait encore où
+il avait été tourné**. C'est très exactement le résultat que Q-006 nomme le pire possible pour cet
+outil, et que tout le reste du moteur est bâti pour empêcher.
+
+**Retenu : un rangement compte où qu'il soit.** Les chemins fixes cèdent la place à une recherche
+sur tout le fichier — `toutesLesBoites` fait déjà ce parcours pour les pistes de lieu et les tables
+de rangs. Tout `udta`, tout `ilst` — nommé par quatre lettres comme par rang —, tout paquet de
+texte, y compris la boîte `uuid` de premier niveau reconnue à son identifiant. Ce qui est trouvé est
+lu, réécrit avec les autres, effacé avec les autres, et surveillé par le balayage comme les autres.
+
+S'y ajoute la **lecture** des coordonnées du paquet de texte, qu'on savait jusqu'ici seulement
+détecter. Elles n'y sont pas en degrés décimaux mais à la façon de l'EXIF — `43,54.4866N`, des
+degrés, des minutes décimales, un hémisphère. Les lire comme un nombre donnerait 43, soit cent
+kilomètres d'erreur qui n'auraient pas l'air fausses.
+
+**Une décision à assumer :** quand on corrige le lieu d'une vidéo dont le paquet de texte en porte
+une seconde copie, cette copie est **purgée** et non réécrite. Les nombres y ont une longueur
+variable, donc les réécrire déplacerait des octets ; les laisser ferait dire deux lieux au même
+fichier. Le titre, l'auteur et l'historique ne sont pas touchés — `purgerLeLieu` ne blanchit que les
+propriétés de lieu, et c'est déjà ce qu'elle fait pour les photos.
+
+**Un défaut voisin, trouvé en éprouvant le premier.** La sonde recalculait le lieu de son côté, sur
+les seuls rangements ordinaires. Le lecteur savait donc lire un lieu que la sonde annonçait absent —
+et c'est la sonde qui alimente le volet. Les deux passent désormais par la même lecture, comme le
+reste du module.
+
+**Ce qui reste couvert sans témoin, et il faut le dire :** le cas `moov/meta/ilst` à clé de quatre
+lettres. ExifTool écrit toujours ce rangement sous `moov/udta/meta`, donc l'oracle ne sait pas
+fabriquer le fichier, et le projet interdit d'en fabriquer un pour l'occasion. La recherche
+généralisée le couvre **par construction, pas par mesure**. Le paquet de texte, lui, a son témoin :
+`exiftool -XMP:GPSLatitude=…` sur un vrai MP4 produit exactement le cas dangereux.
+
+**Bloque :** non.
