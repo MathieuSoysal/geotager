@@ -405,6 +405,76 @@ check('le champ de saisie est en lecture seule',
  * vidéo n'avait donc rien à y mettre et il disparaissait, sans que rien ne
  * bronche.
  */
+/*
+ * L'ÉCRAN après une écriture — et non le fichier produit.
+ *
+ * Aucun contrôle du dépôt n'avait jamais regardé là. On vérifiait ce que le
+ * fichier contient, jamais ce que l'outil affiche une fois qu'il l'a écrit :
+ * l'écran gardait donc l'état du fichier tel qu'il avait été CHARGÉ. Après un
+ * ajout il ne montrait aucun lieu, et après un effacement il montrait encore
+ * celui qu'on venait de retirer — sur un outil de confidentialité, le pire des
+ * deux sens. Cinq signalements ont traversé ce trou.
+ */
+console.log("\nL'écran dit ce que le fichier porte MAINTENANT");
+const lieuAffiche = async () => {
+  const pill = page.locator('#pill-position');
+  const cache = await pill.getAttribute('hidden');
+  const surPastille = cache === null ? (await pill.textContent()).trim() : '';
+  // Le volet est un dépliant : replié, son contenu n'est pas du texte rendu.
+  // Il faut l'ouvrir pour le lire, comme le ferait quelqu'un qui le consulte.
+  let volet = '';
+  if ((await page.locator('#autres').getAttribute('hidden')) === null) {
+    await page.locator('#autres').evaluate((d) => { d.open = true; });
+    volet = await page.locator('#autres-liste').innerText();
+  }
+  return { surPastille, volet };
+};
+
+for (const [fichier, coords, motif] of [
+  ['sans-lieu.mp4', '43.90811, 4.86387', /43[.,]908/],
+  ['Canon_40D.jpg', '43.90811, 4.86387', /43[.,]908/],
+]) {
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+  await page.setInputFiles('#picker', join(FIXTURES, fichier));
+  await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+  await page.fill('#coords', coords);
+  await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
+  await Promise.all([
+    page.waitForEvent('download', { timeout: 60_000 }),
+    page.click('#telecharger'),
+  ]);
+  // L'écran doit rattraper le fichier : le resondage est asynchrone.
+  await page.waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && !p.hidden && p.textContent.includes('43');
+  }, null, { timeout: 30_000 }).catch(() => {});
+  const { surPastille, volet } = await lieuAffiche();
+  check(`${fichier} : le lieu écrit s'affiche sur la pastille`,
+    motif.test(surPastille), surPastille || '(pastille cachée)');
+  check(`${fichier} : et le volet porte sa ligne de lieu`,
+    /Location/.test(volet), volet.replace(/\n/g, ' / ').slice(0, 90));
+}
+
+for (const fichier of ['DSCN0010.jpg', 'avec-lieu.mp4']) {
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+  await page.setInputFiles('#picker', join(FIXTURES, fichier));
+  await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+  await Promise.all([
+    page.waitForEvent('download', { timeout: 60_000 }),
+    page.click('#effacer'),
+  ]);
+  await page.waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && p.hidden;
+  }, null, { timeout: 30_000 }).catch(() => {});
+  const { surPastille, volet } = await lieuAffiche();
+  // Le sens qui compte le plus : on vient de cliquer « retirer le lieu ».
+  check(`${fichier} : après l'effacement, plus de lieu sur la pastille`,
+    surPastille === '', surPastille);
+  check(`${fichier} : ni de ligne de lieu dans le volet`,
+    !/Location/.test(volet), volet.replace(/\n/g, ' / ').slice(0, 90));
+}
+
 console.log('\nLe volet des autres informations');
 for (const [fichier, attendu] of [
   ['DSCN0010.jpg', /Camera/],

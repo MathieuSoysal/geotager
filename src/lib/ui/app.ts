@@ -687,7 +687,7 @@ async function appliquerMaintenant(
 
   const statuts = new Map<string, string>();
   let derniereRaison = '';
-  const produits: Array<{ name: string; input: Uint8Array; type: string }> = [];
+  const produits: Array<{ id: string; name: string; input: Uint8Array; type: string }> = [];
   let echecs = 0;
 
   /*
@@ -712,7 +712,7 @@ async function appliquerMaintenant(
     if (res.ok) {
       statuts.set(it.id, `✓ ${res.route === 'P1' ? T.app.sansRienDeplacer : T.app.ecrit}`);
       const nom = nomSortie(it.file.name, prefixe);
-      produits.push({ name: nom, input: res.bytes, type: typeDuProduit(it, nom) });
+      produits.push({ id: it.id, name: nom, input: res.bytes, type: typeDuProduit(it, nom) });
     } else {
       echecs++;
       statuts.set(it.id, messageErreur(res.code, res.message).slice(0, 40));
@@ -781,6 +781,51 @@ async function appliquerMaintenant(
       ? T.app.pretsVerifies(produits.length)
       : T.app.pretsAvecEchecs(produits.length, echecs),
   );
+
+  await adopterLesProduits(produits);
+}
+
+/**
+ * L'écran montre le fichier qu'on vient d'écrire, et non celui qu'on a chargé.
+ *
+ * Il montrait le second, et personne ne l'avait jamais vérifié : après un ajout
+ * il n'affichait aucun lieu — « vous l'avez enregistré, mais vous ne le montrez
+ * pas » —, et après un effacement il affichait ENCORE celui qu'on venait de
+ * retirer. Sur un outil dont c'est le métier, ce second sens est le pire des
+ * deux : on clique « retirer le lieu » et le lieu reste à l'écran.
+ *
+ * On remplace les octets de l'élément, et non l'affichage seul. La moitié de ce
+ * que l'écran porte est une CAPACITÉ — champ actif, boutons d'effacement,
+ * phrase de motif — et la rafraîchir sans changer les octets la ferait décrire
+ * le fichier produit pendant que les boutons agiraient sur l'original. Ce
+ * projet a déjà payé cette divergence deux fois : Q-039, puis Q-051.
+ *
+ * Le NOM d'origine est conservé : c'est lui qui compose le nom de sortie, et
+ * adopter le nom suffixé empilerait « -geotagged-geotagged » à la deuxième
+ * écriture.
+ */
+async function adopterLesProduits(
+  produits: Array<{ id: string; name: string; input: Uint8Array; type: string }>,
+): Promise<void> {
+  for (const p of produits) {
+    const it = items.find((x) => x.id === p.id);
+    if (!it) continue;
+    // `File` recopie les octets : celui qui part au téléchargement n'est pas
+    // celui qu'on transfère au worker, et le tampon ne peut pas être neutralisé
+    // sous les pieds du navigateur.
+    it.file = new File([p.input as BlobPart], it.file.name, { type: p.type });
+    const buffer = await it.file.arrayBuffer();
+    const rep = await demander(
+      { type: 'read', id: it.id, name: it.file.name, buffer },
+      [buffer],
+    );
+    if (rep.type === 'read:ok') {
+      it.read = rep.payload;
+      it.erreur = undefined;
+    }
+  }
+  if (principal) afficherPrincipal();
+  if (items.length > 1) majListeLot();
 }
 
 /* --- partage sortant ------------------------------------------------ */

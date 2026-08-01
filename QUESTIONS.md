@@ -2275,3 +2275,60 @@ généralisée le couvre **par construction, pas par mesure**. Le paquet de text
 `exiftool -XMP:GPSLatitude=…` sur un vrai MP4 produit exactement le cas dangereux.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-055 — L'écran montrait le fichier chargé, jamais le fichier produit
+
+**Contexte :** cinquième signalement du même symptôme, et le premier à le nommer exactement :
+« vous avez enregistré le lieu dans la vidéo, les outils du téléphone le voient, mais vous, vous ne
+l'affichez pas ».
+
+Ce n'était pas un défaut de lecture — les quatre tours précédents cherchaient au mauvais endroit.
+**L'affichage n'était jamais rafraîchi après une écriture.** Mesuré dans le navigateur, après avoir
+enregistré un lieu dans un MP4 qui n'en avait pas :
+
+```
+avant l'écriture         pastille=(cachée)   volet= Length 0:01 / Size 320 × 180
+APRÈS le téléchargement  pastille=(cachée)   volet= Length 0:01 / Size 320 × 180
+```
+
+Le fichier produit portait bien le lieu. L'écran, lui, montrait toujours l'état du fichier **tel
+qu'il avait été chargé**.
+
+**Et l'autre sens était pire.** Après un clic sur « Effacer la position », sur un JPEG géolocalisé :
+
+```
+APRÈS l'effacement   pastille=Currently : 43.46745, 11.88513
+                     volet= … / Location / 43° 28′ 2.81″ N 11° 53′ 6.46″ E / …
+```
+
+Le lieu était retiré du fichier rendu, et l'écran continuait de l'afficher. Sur un outil dont c'est
+le métier, c'est l'affichage le plus trompeur possible : on clique « retirer », et le lieu reste là.
+
+**Le défaut touchait tous les formats, depuis l'origine.** Vérifié à l'identique sur un JPEG. Il ne
+se voyait pas sur une photo parce que le volet y reste rempli d'appareil, de date et de pose : une
+ligne « Location » manquante passe inaperçue au milieu de seize autres. Sur une vidéo, dont le volet
+ne porte que deux lignes, il saute aux yeux.
+
+**Retenu : après une écriture réussie, l'élément adopte les octets produits**, est resondé par le
+même chemin que le chargement initial, et l'écran est refait.
+
+On remplace les octets, et non l'affichage seul. La moitié de ce que l'écran porte est une
+CAPACITÉ — champ actif, boutons d'effacement, phrase de motif — et la rafraîchir sans changer les
+octets la ferait décrire le fichier produit pendant que les boutons agiraient sur l'original. Ce
+projet a déjà payé cette divergence deux fois, en Q-039 puis en Q-051 ; la reproduire ici pour
+gagner trois lignes n'aurait aucun sens. Le NOM d'origine est conservé : c'est lui qui compose le
+nom de sortie, et adopter le nom suffixé empilerait « -geotagged-geotagged » à la deuxième écriture.
+
+**Pourquoi quatre tours sont passés à côté, et c'est la leçon du lot.** Chacun a vérifié le FICHIER
+produit — octets, structure, relecture par l'oracle, aller-retour par le sélecteur — et aucun n'a
+regardé l'ÉCRAN après l'avoir produit. Le dépôt n'avait aucun contrôle de cette moitié-là, pour
+aucun format. Les corrections précédentes restent bonnes, deux d'entre elles empêchaient même de
+rendre un fichier faussement propre, mais aucune ne répondait à la question posée.
+
+Les contrôles ajoutés couvrent les deux sens, sur une photo comme sur une vidéo, et **échouaient
+tous les six** sur le code d'avant : après un ajout la pastille et la ligne de lieu apparaissent ;
+après un effacement elles disparaissent.
+
+**Bloque :** non.
