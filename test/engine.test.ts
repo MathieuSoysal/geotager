@@ -1162,7 +1162,7 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 const VIDEOS = [
   'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
   'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
-  'fragmente.mp4', 'appareil.mp4',
+  'fragmente.mp4', 'appareil.mp4', 'lieu-hors-piste.mp4',
 ];
 
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
@@ -1418,6 +1418,14 @@ scenario('Un ajout ne fait que décaler, jamais réécrire', () => {
     const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
     const s = sonderVideo(src);
     if (s.position || !s.capacites.ajouter) continue;
+    // A file whose text packet carries a copy of the location has that packet
+    // purged during the write as well, legitimately, or the file would state
+    // two locations. The tail is then no longer a simple shift, and this check
+    // does not apply. It is skipped explicitly rather than silently.
+    if (copieDuLieuAilleursVideo(src)) {
+      check(`${nom} : écarté, son paquet de texte porte une copie à purger`, true);
+      continue;
+    }
 
     const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
     const ajoute = pose.bytes.length - src.length;
@@ -1676,6 +1684,55 @@ scenario('Une vidéo dit sa durée, ses dimensions et sa date', () => {
     check(`${nom} : rien d'illisible n'est affiché`, sale === undefined,
       sale ? `${sale.cle}=${JSON.stringify(sale.value)}` : '');
   }
+});
+
+scenario('Un lieu rangé ailleurs que là où l\'on regardait', () => {
+  /*
+   * The reader looked for each box at a fixed path, and took only the first box
+   * at each level. A file storing its location in a second `udta`, in a track's
+   * own, in an `ilst` hung elsewhere, or in the text packet the standard places
+   * as a top-level box slipped past us, while every other reader displayed it.
+   *
+   * This file is the dangerous case, not merely a missing display: the residual
+   * sweep did not see that packet, so an erase could return a file announced as
+   * clean that still said where it had been shot.
+   */
+  const chemin = join(FIXTURES, 'lieu-hors-piste.mp4');
+  const src = new Uint8Array(readFileSync(chemin));
+
+  // The packet is where the standard puts it, and not in `moov/udta`.
+  const haut = boites(src, 0, src.length);
+  check('le paquet de texte est une boîte de premier niveau',
+    haut.some((x) => x.type === 'uuid'), haut.map((x) => x.type).join(' '));
+  check('aucun rangement ordinaire ne porte le lieu', porteursDeLieu(src).length === 0);
+
+  // 1. It is read, which is the complaint, exactly as filed.
+  const mine = lirePositionVideo(src);
+  const theirs = exifPosition(chemin);
+  check('le lieu y est pourtant lu', mine !== null && theirs !== null &&
+    distanceMetres(mine, theirs) < 1, mine ? `${mine.lat}, ${mine.lon}` : 'null');
+
+  // 2. The residual sweep sees it, without which the erase would be lying.
+  check('et le balayage résiduel le voit', copieDuLieuAilleursVideo(src));
+
+  // 3. Erasing really removes it, and the oracle confirms.
+  const vide = effacerPositionVideo(src);
+  const out = join(tmp, 'hors-piste-vide.mp4');
+  writeFileSync(out, vide.bytes);
+  check('taille identique à l\'octet près', vide.bytes.length === src.length);
+  check('plus rien ne subsiste', !copieDuLieuAilleursVideo(vide.bytes));
+  check('et l\'oracle ne trouve plus de lieu', exifPosition(out) === null);
+
+  // 4. A correction does not leave the two versions contradicting each other.
+  const ecrit = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const out2 = join(tmp, 'hors-piste-ecrit.mp4');
+  writeFileSync(out2, ecrit.bytes);
+  const relu = exifPosition(out2);
+  check('après correction, l\'oracle lit le lieu demandé',
+    relu !== null && distanceMetres(relu, AVIGNON) < 1);
+  // The old copy does not survive: two locations in one file are a lie.
+  const ancien = exif(['-a', '-G1', '-s', '-XMP:GPSLatitude', out2]).trim();
+  check('et l\'ancienne copie a disparu du paquet de texte', ancien === '', ancien.slice(0, 80));
 });
 
 /** One real file carrying a location, per format. Without it, no proof. */

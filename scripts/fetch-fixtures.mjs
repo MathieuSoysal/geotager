@@ -166,6 +166,11 @@ const PREPARES = [
     args: ['-n', '-UserData:LocationInformation=Avignon Role=shooting Lat=43.9493 Lon=4.8055 Alt=26'],
   },
   {
+    nom: 'lieu-hors-piste.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 dont le lieu n\'est QUE dans le paquet de texte, rangé en boîte de premier niveau — le cas où l\'effacement pouvait mentir',
+    args: ['-n', '-XMP:GPSLatitude=43.90811', '-XMP:GPSLongitude=4.86387'],
+  },
+  {
     nom: 'appareil.mp4', depuis: 'sans-lieu.mp4', requis: true,
     role: 'MP4 qui nomme son appareil — sans lui, la ligne « Appareil » du volet ne serait éprouvée par rien',
     args: ['-n', '-UserData:Make=Geotager', '-UserData:Model=Modele Temoin'],
