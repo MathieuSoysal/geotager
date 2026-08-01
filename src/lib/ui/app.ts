@@ -682,7 +682,7 @@ async function appliquerMaintenant(
 
   const statuts = new Map<string, string>();
   let derniereRaison = '';
-  const produits: Array<{ name: string; input: Uint8Array; type: string }> = [];
+  const produits: Array<{ id: string; name: string; input: Uint8Array; type: string }> = [];
   let echecs = 0;
 
   /*
@@ -707,7 +707,7 @@ async function appliquerMaintenant(
     if (res.ok) {
       statuts.set(it.id, `✓ ${res.route === 'P1' ? T.app.sansRienDeplacer : T.app.ecrit}`);
       const nom = nomSortie(it.file.name, prefixe);
-      produits.push({ name: nom, input: res.bytes, type: typeDuProduit(it, nom) });
+      produits.push({ id: it.id, name: nom, input: res.bytes, type: typeDuProduit(it, nom) });
     } else {
       echecs++;
       statuts.set(it.id, messageErreur(res.code, res.message).slice(0, 40));
@@ -776,6 +776,48 @@ async function appliquerMaintenant(
       ? T.app.pretsVerifies(produits.length)
       : T.app.pretsAvecEchecs(produits.length, echecs),
   );
+
+  await adopterLesProduits(produits);
+}
+
+/**
+ * The screen shows the file just written, not the one loaded.
+ *
+ * It showed the second, and nobody had ever checked: after an add it displayed
+ * no location at all, and after an erase it still displayed the one just
+ * removed. On a tool whose job this is, the second is the worse of the two: you
+ * click "remove the location" and the location stays on screen.
+ *
+ * The element's bytes are replaced, not the display alone. Half of what the
+ * screen carries is a capability, the active field, the erase buttons, the
+ * reason sentence, and refreshing that without changing the bytes would have it
+ * describe the produced file while the buttons acted on the original.
+ *
+ * The original name is kept: it is what composes the output name, and adopting
+ * the suffixed name would stack "-geotagged-geotagged" on the second write.
+ */
+async function adopterLesProduits(
+  produits: Array<{ id: string; name: string; input: Uint8Array; type: string }>,
+): Promise<void> {
+  for (const p of produits) {
+    const it = items.find((x) => x.id === p.id);
+    if (!it) continue;
+    // `File` copies the bytes: the one going to the download is not the one
+    // transferred to the worker, and the buffer cannot be neutered under the
+    // browser's feet.
+    it.file = new File([p.input as BlobPart], it.file.name, { type: p.type });
+    const buffer = await it.file.arrayBuffer();
+    const rep = await demander(
+      { type: 'read', id: it.id, name: it.file.name, buffer },
+      [buffer],
+    );
+    if (rep.type === 'read:ok') {
+      it.read = rep.payload;
+      it.erreur = undefined;
+    }
+  }
+  if (principal) afficherPrincipal();
+  if (items.length > 1) majListeLot();
 }
 
 // Outgoing share
