@@ -79,12 +79,21 @@ export const MATRICE: LigneMatrice[] = [
     // so before the action.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
-  // "Read" long carried a yes here without a line of code reading a video:
-  // the engine returned "no location" without consulting any reader, and the
-  // second reader opens neither MOV nor MP4. The cell was wrong. It stays
-  // wrong until a real video can test it, and no freely-licensed public corpus
-  // provides one.
-  { formats: ['video'], capacites: RIEN },
+  {
+    formats: ['video'],
+    // These four cells sat at "not yet" for want of a file, not for want of
+    // code: the earlier corpus search concluded no real freely-licensed video
+    // existed, and that was wrong. Three were found, and every cell now runs
+    // against one of them.
+    //
+    // A video stores its location as text, in several places at once.
+    // Correcting moves no byte when the slots are long enough; otherwise the
+    // file grows, which needs the same permission as adding. And when the
+    // location is also written throughout the recording, as an action camera
+    // does, the three write operations close file by file rather than hand back
+    // a falsely clean file.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
+  },
 ];
 
 /** What the tool can do with a format, regardless of the file received. */
@@ -124,7 +133,11 @@ export type Motif =
   | 'copie-ailleurs'
   | 'lecture-seule'
   | 'sans-lieu-possible'
-  | 'video'
+  // A video that records the location throughout its duration. The only
+  // reason to close all three writes at once while leaving reading open: the
+  // main location displays perfectly well, which is exactly why it has to be
+  // said that it is not the only one.
+  | 'lieu-en-mouvement'
   | 'inconnu';
 
 // The sentences themselves live in src/lib/i18n/: the engine returns a reason

@@ -22,6 +22,8 @@
 
 import { ExifError } from './erreurs.ts';
 import type { Format, LatLon } from './types.ts';
+import { boites, texte } from './bmff.ts';
+import { readU32 } from './octets.ts';
 import {
   type TiffView,
   type Edit,
@@ -127,9 +129,30 @@ export interface Ecriture {
 
 const BRANDS_HEIC = ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1', 'heim', 'heis', 'mif2'];
 const BRANDS_AVIF = ['avif', 'avis'];
-const BRANDS_VIDEO = ['qt  ', 'mp41', 'mp42', 'isom', 'iso2', 'M4V ', '3gp4', '3gp5'];
+const BRANDS_VIDEO = [
+  'qt  ', 'mp41', 'mp42', 'isom', 'iso2', 'M4V ', '3gp4', '3gp5',
+  // Brands met on real files that the first list let through as "unknown":
+  // recent Android writes "3gp6", CDMA devices "3g2a", and the generic brands
+  // run up to "iso6".
+  '3gp6', '3g2a', 'mmp4', 'avc1', 'iso4', 'iso5', 'iso6', 'dash',
+];
 
-/** Recognises a format from its leading bytes alone. */
+/**
+ * Boxes a QuickTime file may begin with.
+ *
+ * The type box is optional in QuickTime; it is an MP4 invention that came
+ * later. A real `.mov` starts directly with one of these, and requiring the
+ * type box made it "unknown".
+ */
+const TETES_QUICKTIME = ['moov', 'mdat', 'wide', 'pnot', 'skip', 'free'];
+
+/**
+ * Recognises a format from its leading bytes alone.
+ *
+ * Order matters: AVIF and HEIC come before video, because both families share
+ * the wrapper and the generic brands (`isom`, `iso2`) can head either. Where
+ * the brand would not settle it, the structure does, never guesswork.
+ */
 export function detecterFormat(b: Uint8Array): Format {
   const a = (...codes: number[]) => codes.every((c, i) => b[i] === c);
   if (a(0xff, 0xd8, 0xff)) return 'jpeg';
@@ -138,18 +161,45 @@ export function detecterFormat(b: Uint8Array): Format {
   if (a(0x49, 0x49, 0x2a, 0x00) || a(0x4d, 0x4d, 0x00, 0x2a)) return 'tiff';
   if (b.length > 12 && a(0x52, 0x49, 0x46, 0x46) && b[8] === 0x57 && b[9] === 0x45) return 'webp';
   if (b.length > 12) {
-    const texte = (o: number) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
-    if (texte(4) === 'ftyp') {
+    const mot = (o: number) => texte(b, o, 4);
+    if (mot(4) === 'ftyp') {
       // The major brand is not enough to guess from: a Nokia HEIC announces
       // itself as "mif1" and an AVIF sequence as "avis". Whole strings are
       // compared, so "avis" is not recognised inside something else.
-      const marque = texte(8);
-      if (BRANDS_AVIF.includes(marque)) return 'avif';
-      if (BRANDS_HEIC.includes(marque)) return 'heic';
-      if (BRANDS_VIDEO.includes(marque)) return 'video';
+      const marques = [mot(8), ...marquesCompatibles(b)];
+      if (marques.some((m) => BRANDS_AVIF.includes(m))) return 'avif';
+      if (marques.some((m) => BRANDS_HEIC.includes(m))) return 'heic';
+      // `isom` and its neighbours are generic brands: they head a video as
+      // readily as an image of that family. Requiring the box that describes
+      // tracks asks the structure what the brand does not say, since an image
+      // of that family has none.
+      if (marques.some((m) => BRANDS_VIDEO.includes(m)) && aUnMoov(b)) return 'video';
     }
+    // With no type box, the structure remains. Requiring a `moov` avoids
+    // grabbing any file that happens to start with a free-space box.
+    if (TETES_QUICKTIME.includes(mot(4)) && aUnMoov(b)) return 'video';
   }
   return 'inconnu';
+}
+
+/**
+ * Compatible brands declared after the major brand.
+ *
+ * A file may announce itself under a brand we do not know and list one we do
+ * right after. Reading them costs a few bytes and closes a gap the major brand
+ * alone left open.
+ */
+function marquesCompatibles(b: Uint8Array): string[] {
+  const taille = readU32(b, 0, 'BE');
+  if (taille < 16 || taille > b.length || taille > 1024) return [];
+  const out: string[] = [];
+  for (let o = 16; o + 4 <= taille; o += 4) out.push(texte(b, o, 4));
+  return out;
+}
+
+/** True if a `moov` box appears at the top level. */
+function aUnMoov(b: Uint8Array): boolean {
+  return boites(b, 0, b.length).some((x) => x.type === 'moov');
 }
 
 const registre: Conteneur[] = [];

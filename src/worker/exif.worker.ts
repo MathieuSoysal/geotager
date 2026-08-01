@@ -22,6 +22,15 @@ import {
   toutEffacer,
 } from '../lib/exif/conteneurs.ts';
 import { type Capacites, type Motif, capacitesDe } from '../lib/exif/capacites.ts';
+import {
+  ecrirePositionVideo,
+  effacerPositionVideo,
+  lireIso6709,
+  lirePositionVideo,
+  porteursDeLieu,
+  sonderVideo,
+} from '../lib/exif/quicktime.ts';
+import { type Boite, boites, enfants, finDe } from '../lib/exif/bmff.ts';
 import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres, validerPosition } from '../lib/exif/coords.ts';
@@ -99,8 +108,20 @@ function sonder(bytes: Uint8Array): Sonde {
   if (format === 'inconnu') {
     return { ...vide, capacites: statiques, motif: 'inconnu' };
   }
+
+  // A video carries no TIFF block: its location is a text string, stored in
+  // several places at once. It therefore has its own probe, and it is the same
+  // one the test uses, so announcement and behaviour cannot diverge.
   if (format === 'video') {
-    return { ...vide, capacites: statiques, motif: 'video' };
+    const s = sonderVideo(bytes);
+    const capacites: Capacites = {
+      lire: statiques.lire && s.capacites.lire,
+      corriger: statiques.corriger && s.capacites.corriger,
+      ajouter: statiques.ajouter && s.capacites.ajouter,
+      effacer: statiques.effacer && s.capacites.effacer,
+      effacerTout: statiques.effacerTout && s.capacites.effacerTout,
+    };
+    return { ...vide, position: s.position, capacites, motif: motifVideo(s, capacites) };
   }
 
   const conteneur = conteneurDe(bytes);
@@ -170,6 +191,20 @@ function sonder(bytes: Uint8Array): Sonde {
 }
 
 /**
+ * Why the tool can, or cannot, act on this video.
+ *
+ * A moving location comes before everything else: it is the only reason that
+ * closes all three operations at once, and the one the user must read even when
+ * the main location displays perfectly well.
+ */
+function motifVideo(s: ReturnType<typeof sonderVideo>, c: Capacites): Motif {
+  if (s.lieuEnMouvement) return 'lieu-en-mouvement';
+  if (!c.effacer) return 'copie-ailleurs';
+  if (s.position !== null) return c.corriger ? 'ok' : 'forme-inhabituelle';
+  return c.ajouter ? 'ok' : 'sans-lieu-possible';
+}
+
+/**
  * Projects the capabilities onto the contract the interface consumes.
  *
  * "Modify" means two things depending on the file: replace a location already
@@ -232,7 +267,13 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   const details: Array<{ cle: string; value: string }> = [];
 
   try {
-    const tags = (await exifr.parse(buffer, OPTIONS_COMPLETES)) as
+    // The second reader opens neither MOV nor MP4: calling it on a video would
+    // have it sweep several megabytes for nothing. Worse, if it ever learned to
+    // read them, two readers would answer with no rule saying which prevails,
+    // when on a video ours is the one that writes.
+    const tags = (format === 'video'
+      ? undefined
+      : await exifr.parse(buffer, OPTIONS_COMPLETES)) as
       | Record<string, unknown>
       | undefined;
 
@@ -350,11 +391,80 @@ function blocNu(octets: Uint8Array): Uint8Array | null {
 const accord = (a: LatLon | null, b: LatLon | null): boolean =>
   (a === null && b === null) || (a !== null && b !== null && distanceMetres(a, b) < 1);
 
+/**
+ * Cross-checking a video, and what it cannot be.
+ *
+ * On a photo the guarantee rests on a second reader, written by somebody else,
+ * reading back what we just wrote. For a video that second reader does not
+ * exist in a browser: `exifr` opens neither MOV nor MP4. Saying so is more
+ * honest than implying a guarantee that is not there.
+ *
+ * What replaces it is not nothing, and it targets the bug actually feared here:
+ * not byte order, since we write text, but size arithmetic, where a box has
+ * grown and a parent kept its old size.
+ *
+ *   1. The structure is re-walked whole from the first byte, and every parent
+ *      must be exactly filled by its children.
+ *   2. Every place the location is stored must agree on the same answer.
+ *
+ * The real independent reader, ExifTool, runs in continuous integration on real
+ * files, column by column.
+ */
+function structureIntacte(b: Uint8Array): boolean {
+  const haut = boites(b, 0, b.length);
+  if (!haut.length || finDe(haut[haut.length - 1]) !== b.length) return false;
+  const moov = haut.find((x) => x.type === 'moov');
+  if (!moov) return false;
+  const verifier = (parent: Boite, profondeur: number): boolean => {
+    if (profondeur > 12) return true;
+    const filles = enfants(b, parent);
+    if (!filles.length) return true;
+    if (finDe(filles[filles.length - 1]) !== finDe(parent)) return false;
+    return filles.every((f) => verifier(f, profondeur + 1));
+  };
+  return verifier(moov, 0);
+}
+
+async function verifierVideo(
+  produit: Uint8Array,
+  attendu: LatLon | null,
+): Promise<{ verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean }> {
+  const parNous = (() => {
+    try {
+      return lirePositionVideo(produit);
+    } catch {
+      return null;
+    }
+  })();
+
+  const accordent = (() => {
+    try {
+      // A slot saying something different from the others would be exactly the
+      // lie this module exists to prevent.
+      const lus = porteursDeLieu(produit)
+        .map((p) => (p.binaire ? validerPosition({ lat: p.binaire.lat, lon: p.binaire.lon }) : lireIso6709(p.texte)))
+        .filter((x): x is LatLon => x !== null);
+      return lus.every((x) => accord(x, parNous));
+    } catch {
+      return false;
+    }
+  })();
+
+  const croise = structureIntacte(produit) && accordent;
+  if (attendu === null) {
+    return { verified: parNous, drift: parNous === null ? 0 : Infinity, croise, croiseComplet: false };
+  }
+  if (!parNous) return { verified: null, drift: Infinity, croise, croiseComplet: false };
+  return { verified: parNous, drift: distanceMetres(parNous, attendu), croise, croiseComplet: false };
+}
+
 async function verifier(
   original: Uint8Array,
   produit: Uint8Array,
   attendu: LatLon | null,
 ): Promise<{ verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean }> {
+  if (detecterFormat(produit) === 'video') return verifierVideo(produit, attendu);
+
   // A: our read-back, structure relocated from the first byte.
   const parNous = (() => {
     try {
@@ -417,7 +527,10 @@ async function appliquer(
   // The refusal reuses the reason already announced before the action: what
   // the user read and what they get cannot contradict, whatever language they
   // read it in.
-  if (!permise || !conteneur) {
+  // A video has no container in the TIFF-block sense: that is normal, and not
+  // a refusal.
+  const video = sonde.format === 'video';
+  if (!permise || (!conteneur && !video)) {
     return echec('FORMAT_NON_MODIFIABLE', 'Opération non permise sur ce fichier.', sonde.motif);
   }
 
@@ -425,9 +538,24 @@ async function appliquer(
     let produit: Ecriture;
     let attendu: LatLon | null = null;
 
-    if (operation.kind === 'set') {
+    if (video) {
+      if (operation.kind === 'set') {
+        const pose = ecrirePositionVideo(bytes, operation.position.lat, operation.position.lon);
+        // The route is P1 when nothing moved, P2 when the file grew.
+        produit = { ...pose, route: pose.bytes.length === bytes.length ? 'P1' : 'P2',
+          precisionEcrite: false };
+        attendu = operation.position;
+      } else if (operation.kind === 'erase') {
+        produit = { ...effacerPositionVideo(bytes), route: 'P1', precisionEcrite: false };
+      } else {
+        throw new ExifError(
+          'EFFACEMENT_TOTAL_IMPOSSIBLE',
+          'Nous ne savons pas encore retirer toutes les informations de ce type de fichier.',
+        );
+      }
+    } else if (operation.kind === 'set') {
       produit = ecrirePosition(
-        conteneur,
+        conteneur!,
         bytes,
         operation.position.lat,
         operation.position.lon,
@@ -435,9 +563,9 @@ async function appliquer(
       );
       attendu = operation.position;
     } else if (operation.kind === 'erase') {
-      produit = effacerPosition(conteneur, bytes);
+      produit = effacerPosition(conteneur!, bytes);
     } else {
-      produit = toutEffacer(conteneur, bytes);
+      produit = toutEffacer(conteneur!, bytes);
     }
 
     // "Byte-exact" is not a figure of speech. Comparing sizes proves nothing:

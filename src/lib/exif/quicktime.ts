@@ -1,0 +1,802 @@
+/**
+ * The location of a video, MOV and MP4.
+ *
+ * Nothing here resembles the rest of the engine, and that is intended. A photo
+ * keeps its position in a TIFF block, as rationals, in one place. A video keeps
+ * it as text, an ISO 6709 string such as `+43.9493+004.8055/`, and it keeps it
+ * in several places at once depending on who wrote it: Apple, Samsung and
+ * Google do not pick the same one.
+ *
+ * Three rules govern everything below, and they matter more than the code.
+ *
+ *   1. All or nothing. A file whose one slot says one location and whose other
+ *      says a second is a lie. Either all are rewritten, or none is.
+ *   2. The length does not change. An ISO 6709 string can be written with more
+ *      or fewer decimals, so the number of decimals is chosen to land on the
+ *      exact length of the original. No byte moves, so no offset in the file
+ *      becomes wrong.
+ *   3. Refuse rather than lie. An action camera records the location
+ *      continuously, frame by frame, in the data track. We can read that and we
+ *      cannot remove it. Erasing the one visible copy would hand back a file
+ *      the user believes is clean and which is not, so the original is returned
+ *      intact and the reason is given.
+ */
+
+import { ExifError } from './erreurs.ts';
+import { type LatLon, distanceMetres, validerPosition } from './coords.ts';
+import { type Plage, type Pose } from './conteneurs.ts';
+import { porteUnLieu, purgerLeLieu } from './xmp.ts';
+import {
+  type Boite,
+  boites,
+  charge,
+  chemin,
+  enfants,
+  finDe,
+  texte,
+  toutesLesBoites,
+} from './bmff.ts';
+import { readU16, readU32, writeU32 } from './octets.ts';
+
+// The ISO 6709 string
+
+/**
+ * A position as a video writes it: mandatory sign, fixed width, trailing slash.
+ *
+ * All three widths in the standard occur: `+43.9493` is degrees, `+4356.958`
+ * degrees and minutes, `+435657.5` degrees, minutes and seconds. The number of
+ * digits before the point is the only clue, hence reading in groups of two
+ * rather than a naive `Number()`, which would yield "4356.958 degrees" and so a
+ * position that is invalid, or worse, valid and wrong.
+ */
+const ISO6709 =
+  /^([+-])(\d{2,7}(?:\.\d+)?)([+-])(\d{3,8}(?:\.\d+)?)((?:[+-]\d+(?:\.\d+)?)?)\/?$/;
+
+function sexagesimal(chiffres: string, largeurDegres: number): number | null {
+  const point = chiffres.indexOf('.');
+  const entiers = point < 0 ? chiffres.length : point;
+  const supplement = entiers - largeurDegres;
+  // 0: degrees only. 2: degrees and minutes. 4: degrees, minutes and seconds.
+  if (supplement !== 0 && supplement !== 2 && supplement !== 4) return null;
+  const degres = Number(chiffres.slice(0, largeurDegres));
+  const reste = chiffres.slice(largeurDegres);
+  if (!Number.isFinite(degres)) return null;
+  if (supplement === 0) return degres + (reste ? Number(`0${reste}`) : 0);
+  const minutes = Number(reste.slice(0, 2) + (supplement === 2 ? reste.slice(2) : ''));
+  if (supplement === 2) return degres + minutes / 60;
+  const secondes = Number(reste.slice(2));
+  return degres + Number(reste.slice(0, 2)) / 60 + secondes / 3600;
+}
+
+/** Decodes a video position string. Returns null rather than guess. */
+export function lireIso6709(s: string): LatLon | null {
+  const m = ISO6709.exec(s.trim());
+  if (!m) return null;
+  const lat = sexagesimal(m[2], 2);
+  const lon = sexagesimal(m[4], 3);
+  if (lat === null || lon === null) return null;
+  return validerPosition({
+    lat: m[1] === '-' ? -lat : lat,
+    lon: m[3] === '-' ? -lon : lon,
+  });
+}
+
+/** The altitude if there is one, verbatim, to rewrite it untouched. */
+function altitudeDe(s: string): string {
+  return ISO6709.exec(s.trim())?.[5] ?? '';
+}
+
+/**
+ * Writes a position at an imposed length.
+ *
+ * The simple form is `10 + a + b` characters: sign, two digits, point and `a`
+ * decimals for latitude; sign, three digits, point and `b` decimals for
+ * longitude; the trailing slash. Choosing `a + b` therefore gives any length
+ * from twelve upwards, and every string a real device writes is longer.
+ *
+ * Returns null when the requested length cannot be met exactly. Approximating
+ * would be the one place in this module where a location nobody asked for gets
+ * written.
+ */
+export function ecrireIso6709(p: LatLon, longueur: number, altitude = ''): string | null {
+  const decimales = longueur - 10 - altitude.length;
+  // Nine decimals is less than a tenth of a millimetre: beyond that, the
+  // precision shown would be pure invention.
+  if (decimales < 2 || decimales > 18) return null;
+  const a = Math.min(9, Math.ceil(decimales / 2));
+  const b = decimales - a;
+  if (b < 1 || b > 9) return null;
+  const signe = (v: number) => (v < 0 ? '-' : '+');
+  const bloc = (v: number, entiers: number, d: number) =>
+    signe(v) + Math.abs(v).toFixed(d).padStart(entiers + 1 + d, '0');
+  const s = `${bloc(p.lat, 2, a)}${bloc(p.lon, 3, b)}${altitude}/`;
+  return s.length === longueur ? s : null;
+}
+
+// The storage slots
+
+/**
+ * A place in the file that carries a copy of the location.
+ *
+ * `debutTexte`/`longueurTexte` address the string alone, in file coordinates:
+ * that is what gets rewritten. `boite` addresses the whole envelope, which is
+ * what gets neutralised on erase.
+ */
+export interface Porteur {
+  sorte: 'xyz-udta' | 'xyz-ilst' | 'keys' | 'loci';
+  boite: Boite;
+  debutTexte: number;
+  longueurTexte: number;
+  texte: string;
+  /** Binary coordinates of a `loci`, fixed point, with no string. */
+  binaire?: { lon: number; lat: number };
+  /** The place name in words, when the slot carries one. */
+  nomDeLieu: { debut: number; longueur: number } | null;
+}
+
+/** The four-letter names the text slots use for the location. */
+const TYPES_XYZ = ['©xyz', '@xyz'];
+
+const CLE_APPLE = 'com.apple.quicktime.location.ISO6709';
+const CLE_APPLE_NOM = 'com.apple.quicktime.location.name';
+
+/**
+ * `moov/udta/©xyz` and its Samsung cousin `@xyz`.
+ *
+ * Layout: the eight-byte header, the string length in two bytes, a two-byte
+ * language code, then the string.
+ */
+function porteursUdta(b: Uint8Array, udta: Boite | null): Porteur[] {
+  if (!udta) return [];
+  const out: Porteur[] = [];
+  for (const x of enfants(b, udta)) {
+    if (!TYPES_XYZ.includes(x.type)) continue;
+    const debut = charge(x);
+    if (debut + 4 > finDe(x)) continue;
+    const longueur = readU16(b, debut, 'BE');
+    if (longueur < 1 || debut + 4 + longueur > finDe(x)) continue;
+    out.push({
+      sorte: 'xyz-udta',
+      boite: x,
+      debutTexte: debut + 4,
+      longueurTexte: longueur,
+      texte: texte(b, debut + 4, longueur),
+      nomDeLieu: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * `moov/udta/loci`, the 3GPP slot, and the only one that writes the place name
+ * in words next to the coordinates.
+ *
+ * Layout: version and flags (4), language (2), the NUL-terminated place name,
+ * the role (1), then longitude, latitude and altitude as 16.16 fixed point,
+ * four bytes each.
+ *
+ * This is the "Avignon" case: a file with no coordinates left that still names
+ * the town is not erased.
+ */
+function porteurLoci(b: Uint8Array, udta: Boite | null): Porteur[] {
+  if (!udta) return [];
+  const out: Porteur[] = [];
+  for (const x of enfants(b, udta)) {
+    if (x.type !== 'loci') continue;
+    const fin = finDe(x);
+    let o = charge(x) + 6;
+    const debutNom = o;
+    while (o < fin && b[o] !== 0) o++;
+    if (o >= fin) continue;
+    const longueurNom = o - debutNom;
+    o += 1 + 1; // le zéro final, puis le rôle
+    if (o + 8 > fin) continue;
+    const fixe = (p: number) => (readU32(b, p, 'BE') | 0) / 65536;
+    out.push({
+      sorte: 'loci',
+      boite: x,
+      debutTexte: o,
+      longueurTexte: 8,
+      texte: '',
+      binaire: { lon: fixe(o), lat: fixe(o + 4) },
+      nomDeLieu: longueurNom > 0 ? { debut: debutNom, longueur: longueurNom } : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * The item lists: `moov/udta/meta/ilst`, written by Google Photos, and Apple's
+ * `moov/meta`, whose entries are numbered and whose names live in a separate
+ * `keys` box.
+ *
+ * In both cases the value is in a `data` box: four bytes of type, four of
+ * language, then the payload.
+ */
+function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
+  const out: Porteur[] = [];
+
+  const valeurDe = (entree: Boite): { debut: number; longueur: number } | null => {
+    const data = enfants(b, entree).find((d) => d.type === 'data');
+    if (!data) return null;
+    const debut = charge(data) + 8;
+    const longueur = finDe(data) - debut;
+    return longueur > 0 ? { debut, longueur } : null;
+  };
+
+  // Google Photos: the key is the box name itself.
+  const ilstUdta = chemin(b, 'moov/udta/meta/ilst', racine);
+  if (ilstUdta) {
+    for (const entree of enfants(b, ilstUdta)) {
+      if (!TYPES_XYZ.includes(entree.type)) continue;
+      const v = valeurDe(entree);
+      if (!v) continue;
+      out.push({
+        sorte: 'xyz-ilst',
+        boite: entree,
+        debutTexte: v.debut,
+        longueurTexte: v.longueur,
+        texte: texte(b, v.debut, v.longueur),
+        nomDeLieu: null,
+      });
+    }
+  }
+
+  // Apple: `keys` names, `ilst` numbers. The entry whose type equals the key's
+  // 1-based index carries the value.
+  const meta = chemin(b, 'moov/meta', racine);
+  if (!meta) return out;
+  const filles = enfants(b, meta);
+  const keys = filles.find((x) => x.type === 'keys');
+  const ilst = filles.find((x) => x.type === 'ilst');
+  if (!keys || !ilst) return out;
+
+  const noms = listerKeys(b, keys);
+  const parIndex = new Map<number, Boite>();
+  for (const entree of enfants(b, ilst)) {
+    parIndex.set(readU32(b, entree.debut + 4, 'BE'), entree);
+  }
+  for (const [i, nom] of noms.entries()) {
+    const entree = parIndex.get(i + 1);
+    if (!entree) continue;
+    const v = valeurDe(entree);
+    if (!v) continue;
+    if (nom === CLE_APPLE) {
+      out.push({
+        sorte: 'keys',
+        boite: entree,
+        debutTexte: v.debut,
+        longueurTexte: v.longueur,
+        texte: texte(b, v.debut, v.longueur),
+        nomDeLieu: null,
+      });
+    } else if (nom === CLE_APPLE_NOM) {
+      // No coordinates here, only the place name in words. It has nothing to
+      // contribute on read, but it must disappear on erase.
+      out.push({
+        sorte: 'keys',
+        boite: entree,
+        debutTexte: v.debut,
+        longueurTexte: 0,
+        texte: '',
+        nomDeLieu: v,
+      });
+    }
+  }
+  return out;
+}
+
+/** The key names, in order: their rank is what links them to the values. */
+function listerKeys(b: Uint8Array, keys: Boite): string[] {
+  const out: string[] = [];
+  const fin = finDe(keys);
+  let o = charge(keys) + 8; // version et drapeaux, puis le compte
+  while (o + 8 <= fin) {
+    const taille = readU32(b, o, 'BE');
+    if (taille < 8 || o + taille > fin) break;
+    out.push(texte(b, o + 8, taille - 8));
+    o += taille;
+  }
+  return out;
+}
+
+/** Every copy of the location this file carries, whoever wrote it. */
+export function porteursDeLieu(b: Uint8Array): Porteur[] {
+  const racine = boites(b, 0, b.length);
+  const udta = chemin(b, 'moov/udta', racine);
+  return [
+    ...porteursUdta(b, udta),
+    ...porteurLoci(b, udta),
+    ...porteursIlst(b, racine),
+  ];
+}
+
+// A location that moves, which we cannot remove
+
+/**
+ * Track descriptions that signal a location recorded continuously.
+ *
+ * `gpmd` is GoPro's format, `camm` Google's, `mett` and `rtmd` several
+ * manufacturers'. The samples live in the data track, which this engine never
+ * rewrites: that is what allows working on a multi-megabyte file without
+ * decoding it, and it is also what puts removing them out of reach.
+ */
+const PISTES_DE_LIEU = ['gpmd', 'camm', 'mett', 'rtmd', 'gps ', 'CAMM'];
+
+/** `udta` boxes carrying a continuous recording we do not read. */
+const CHARGES_OPAQUES = ['GPMF'];
+
+/**
+ * True if this file keeps the location somewhere we cannot clean.
+ *
+ * This is the question that decides everything: it closes writing and erasing
+ * alike, because correcting the visible copy while leaving the track intact
+ * would produce a file that displays one location and reveals another.
+ */
+export function lieuEnMouvement(b: Uint8Array): boolean {
+  const racine = boites(b, 0, b.length);
+  for (const stsd of toutesLesBoites(b, 'stsd', racine)) {
+    for (const description of enfants(b, stsd)) {
+      if (PISTES_DE_LIEU.includes(description.type)) return true;
+    }
+  }
+  const udta = chemin(b, 'moov/udta', racine);
+  if (udta && enfants(b, udta).some((x) => CHARGES_OPAQUES.includes(x.type))) return true;
+  return false;
+}
+
+// Reading
+
+/** The location a slot carries, whatever its form. */
+function positionDe(p: Porteur): LatLon | null {
+  return p.binaire
+    ? validerPosition({ lat: p.binaire.lat, lon: p.binaire.lon })
+    : lireIso6709(p.texte);
+}
+
+/** The location of a video: that of the first slot carrying one. */
+export function lirePositionVideo(b: Uint8Array): LatLon | null {
+  for (const p of porteursDeLieu(b)) {
+    const position = positionDe(p);
+    if (position) return position;
+  }
+  return null;
+}
+
+// The file's absolute offsets
+
+interface TableDeDecalages {
+  /** File position of each entry, and its width. */
+  entrees: { pos: number; largeur: number; valeur: number }[];
+}
+
+/**
+ * Every entry that addresses a byte of the file by its absolute rank.
+ *
+ * These are the `stco` (32-bit) and `co64` (64-bit) tables: they say where each
+ * chunk of picture and sound begins. Nothing else in an unfragmented file
+ * carries an absolute offset, which is what makes adding possible, and what
+ * would make it dangerous if they were forgotten.
+ */
+function tableDeDecalages(b: Uint8Array, racine: Boite[]): TableDeDecalages {
+  const entrees: TableDeDecalages['entrees'] = [];
+  for (const largeur of [4, 8] as const) {
+    for (const table of toutesLesBoites(b, largeur === 4 ? 'stco' : 'co64', racine)) {
+      const debut = charge(table);
+      if (debut + 8 > finDe(table)) continue;
+      const compte = readU32(b, debut + 4, 'BE');
+      for (let i = 0; i < compte; i++) {
+        const pos = debut + 8 + i * largeur;
+        if (pos + largeur > finDe(table)) break;
+        const valeur = largeur === 4
+          ? readU32(b, pos, 'BE')
+          : readU32(b, pos, 'BE') * 4294967296 + readU32(b, pos + 4, 'BE');
+        entrees.push({ pos, largeur, valeur });
+      }
+    }
+  }
+  return { entrees };
+}
+
+/**
+ * True if this file tolerates its description growing.
+ *
+ * Two refusals, different in kind:
+ *
+ *   - A fragmented file keeps absolute offsets in places this module does not
+ *     rewrite. It is left alone.
+ *   - An offset pointing past the end of the file signals a description we have
+ *     not understood. Correcting it would stack one guess on another.
+ *
+ * A file with no entries at all passes: there is nothing to correct.
+ */
+export function accepteAjoutVideo(b: Uint8Array): boolean {
+  const racine = boites(b, 0, b.length);
+  if (!racine.some((x) => x.type === 'moov')) return false;
+  if (racine.some((x) => x.type === 'moof' || x.type === 'sidx' || x.type === 'mfra')) {
+    return false;
+  }
+  // A box extending to the end of the file would swallow anything appended
+  // behind it.
+  if (racine.some((x) => x.declaree === 0 && finDe(x) === b.length)) return false;
+  const { entrees } = tableDeDecalages(b, racine);
+  return entrees.every((e) => e.valeur > 0 && e.valeur < b.length);
+}
+
+// Writing
+
+const REFUS_MOUVEMENT = () =>
+  new ExifError(
+    'LIEU_EN_MOUVEMENT',
+    "Cette vidéo enregistre le lieu tout au long de son déroulement, et pas seulement une fois. Nous ne savons pas encore le retirer partout : votre fichier vous est rendu tel quel.",
+  );
+
+const REFUS_ECRITURE = () =>
+  new ExifError(
+    'VIDEO_NON_MODIFIABLE',
+    "Cette vidéo range son lieu d'une façon que nous ne savons pas réécrire sans risquer de l'abîmer. Elle n'a pas été touchée.",
+  );
+
+/**
+ * The length of a string we write ourselves: `+DD.dddddd+DDD.dddddd/`.
+ *
+ * Six decimals is eleven centimetres, deliberately finer than the one-metre
+ * tolerance of the final check: a write should not pass narrowly, it should
+ * pass comfortably.
+ */
+const LONGUEUR_NEUVE = 22;
+
+/**
+ * The distance beyond which an in-place rewrite is no longer acceptable.
+ *
+ * The number of decimals is imposed by the length of the original string, and a
+ * short string cannot say everything: `+43.9493+004.8055/` has only four
+ * decimals, an eleven-metre grid. On a location that lands exactly the rewrite
+ * is exact; on another it would record a neighbour of what was asked for. So we
+ * measure what we just wrote and change route rather than record an
+ * approximation.
+ */
+const ECART_TOLERE_METRES = 0.5;
+
+/**
+ * Rewrites every copy of the location without moving a single byte.
+ *
+ * All or nothing: the replacements for every slot are computed first, and
+ * nothing is written until all of them are achievable. A half-corrected file
+ * would carry two different locations.
+ */
+function corrigerSurPlace(b: Uint8Array, porteurs: Porteur[], p: LatLon): Pose | null {
+  const remplacements: { debut: number; octets: Uint8Array }[] = [];
+
+  for (const porteur of porteurs) {
+    if (porteur.binaire) {
+      // A `loci` still naming the old town would lie, and emptying it would
+      // shorten the box.
+      if (porteur.nomDeLieu) return null;
+      const octets = new Uint8Array(8);
+      const fixe = (v: number) => Math.round(v * 65536) | 0;
+      writeU32(octets, 0, fixe(p.lon) >>> 0, 'BE');
+      writeU32(octets, 4, fixe(p.lat) >>> 0, 'BE');
+      // The same requirement as for text, and it is not theoretical: 16.16
+      // fixed point advances in steps of one sixty-five-thousandth of a degree,
+      // one metre seven in latitude. The grid step is therefore wider than the
+      // final check's tolerance, and this slot cannot carry any location.
+      const relu = validerPosition({ lat: fixe(p.lat) / 65536, lon: fixe(p.lon) / 65536 });
+      if (!relu || distanceMetres(relu, p) > ECART_TOLERE_METRES) return null;
+      remplacements.push({ debut: porteur.debutTexte, octets });
+      continue;
+    }
+    // An entry carrying only a place name cannot receive coordinates: there is
+    // no room, and emptying it would shorten the box. The correction is refused
+    // rather than leave the name in place.
+    if (porteur.longueurTexte === 0) return null;
+    const s = ecrireIso6709(p, porteur.longueurTexte, altitudeDe(porteur.texte));
+    if (s === null) return null;
+    // We read back what we just wrote. The original length imposes the number
+    // of decimals, and too short a string cannot carry the requested location:
+    // better to change route than record its neighbour.
+    const relu = lireIso6709(s);
+    if (!relu || distanceMetres(relu, p) > ECART_TOLERE_METRES) return null;
+    remplacements.push({
+      debut: porteur.debutTexte,
+      octets: Uint8Array.from(s, (c) => c.charCodeAt(0)),
+    });
+  }
+
+  const out = b.slice();
+  const changed: Plage[] = [];
+  for (const r of remplacements) {
+    out.set(r.octets, r.debut);
+    changed.push([r.debut, r.debut + r.octets.length]);
+  }
+  return { bytes: out, changed };
+}
+
+/**
+ * Creates a location where the file carried none.
+ *
+ * The new slot goes into `moov/udta`, the one every reader understands. The
+ * file grows, so everything after the insertion point shifts, hence the pass
+ * over the tables that address a byte by its rank. That is exactly the work
+ * adding to a HEIC avoids by writing at the end of the file; a video does not
+ * allow it, because the location has to live inside the track description.
+ */
+function ajouterLeLieu(b: Uint8Array, p: LatLon, aNeutraliser: Porteur[] = []): Pose {
+  const racine = boites(b, 0, b.length);
+  const moov = racine.find((x) => x.type === 'moov');
+  if (!moov) throw REFUS_ECRITURE();
+
+  const s = ecrireIso6709(p, LONGUEUR_NEUVE);
+  if (s === null) throw REFUS_ECRITURE();
+  const chaine = Uint8Array.from(s, (c) => c.charCodeAt(0));
+
+  // The `©xyz` box: header, string length, language code, string. 0x15c7 is the
+  // "undetermined" language code, the one real devices write.
+  const xyz = new Uint8Array(12 + chaine.length);
+  writeU32(xyz, 0, xyz.length, 'BE');
+  xyz.set([0xa9, 0x78, 0x79, 0x7a], 4);
+  xyz[8] = 0;
+  xyz[9] = chaine.length;
+  xyz[10] = 0x15;
+  xyz[11] = 0xc7;
+  xyz.set(chaine, 12);
+
+  const udta = enfants(b, moov).find((x) => x.type === 'udta') ?? null;
+  const ajout = udta ? xyz : nouvelleUdta(xyz);
+  // Insertion goes at the end of `udta` when it exists, and at the end of
+  // `moov` otherwise: either way no sibling box changes place inside its parent.
+  const insertion = udta ? finDe(udta) : finDe(moov);
+
+  const out = new Uint8Array(b.length + ajout.length);
+  out.set(b.subarray(0, insertion), 0);
+  out.set(ajout, insertion);
+  out.set(b.subarray(insertion), insertion + ajout.length);
+
+  // The old slots go before the new one is used: leaving a copy we could not
+  // rewrite would have the same file state two locations. They all sit before
+  // the insertion point, so their positions stay valid.
+  const changed: Plage[] = [];
+  for (const porteur of aNeutraliser) neutraliser(out, porteur.boite, changed);
+
+  // The parents grow by as much. `udta` first: its size field comes before
+  // `moov`'s in the file, though the write order does not matter since they are
+  // two distinct places.
+  for (const parent of udta ? [udta, moov] : [moov]) {
+    writeU32(out, parent.debut, parent.taille + ajout.length, 'BE');
+    changed.push([parent.debut, parent.debut + 4]);
+  }
+
+  // And the absolute offsets, one by one. Those addressing a byte before the
+  // insertion do not move; the others advance by as much.
+  for (const e of tableDeDecalages(b, racine).entrees) {
+    if (e.valeur < insertion) continue;
+    const pos = e.pos < insertion ? e.pos : e.pos + ajout.length;
+    const v = e.valeur + ajout.length;
+    if (e.largeur === 4) writeU32(out, pos, v, 'BE');
+    else {
+      writeU32(out, pos, Math.floor(v / 4294967296), 'BE');
+      writeU32(out, pos + 4, v >>> 0, 'BE');
+    }
+    changed.push([pos, pos + e.largeur]);
+  }
+
+  changed.push([insertion, out.length]);
+  return { bytes: out, changed };
+}
+
+/** A brand new `udta`, wrapping only the box we just wrote. */
+function nouvelleUdta(contenu: Uint8Array): Uint8Array {
+  const out = new Uint8Array(8 + contenu.length);
+  writeU32(out, 0, out.length, 'BE');
+  out.set([0x75, 0x64, 0x74, 0x61], 4); // « udta »
+  out.set(contenu, 8);
+  return out;
+}
+
+/** Writes a position into a video, correcting or creating. */
+export function ecrirePositionVideo(b: Uint8Array, lat: number, lon: number): Pose {
+  const p = validerPosition({ lat, lon });
+  if (!p) throw REFUS_ECRITURE();
+  if (lieuEnMouvement(b)) throw REFUS_MOUVEMENT();
+
+  const porteurs = porteursDeLieu(b);
+  if (porteurs.length) {
+    // First route: rewrite each slot where it is. No byte moves, so nothing the
+    // file addresses by rank becomes wrong, and the produced file is exactly
+    // the size of the original.
+    const pose = corrigerSurPlace(b, porteurs, p);
+    if (pose) return pose;
+    // Second route, when the slots in place are too short to carry the
+    // requested location: they are all erased and one long enough slot is
+    // written. The file grows, which needs the same permission as adding.
+    if (!accepteAjoutVideo(b)) throw REFUS_ECRITURE();
+    return ajouterLeLieu(b, p, porteurs);
+  }
+
+  if (!accepteAjoutVideo(b)) throw REFUS_ECRITURE();
+  return ajouterLeLieu(b, p);
+}
+
+// Erasing
+
+/**
+ * Neutralises a box without moving it: it is renamed `free`, the free space
+ * every reader skips, and its payload is zeroed.
+ *
+ * Renaming alone would not do: the bytes would still be there, and a tool that
+ * scans the file rather than following its structure would find them.
+ */
+function neutraliser(out: Uint8Array, x: Boite, changed: Plage[]): void {
+  out.set([0x66, 0x72, 0x65, 0x65], x.debut + 4); // « free »
+  out.fill(0, charge(x), finDe(x));
+  changed.push([x.debut + 4, finDe(x)]);
+}
+
+/**
+ * The descriptive text packets of a video.
+ *
+ * An editor stores the location there a second time, and in words:
+ * `photoshop:City`, `Iptc4xmpExt:LocationCreated`. This is the "Avignon" case:
+ * a file with no coordinates left that still names the town is not erased.
+ */
+function paquetsDeTexte(b: Uint8Array): Boite[] {
+  const udta = chemin(b, 'moov/udta', boites(b, 0, b.length));
+  if (!udta) return [];
+  return enfants(b, udta).filter((x) => x.type === 'XMP_' || x.type === 'uuid');
+}
+
+const lireTexte = (b: Uint8Array, x: Boite) =>
+  new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(charge(x), finDe(x)));
+
+/**
+ * Removes the location from a video, or returns the original.
+ *
+ * Order matters: the refusal comes before a byte is touched. A half-finished
+ * erase is worse than none, because the user would believe the file is clean.
+ */
+export function effacerPositionVideo(b: Uint8Array): Pose {
+  if (lieuEnMouvement(b)) throw REFUS_MOUVEMENT();
+
+  const porteurs = porteursDeLieu(b);
+  const out = b.slice();
+  const changed: Plage[] = [];
+  for (const porteur of porteurs) neutraliser(out, porteur.boite, changed);
+
+  // Text packets are not neutralised wholesale: they also carry the title, the
+  // author and the history. Only the location properties are removed, at
+  // constant length; `xmp.ts` already does that work for photos, and it fails
+  // rather than leave a marker behind.
+  for (const paquet of paquetsDeTexte(out)) {
+    const avant = lireTexte(out, paquet);
+    if (!porteUnLieu(avant)) continue;
+    const apres = purgerLeLieu(avant);
+    // We go back through the bytes and require the same length. `purgerLeLieu`
+    // only substitutes spaces, so it is owed, but a truncated or badly encoded
+    // packet would make it vary, and failing here beats shifting everything
+    // that follows.
+    const octets = apres === null ? null : new TextEncoder().encode(apres);
+    if (!octets || octets.length !== finDe(paquet) - charge(paquet)) {
+      throw new ExifError(
+        'COPIE_DU_LIEU_SUBSISTE',
+        "Une copie du lieu subsiste dans cette vidéo, sous une forme que nous ne savons pas retirer. Nous préférons vous rendre l'original intact.",
+      );
+    }
+    out.set(octets, charge(paquet));
+    changed.push([charge(paquet), finDe(paquet)]);
+  }
+
+  // And we check our own work afterwards. A purge taken on trust is a purge
+  // that cannot be defended.
+  if (copieDuLieuAilleursVideo(out)) {
+    throw new ExifError(
+      'COPIE_DU_LIEU_SUBSISTE',
+      "Une copie du lieu subsiste dans cette vidéo, sous une forme que nous ne savons pas retirer. Nous préférons vous rendre l'original intact.",
+    );
+  }
+  return { bytes: out, changed };
+}
+
+/**
+ * True if a trace of the location survives the erase.
+ *
+ * Two sweeps, and the second is the one that was missing: it looks for the
+ * coordinates, and for the fields we know carry a town name. A file with no
+ * latitude left that still says "Avignon" is not erased.
+ *
+ * What this guarantee does not cover, and it should be said: a town name
+ * slipped into a free comment field would pass. We guarantee the fields meant
+ * for a location are empty, not that no word in the file names a place.
+ */
+export function copieDuLieuAilleursVideo(b: Uint8Array): boolean {
+  if (lieuEnMouvement(b)) return true;
+  for (const p of porteursDeLieu(b)) {
+    if (p.nomDeLieu && p.nomDeLieu.longueur > 0) return true;
+    if (p.binaire && (p.binaire.lat !== 0 || p.binaire.lon !== 0)) return true;
+    if (p.texte && lireIso6709(p.texte)) return true;
+  }
+  for (const paquet of paquetsDeTexte(b)) {
+    if (porteUnLieu(lireTexte(b, paquet))) return true;
+  }
+  return false;
+}
+
+// What we can do with this file
+
+/**
+ * True if the text packet, should it name a location, can be cleaned.
+ *
+ * Asked before the action, and by the same code that will answer during it,
+ * which is what stops the interface offering an erase the engine will refuse.
+ */
+function texteNettoyable(b: Uint8Array): boolean {
+  for (const paquet of paquetsDeTexte(b)) {
+    const avant = lireTexte(b, paquet);
+    if (!porteUnLieu(avant)) continue;
+    const apres = purgerLeLieu(avant);
+    if (apres === null) return false;
+    const octets = new TextEncoder().encode(apres);
+    if (octets.length !== finDe(paquet) - charge(paquet)) return false;
+  }
+  return true;
+}
+
+/**
+ * A slot long enough to carry any location to the metre.
+ *
+ * Six decimals each side, twenty-two characters excluding altitude. A shorter
+ * string may land exactly on one location and not on its neighbour: that is not
+ * a property of the file, so it cannot be announced.
+ */
+function assezLong(p: Porteur): boolean {
+  // A fixed-point slot is never fine enough: its step is one metre seven in
+  // latitude, wider than the tolerance we impose on ourselves. A file that
+  // stores its location that way therefore goes through the route that grows,
+  // which replaces it with a long enough string.
+  if (p.binaire) return false;
+  return p.longueurTexte - altitudeDe(p.texte).length >= LONGUEUR_NEUVE;
+}
+
+/** What the tool can do with this video, with the reason that goes with it. */
+export interface SondeVideo {
+  position: LatLon | null;
+  lieuEnMouvement: boolean;
+  capacites: {
+    lire: boolean;
+    corriger: boolean;
+    ajouter: boolean;
+    effacer: boolean;
+    effacerTout: boolean;
+  };
+}
+
+export function sonderVideo(b: Uint8Array): SondeVideo {
+  const enMouvement = lieuEnMouvement(b);
+  const porteurs = porteursDeLieu(b);
+  const position = porteurs.map(positionDe).find((x) => x !== null) ?? null;
+
+  if (enMouvement) {
+    // The location is also written throughout the video, in the data this
+    // engine never rewrites. Reading stays honest; everything else would lie.
+    return {
+      position,
+      lieuEnMouvement: true,
+      capacites: { lire: true, corriger: false, ajouter: false, effacer: false, effacerTout: false },
+    };
+  }
+
+  const peutGrandir = accepteAjoutVideo(b);
+  const surPlace = porteurs.length > 0 && porteurs.every(assezLong);
+  return {
+    position,
+    lieuEnMouvement: false,
+    capacites: {
+      lire: true,
+      corriger: peutGrandir || surPlace,
+      ajouter: peutGrandir,
+      effacer: texteNettoyable(b),
+      // Removing everything from a video would mean rebuilding it, which this
+      // module cannot do, for the same reason as a HEIC.
+      effacerTout: false,
+    },
+  };
+}

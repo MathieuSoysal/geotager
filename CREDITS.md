@@ -51,6 +51,9 @@ aucun inventé :
 | `AOMediaCodec/libavif` | BSD-2-Clause | — |
 | `gstatic.com/webp/gallery` | CC BY-SA 3.0 | Galerie de démonstration Google. |
 | `raw.pixls.us` | CC0 | Négatifs numériques réels (DNG, NEF, CR2, et un Kodak DCS au nom de fichier « .TIF »), qui éprouvent le refus d'ajout sur un TIFF. Fichiers garantis non retouchés. |
+| `gopro/gpmf-parser` | Apache-2.0 | Le `hero6.mp4` de son dossier d'exemples : une vraie HERO6, avec un lieu écrit par l'appareil **et** une piste qui l'enregistre en continu. C'est le fichier qui prouve le refus d'effacement. 8,5 Mo, le plus lourd du corpus, et sans substitut connu. |
+| `chromium/chromium` (`media/test/data`) | BSD-3-Clause | Le `bear.mp4` : un vrai MP4 sans lieu, 41 Ko, qui éprouve la création. |
+| `exiftool/exiftool` (`t/images`) | **Artistic/GPL** | Le `QuickTime.mov` : le seul vrai `.mov` public, et sans boîte de tête, ce qui éprouve la reconnaissance par la structure. **Hors de l'allowlist MIT/BSD/Apache-2.0**, comme `drewnoakes` — fichier de test, non committé, jamais distribué, téléchargé pour les tests seulement. ExifTool est déjà crédité plus haut comme oracle sous la même licence. |
 
 ### Écrit à la main plutôt qu'emprunté
 

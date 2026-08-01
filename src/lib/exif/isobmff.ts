@@ -28,64 +28,18 @@ import { ecrireEntierBE, lireEntierBE, readU16, readU32, writeU32 } from './octe
 import { type Conteneur, type Emplacement, type Plage, type Pose } from './conteneurs.ts';
 import { AJOUT_IMPOSSIBLE, detecterFormat } from './conteneurs.ts';
 import { MARQUEURS_DE_LIEU } from './xmp.ts';
-
-interface Boite {
-  type: string;
-  debut: number;
-  /** Header length, payload excluded. */
-  entete: number;
-  /** Total length, header included. */
-  taille: number;
-  /**
-   * Size exactly as written in the file, before interpretation.
-   *
-   * The value 0 means "to the end of the file". Once resolved to an effective
-   * length that nuance is gone, and it matters for appending: adding a box
-   * after one that extends to the end would have it swallowed.
-   */
-  declaree: number;
-}
-
-const texte = (b: Uint8Array, o: number, n: number) =>
-  String.fromCharCode(...b.subarray(o, o + n));
-
-/**
- * Walks a sequence of boxes.
- *
- * Three header shapes exist and all three occur in the wild: a 32-bit size, the
- * value 1 which defers to a 64-bit size, and the value 0 meaning "to the end of
- * the file", common on large data boxes written as a stream. A walk that
- * ignores the last two stops early and concludes there is no metadata.
- */
-function boites(b: Uint8Array, debut: number, fin: number): Boite[] {
-  const out: Boite[] = [];
-  let o = debut;
-  while (o + 8 <= fin) {
-    const declaree = readU32(b, o, 'BE');
-    let taille = declaree;
-    const type = texte(b, o + 4, 4);
-    let entete = 8;
-    if (taille === 1) {
-      if (o + 16 > fin) break;
-      taille = lireEntierBE(b, o + 8, 8);
-      entete = 16;
-    } else if (taille === 0) {
-      taille = fin - o;
-    }
-    if (type === 'uuid') entete += 16;
-    if (taille < entete || o + taille > fin) break;
-    out.push({ type, debut: o, entete, taille, declaree });
-    o += taille;
-  }
-  return out;
-}
+import { type Boite, boites, texte } from './bmff.ts';
 
 /**
  * Sub-boxes of `meta`.
  *
  * `meta` is a FullBox: four bytes of version and flags precede its children.
- * Tools derived from QuickTime nonetheless write it as an ordinary box. Rather
- * than guess, try both and keep the one that yields a location table.
+ * QuickTime-derived tools nevertheless write it as an ordinary box. Rather than
+ * guess, both are tried and the one producing an item location table wins.
+ *
+ * `bmff.ts` can descend into an arbitrary `meta`; here the tie-breaker is not
+ * "which one fills the parent" but "which one carries an `iloc`", the only
+ * correct criterion when the item location table is what you are looking for.
  */
 function enfantsDeMeta(b: Uint8Array, meta: Boite): Boite[] {
   const fin = meta.debut + meta.taille;

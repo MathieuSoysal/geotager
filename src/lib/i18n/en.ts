@@ -52,7 +52,7 @@ export const en: Dictionnaire = {
     titre: 'Change the location',
     titreEm: 'of a photo',
     sous: 'Nothing is sent anywhere: everything happens in your browser.',
-    formats: 'JPEG · HEIC · PNG · WebP · TIFF',
+    formats: 'JPEG · HEIC · PNG · WebP · TIFF · MOV · MP4',
     sansJs: 'Geotager needs JavaScript to read and change a photo. Everything still runs on your device — nothing is sent anywhere.',
     defiler: 'How it works, and why it stays private ↓',
   },
@@ -123,6 +123,8 @@ export const en: Dictionnaire = {
       n > 1
         ? `${n} photos beyond the limit: they were not added.`
         : 'One photo beyond the limit: it was not added.',
+    installer: 'Install the app',
+    installee: 'Geotager is installed. You will find it with your other apps.',
     majDispo: 'A new version of Geotager is available.',
     majTravaux: 'A new version is available. Download your photos first — reloading discards the ones you have open.',
     majRecharger: 'Reload',
@@ -166,8 +168,8 @@ export const en: Dictionnaire = {
       'We can read this file’s location, but not yet change it without risking damage.',
     'sans-lieu-possible':
       'This image has nowhere to put a location, and we cannot yet create one for it.',
-    video:
-      'We cannot work on videos yet: a video keeps the location in several places at once, sometimes spelled out in words, and we would rather not promise what we cannot deliver.',
+    'lieu-en-mouvement':
+      'This video also records where the camera went, second by second, from beginning to end. We can show you the main location, but we cannot take that trail out without rebuilding the whole recording — so we would rather change nothing than hand you a file you would believe was clean.',
     inconnu: 'We do not recognise this kind of file.',
   },
 
@@ -213,7 +215,7 @@ export const en: Dictionnaire = {
       png: { libelle: 'PNG' },
       webp: { libelle: 'WebP', mention: 'extended form' },
       tiff: { libelle: 'TIFF', mention: 'excluding camera raw' },
-      video: { libelle: 'Videos (MOV, MP4)' },
+      video: { libelle: 'Videos (MOV, MP4)', mention: 'excluding a moving location' },
     },
   },
 

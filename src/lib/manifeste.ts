@@ -72,9 +72,13 @@ export function manifeste(langue: Langue): string {
        * that follows. Nothing is written to disk, not even briefly. See
        * `sw-modele.js`.
        *
-       * Images only. The tool accepts videos in the picker, since taking the
-       * file and explaining beats refusing it without a word, but registering
-       * in the video share menu would be volunteering for work we cannot do.
+       * Videos have been here since all four cells of their row opened. They
+       * were absent while no operation was offered for them: registering in the
+       * share menu for a format you cannot handle is volunteering for work you
+       * cannot do, to somebody who did not ask.
+       *
+       * `image/*` stays and has no counterpart opposite: sharing must remain
+       * strictly wider than "Open with", for the reason explained below.
        */
       share_target: {
         action: `${T.base}partager`,
@@ -93,6 +97,8 @@ export function manifeste(langue: Langue): string {
                 'image/heif',
                 'image/avif',
                 'image/tiff',
+                'video/quicktime',
+                'video/mp4',
               ],
             },
           ],
@@ -121,10 +127,15 @@ export function manifeste(langue: Langue): string {
        * between two moments. The batch is added to whatever the window already
        * held; see `charger` in `ui/app.ts`.
        *
-       * The same formats as sharing, minus two, and for the same reason videos
-       * are missing there. A GIF has nowhere to put a location, so the engine
-       * files it under "no location possible", and a camera raw file, DNG, NEF
-       * or CR2, must receive nothing at all.
+       * The same formats as sharing, minus two. A GIF has nowhere to put a
+       * location, so the engine files it under "no location possible", and a
+       * camera raw file, DNG, NEF or CR2, must receive nothing at all.
+       * Registering for those would be volunteering for work we cannot do.
+       *
+       * Videos arrived here with their "add" column. The test requires it both
+       * ways: a format the table can give a location to but which was missing
+       * here would stay invisible in the system's "Open with" menu, with
+       * nothing to flag it.
        */
       file_handlers: [
         {
@@ -137,6 +148,8 @@ export function manifeste(langue: Langue): string {
             'image/heif': ['.heif'],
             'image/avif': ['.avif'],
             'image/tiff': ['.tif', '.tiff'],
+            'video/quicktime': ['.mov'],
+            'video/mp4': ['.mp4', '.m4v'],
           },
         },
       ],
