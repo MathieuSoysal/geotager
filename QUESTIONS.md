@@ -2010,3 +2010,85 @@ est préservé » excluait les tags `[GPS]`. ExifTool range le lieu d'une vidéo
 une position, et signalé comme une perte le changement qu'on venait de demander.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-051 — Le contrôle censé remplacer le second lecteur refusait toutes les vidéos
+
+**Contexte :** Q-050 a ouvert les quatre colonnes des vidéos, et a écrit qu'à défaut d'un second
+lecteur — `exifr` n'ouvre ni MOV ni MP4 — deux contrôles à nous le remplaçaient, dont un qui
+reparcourt la structure et exige que chaque parent soit exactement rempli par ses enfants.
+
+**Ce contrôle refusait TOUTES les vidéos réelles.** Signalé par un utilisateur, capture à l'appui :
+un vrai MP4 Android de 2,4 Mo sans lieu, le champ de coordonnées actif, le bouton actif, un lieu
+saisi — et « No file could be produced. Your originals were not modified. »
+
+C'est le défaut que ce projet nomme et interdit depuis Q-039 : **un bouton actif qui n'agit pas.**
+L'annonce et le comportement divergeaient, et la vidéo est le seul format où rien ne vérifiait leur
+accord.
+
+La cause tient en une ligne. `structureIntacte` descendait dans **toutes** les boîtes, feuilles
+comprises. `enfants()` lit des octets ; elle n'a aucun moyen de savoir qu'on lui présente une
+feuille, et elle ne le prétend pas. La charge utile d'un `tkhd` est faite de nombres, et des nombres
+se lisent très bien comme des en-têtes : un `tkhd` de drapeaux 15 produit une boîte fantôme de
+quinze octets, qui ne remplit évidemment pas son parent. `structureIntacte` rendait donc `false`,
+`croise` devenait `false`, et `appliquer()` rendait `RELECTURE_CROISEE_DIVERGENTE` — que
+l'interface, pour un fichier seul, affiche sous sa phrase générique.
+
+Mesuré sur treize vidéos réelles — les fichiers du corpus plus sept MP4 de `chromium/chromium`,
+H.264, HEVC, AV1, trois rotations, muet : l'écriture échouait sur **toutes**, et l'effacement aussi,
+puisque le contrôle était déjà faux sur le fichier d'ENTRÉE. Seule la lecture marchait, ce qui
+explique que le lieu s'affichait.
+
+**La vraie faute n'est pas la ligne, c'est l'endroit.** `structureIntacte` vivait dans
+`exif.worker.ts`, que `test/engine.test.ts` n'importe pas — il tire `self`, `exifr` et le protocole
+de messages. Aucun test ne pouvait l'atteindre. Les scénarios vidéo appelaient le moteur en direct
+et sautaient donc `appliquer()` tout entier ; le parcours navigateur chargeait bien une vidéo, mais
+ne vérifiait que l'état de l'interface — **il ne cliquait pas.** 514 tests moteur et 302 de bout en
+bout au vert, sur un chemin dont personne n'exécutait la seconde moitié.
+
+**Retenu :**
+
+1. **La notion « cette boîte en contient d'autres » devient publique.** `bmff.ts` la portait déjà,
+   dans la constante privée dont `toutesLesBoites` se sert pour ne pas descendre dans `mdat` — elle
+   était au bon endroit et n'était pas partagée. Elle s'exporte, et la documentation d'`enfants()`
+   dit désormais que l'appelant doit savoir ce qu'il lui présente.
+2. **Le contrôle déménage dans `quicktime.ts`.** C'est ce qui le rend éprouvable. `sonderVideo` a
+   exactement ce statut — partagée entre le worker et le test pour qu'ils ne puissent pas
+   diverger —, et le contrôle d'après écriture aurait dû l'avoir dès le premier jour.
+3. **Et il s'éprouve dans les deux sens.** Une taille de parent volontairement fausse, trop courte
+   puis trop longue, doit le faire échouer. Un contrôle qu'on n'a jamais vu échouer n'est pas un
+   contrôle — c'est la leçon de Q-039, appliquée cette fois à la vérification elle-même.
+4. **Le parcours navigateur va jusqu'au fichier.** Il clique, récupère le fichier produit et le fait
+   relire par l'oracle, pour l'ajout comme pour l'effacement. Vérifié en réintroduisant le défaut :
+   le parcours échoue, faute de fichier à récupérer.
+
+**Ce que la correction ne couvre pas, et il vaut mieux l'écrire.** Si c'est `udta` — et non `moov` —
+qui garde son ancienne taille, la structure reste cohérente : le rangement du lieu devient le voisin
+d'`udta` au lieu d'être son enfant. Le contrôle de structure ne le voit pas. C'est la relecture de
+la position qui l'attrape, en ne retrouvant plus rien. Les deux contrôles se complètent, aucun ne
+suffit seul, et le test le dit explicitement plutôt que de le laisser croire.
+
+**Trois défauts de la même famille, trouvés en cherchant celui-là.** Tous les trois sont des
+divergences entre ce qui est annoncé et ce qui est fait :
+
+- **`assezLong` ne vérifiait qu'une borne sur deux.** Une chaîne peut être trop LONGUE autant que
+  trop courte — au-delà de dix-huit décimales, l'écriture refuse. Un fichier dont le rangement
+  dépasse vingt-huit caractères s'annonçait donc corrigeable et levait ensuite. La question est
+  maintenant posée à `ecrireIso6709` elle-même, plutôt que ses bornes recopiées à côté.
+- **Une taille sur soixante-quatre bits aurait été écrasée.** Les boîtes dont nous remontons la
+  taille doivent porter la leur sur quatre octets ; au-delà, les quatre premiers octets ne portent
+  qu'un marqueur, et le remonter là écraserait le marqueur. Trop rare sur un `moov` pour qu'un
+  fichier témoin existe : on refuse, avant l'action.
+- **La preuve à l'octet près était presque vide sur la voie qui fait grandir.** Un ajout décale tout
+  ce qui le suit, donc la plage annoncée couvre nécessairement toute la fin du fichier — sur huit
+  mégaoctets, elle en exempte huit. Ce qu'il faut établir n'est pas « rien n'a changé de place »,
+  qui est faux par construction, mais « rien n'a changé de CONTENU » : un scénario compare
+  désormais la fin du fichier produit à la fin de l'original, décalée d'exactement ce qu'on a
+  inséré, sur chaque vidéo du corpus.
+
+**Enfin, le refus des fichiers fragmentés est prouvé.** Il existait depuis Q-050 et ne reposait sur
+aucun fichier — un raisonnement, pas une mesure. `bear-av1.mp4` de `chromium/chromium` en est un ;
+il rejoint le corpus sous la même licence que son voisin.
+
+**Bloque :** non.

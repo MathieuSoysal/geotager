@@ -33,6 +33,7 @@ import {
   boites,
   charge,
   chemin,
+  contientDesBoites,
   enfants,
   finDe,
   texte,
@@ -428,13 +429,21 @@ function tableDeDecalages(b: Uint8Array, racine: Boite[]): TableDeDecalages {
  */
 export function accepteAjoutVideo(b: Uint8Array): boolean {
   const racine = boites(b, 0, b.length);
-  if (!racine.some((x) => x.type === 'moov')) return false;
+  const moov = racine.find((x) => x.type === 'moov');
+  if (!moov) return false;
   if (racine.some((x) => x.type === 'moof' || x.type === 'sidx' || x.type === 'mfra')) {
     return false;
   }
   // Une boîte qui s'étend « jusqu'à la fin du fichier » avalerait tout ce
   // qu'on ajouterait derrière elle.
   if (racine.some((x) => x.declaree === 0 && finDe(x) === b.length)) return false;
+  // Les boîtes dont nous remontons la taille doivent porter la leur sur quatre
+  // octets. Une taille sur soixante-quatre bits s'écrit ailleurs — les quatre
+  // premiers octets ne portent alors qu'un marqueur —, et la remonter à cet
+  // endroit-là écraserait le marqueur au lieu de la taille. C'est assez rare
+  // sur un `moov` pour n'avoir aucun fichier témoin, donc on refuse.
+  const aResizer = [moov, ...enfants(b, moov).filter((x) => x.type === 'udta')];
+  if (aResizer.some((x) => x.entete !== 8)) return false;
   const { entrees } = tableDeDecalages(b, racine);
   return entrees.every((e) => e.valeur > 0 && e.valeur < b.length);
 }
@@ -750,6 +759,65 @@ export function copieDuLieuAilleursVideo(b: Uint8Array): boolean {
 }
 
 /* ------------------------------------------------------------------ */
+/* Le contrôle d'après écriture                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Vrai si la description du fichier se tient encore debout.
+ *
+ * Sur une photo, la garantie d'après écriture tient à un SECOND lecteur, écrit
+ * par d'autres. Pour une vidéo il n'existe pas dans un navigateur, et ceci le
+ * remplace : chaque boîte qui en contient d'autres doit être exactement remplie
+ * par ses enfants. Cela vise le défaut réellement redouté ici — non pas le
+ * boutisme, puisque nous écrivons du texte, mais l'ARITHMÉTIQUE DES TAILLES :
+ * une boîte agrandie dont un parent aurait gardé son ancienne taille.
+ *
+ * Deux choix, et le premier a coûté un lot entier :
+ *
+ *   1. **On ne descend que dans les boîtes qui en contiennent.** La version
+ *      précédente descendait partout, y compris dans `tkhd` et `stsz`, dont la
+ *      charge est faite de nombres qui se lisent comme des en-têtes plausibles.
+ *      Elle rendait donc `false` sur toute vidéo réelle, ce qui refusait
+ *      l'écriture et l'effacement de TOUTES les vidéos.
+ *   2. **Une conteneuse sans enfant analysable passe.** L'asymétrie des risques
+ *      l'impose : un faux négatif interdit toute écriture — le défaut qu'on
+ *      vient de réparer —, tandis qu'un faux positif reste rattrapé par les
+ *      deux contrôles voisins, la preuve à l'octet près et la relecture de la
+ *      position.
+ *
+ * Cette fonction vit ici, et non dans le worker, pour une raison qui vaut d'être
+ * écrite : dans le worker, aucun test ne pouvait l'atteindre. C'est très
+ * exactement pourquoi le défaut a été livré.
+ */
+export function structureIntacte(b: Uint8Array): boolean {
+  const haut = boites(b, 0, b.length);
+  if (!haut.length || finDe(haut[haut.length - 1]) !== b.length) return false;
+  const moov = haut.find((x) => x.type === 'moov');
+  if (!moov) return false;
+
+  const descendre = (parent: Boite, profondeur: number): boolean => {
+    if (profondeur > 12) return true;
+    const filles = enfants(b, parent);
+    if (!filles.length) return true;
+    if (finDe(filles[filles.length - 1]) !== finDe(parent)) return false;
+    return filles
+      .filter((f) => contientDesBoites(f.type))
+      .every((f) => descendre(f, profondeur + 1));
+  };
+  return descendre(moov, 0);
+}
+
+/** Vrai si tous les rangements du fichier s'accordent sur le même lieu. */
+export function porteursConcordent(b: Uint8Array): boolean {
+  const lus = porteursDeLieu(b)
+    .map(positionDe)
+    .filter((x): x is LatLon => x !== null);
+  // Un rangement qui dirait autre chose que les autres serait précisément le
+  // mensonge que ce module existe pour empêcher.
+  return lus.every((x) => distanceMetres(x, lus[0]) < 1);
+}
+
+/* ------------------------------------------------------------------ */
 /* Ce que l'on sait faire de CE fichier                                */
 /* ------------------------------------------------------------------ */
 
@@ -784,7 +852,14 @@ function assezLong(p: Porteur): boolean {
   // fichier qui range son lieu ainsi passe donc par la voie qui fait grandir,
   // laquelle le remplace par une chaîne assez longue.
   if (p.binaire) return false;
-  return p.longueurTexte - altitudeDe(p.texte).length >= LONGUEUR_NEUVE;
+  // Et l'on pose la question à `ecrireIso6709` elle-même plutôt que de
+  // reproduire ses bornes ici. Elle en a DEUX — une chaîne peut être trop
+  // longue autant que trop courte, au-delà de dix-huit décimales —, et n'en
+  // vérifier qu'une revenait à annoncer une correction que l'écriture
+  // refuserait ensuite. C'est la famille de défauts de Q-051.
+  const utile = p.longueurTexte - altitudeDe(p.texte).length;
+  return utile >= LONGUEUR_NEUVE
+    && ecrireIso6709({ lat: 0, lon: 0 }, p.longueurTexte, altitudeDe(p.texte)) !== null;
 }
 
 /** Ce que l'outil sait faire de CETTE vidéo, avec la raison qui va avec. */

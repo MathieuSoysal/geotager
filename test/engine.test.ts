@@ -27,8 +27,12 @@ import {
 } from '../src/lib/exif/conteneurs.ts';
 import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
+import { boites, enfants, toutesLesBoites } from '../src/lib/exif/bmff.ts';
+import { writeU32 } from '../src/lib/exif/octets.ts';
 import {
   accepteAjoutVideo,
+  porteursConcordent,
+  structureIntacte,
   copieDuLieuAilleursVideo,
   ecrireIso6709,
   ecrirePositionVideo,
@@ -1175,6 +1179,13 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 /* Chacun de ces cas a désormais son fichier, et son scénario.          */
 /* ------------------------------------------------------------------ */
 
+/** Toutes les vidéos du corpus. Chacune éprouve un cas que les autres n'ont pas. */
+const VIDEOS = [
+  'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
+  'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
+  'fragmente.mp4',
+];
+
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
   // La même position, écrite en degrés, en degrés-minutes, puis en
   // degrés-minutes-secondes. Le nombre de chiffres AVANT la virgule est le seul
@@ -1408,6 +1419,171 @@ scenario('sans-lieu.mp4 — ajouter un lieu sans toucher aux images', () => {
     `${taille} octets`);
   check('la vidéo reste lisible',
     exif(['-s3', '-ImageSize', out]).trim() === exif(['-s3', '-ImageSize', chemin]).trim());
+});
+
+/*
+ * La preuve « à l'octet près », rendue à sa force sur la voie qui fait grandir.
+ *
+ * `memesOctetsHorsPlages` compare index par index. Un ajout décale tout ce qui
+ * le suit, donc la plage annoncée couvre nécessairement toute la fin du
+ * fichier — et la preuve, sur cette voie-là, ne prouve presque rien : sur un
+ * fichier de huit mégaoctets, elle exempte les huit mégaoctets.
+ *
+ * Ce qu'il faut établir n'est pas « rien n'a changé de place » — c'est faux par
+ * construction — mais « rien n'a changé de CONTENU » : la fin du fichier
+ * produit doit être la fin du fichier d'origine, décalée d'exactement ce qu'on
+ * a inséré, et pas un octet d'autre.
+ */
+scenario('Un ajout ne fait que décaler, jamais réécrire', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    const s = sonderVideo(src);
+    if (s.position || !s.capacites.ajouter) continue;
+
+    const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+    const ajoute = pose.bytes.length - src.length;
+    check(`${nom} : le fichier grandit d'un seul rangement`, ajoute > 0 && ajoute < 64, `${ajoute} o`);
+
+    // Le point d'insertion se lit dans la STRUCTURE, et non au premier octet
+    // qui diffère : les tailles des parents et les rangs des tronçons changent
+    // eux aussi, et ils vivent AVANT le point d'insertion.
+    const moov = boites(src, 0, src.length).find((x) => x.type === 'moov')!;
+    const udta = enfants(src, moov).find((x) => x.type === 'udta');
+    const insertion = udta ? udta.debut + udta.taille : moov.debut + moov.taille;
+
+    // La comparaison qui suit n'a de sens que si aucune table de rangs ne vit
+    // APRÈS le point d'insertion — sinon ses entrées changent, légitimement, et
+    // la fin du fichier n'est plus un simple décalage. Aucun fichier du corpus
+    // n'est dans ce cas ; on l'exige plutôt que de le supposer, pour que ce
+    // contrôle échoue franchement le jour où un fichier l'y mettrait.
+    const tables = toutesLesBoites(src, 'stco').concat(toutesLesBoites(src, 'co64'));
+    check(`${nom} : aucune table de rangs après le point d'insertion`,
+      tables.every((t) => t.debut < insertion));
+
+    const avant = Buffer.from(src.subarray(insertion));
+    const apres = Buffer.from(pose.bytes.subarray(insertion + ajoute));
+    check(`${nom} : tout ce qui suit l'insertion est l'original, décalé`,
+      avant.equals(apres), `${avant.length} o comparés depuis ${insertion}`);
+  }
+});
+
+/*
+ * Le contrôle d'après écriture, éprouvé dans LES DEUX SENS.
+ *
+ * Il remplace, pour les vidéos, le second lecteur écrit par d'autres qui
+ * n'existe pas dans un navigateur. Livré au vert, il refusait pourtant TOUTES
+ * les vidéos réelles : il descendait dans les feuilles, dont la charge est
+ * faite de nombres qui se lisent comme des en-têtes. Aucun test ne l'atteignait,
+ * parce qu'il vivait dans le worker et que les scénarios vidéo appelaient le
+ * moteur en direct, sans passer par l'écriture complète. Voir Q-051.
+ *
+ * D'où les deux moitiés ci-dessous, et la seconde compte autant que la
+ * première : un contrôle qu'on n'a jamais vu ÉCHOUER n'est pas un contrôle.
+ */
+scenario('La description de chaque vidéo se tient debout', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    check(`${nom} : à l'entrée`, structureIntacte(src));
+
+    // Et sur la sortie de chaque opération que la sonde ouvre : c'est là que
+    // vivrait une taille de boîte oubliée.
+    const s = sonderVideo(src);
+    if (s.position ? s.capacites.corriger : s.capacites.ajouter) {
+      const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+      check(`${nom} : après écriture`, structureIntacte(pose.bytes));
+      check(`${nom} : les rangements s'accordent après écriture`,
+        porteursConcordent(pose.bytes));
+    }
+    if (s.capacites.effacer) {
+      check(`${nom} : après effacement`, structureIntacte(effacerPositionVideo(src).bytes));
+    }
+  }
+});
+
+scenario('Et ce contrôle sait échouer', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  const sain = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon).bytes;
+  check('le fichier sain passe', structureIntacte(sain));
+
+  const boiteDeTete = (b: Uint8Array, t: string) =>
+    boites(b, 0, b.length).find((x) => x.type === t)!;
+
+  // Le défaut RÉELLEMENT redouté : une boîte agrandie dont le parent aurait
+  // gardé son ancienne taille. C'est le seul défaut que la preuve à l'octet
+  // près ne verrait pas — elle compare des octets, pas des tailles déclarées.
+  for (const [nom, ecart] of [['gardée trop courte', -34], ['annoncée trop longue', 8]] as const) {
+    const abime = sain.slice();
+    const moov = boiteDeTete(abime, 'moov');
+    writeU32(abime, moov.debut, moov.taille + ecart, 'BE');
+    check(`une description ${nom} est refusée`, !structureIntacte(abime));
+  }
+
+  // Ce que ce contrôle-ci ne voit PAS, et qui est rattrapé ailleurs : si c'est
+  // `udta` qui garde son ancienne taille, la structure reste cohérente — le
+  // rangement du lieu devient simplement le voisin de `udta` au lieu d'être son
+  // enfant. C'est la relecture de la position qui l'attrape, en ne retrouvant
+  // plus rien. Les deux contrôles se complètent, et aucun ne suffit seul.
+  const glisse = sain.slice();
+  const moov = boiteDeTete(glisse, 'moov');
+  const udta = enfants(glisse, moov).find((x) => x.type === 'udta')!;
+  writeU32(glisse, udta.debut, udta.taille - 34, 'BE');
+  check('un lieu sorti de sa boîte échappe à la structure', structureIntacte(glisse));
+  check('mais la relecture de la position ne le retrouve plus',
+    lirePositionVideo(glisse) === null);
+});
+
+/*
+ * L'annonce vaut le comportement, sur les vidéos aussi.
+ *
+ * C'est la propriété que le défaut de Q-051 a prise en défaut sous les yeux
+ * d'un utilisateur : le champ était actif, le bouton aussi, et l'écriture
+ * échouait. Rien ne la vérifiait pour la vidéo — le scénario de la matrice ne
+ * porte que sur UN fichier témoin par format.
+ */
+scenario('Ce que la sonde vidéo ouvre réussit, ce qu\'elle ferme lève', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    const s = sonderVideo(src);
+
+    const essai = (agir: () => Uint8Array) => {
+      try { return { ok: true, bytes: agir() }; } catch { return { ok: false, bytes: null }; }
+    };
+
+    const annonceEcriture = s.position ? s.capacites.corriger : s.capacites.ajouter;
+    const ecriture = essai(() => ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon).bytes);
+    check(`${nom} : l'écriture annoncée ${annonceEcriture ? 'possible' : 'fermée'} se comporte ainsi`,
+      ecriture.ok === annonceEcriture);
+    // Une écriture annoncée doit aussi PASSER le contrôle d'après écriture,
+    // sinon l'application la refusera après coup — le défaut exact de Q-051.
+    if (annonceEcriture && ecriture.bytes) {
+      check(`${nom} : et elle survit au contrôle d'après écriture`,
+        structureIntacte(ecriture.bytes) && porteursConcordent(ecriture.bytes));
+      const relu = lirePositionVideo(ecriture.bytes);
+      check(`${nom} : le lieu relu est celui demandé`,
+        relu !== null && distanceMetres(relu, AVIGNON) < 1);
+    }
+
+    const effacement = essai(() => effacerPositionVideo(src).bytes);
+    check(`${nom} : l'effacement annoncé ${s.capacites.effacer ? 'possible' : 'fermé'} se comporte ainsi`,
+      effacement.ok === s.capacites.effacer);
+    if (s.capacites.effacer && effacement.bytes) {
+      check(`${nom} : et il survit au contrôle d'après écriture`,
+        structureIntacte(effacement.bytes));
+    }
+  }
+});
+
+scenario('fragmente.mp4 — un fichier fragmenté est refusé avant l\'action', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'fragmente.mp4')));
+  const haut = boites(src, 0, src.length).map((x) => x.type);
+  check('le fichier est bien fragmenté', haut.includes('moof') || haut.includes('mfra'), haut.join(' '));
+  // Ses rangs absolus vivent dans des endroits que ce module ne réécrit pas.
+  // Le refus existait déjà ; il ne reposait sur aucun fichier.
+  check('la création y est refusée', !accepteAjoutVideo(src));
+  check('et la sonde le dit avant l\'action', !sonderVideo(src).capacites.ajouter);
+  let leve = false;
+  try { ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon); } catch { leve = true; }
+  check('l\'écriture lève plutôt que d\'abîmer le fichier', leve);
 });
 
 /** Un fichier réel PORTEUR d'un lieu, par format. Sans lui, aucune preuve. */

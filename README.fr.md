@@ -82,7 +82,10 @@ Le plan complet, les décisions et les points non tranchés sont dans
   premier octet et chaque parent doit être exactement rempli par ses enfants, et tous les endroits
   qui portent le lieu doivent s'accorder sur la même réponse. Le vrai lecteur indépendant passe en
   intégration continue, sur de vrais fichiers, colonne par colonne. Dit franchement plutôt que
-  laissé à supposer&nbsp;: voir l'entrée Q-050.
+  laissé à supposer&nbsp;: voir les entrées Q-050 et Q-051 — la seconde raconte comment ce contrôle
+  de remplacement, écrit là où aucun test ne l'atteignait, a passé une version à refuser toutes les
+  vidéos réelles, et ce qui le tient désormais honnête&nbsp;: il s'éprouve dans les deux sens, et le
+  parcours navigateur va jusqu'au fichier produit au lieu de s'arrêter à l'état des boutons.
 - **Aucune copie oubliée.** Une image peut ranger le lieu une seconde fois dans un paquet de texte
   descriptif. Il est purgé — le lieu seul, pas le titre ni l'auteur —, puis **re-balayé**&nbsp;: s'il
   en subsiste la moindre trace, ou si le paquet est compressé et donc illisible pour ce moteur,

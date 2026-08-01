@@ -90,6 +90,14 @@ function preambule(type: string): number {
 /**
  * Enfants directs d'une boîte.
  *
+ * **L'appelant doit savoir que cette boîte en CONTIENT d'autres.** Cette
+ * fonction lit des octets ; elle n'a aucun moyen de deviner qu'on lui présente
+ * une feuille, et elle ne prétendra jamais le savoir. La charge utile d'un
+ * `tkhd` ou d'un `stsz` est faite de nombres, et des nombres se lisent très
+ * bien comme des en-têtes plausibles : on obtient alors des boîtes qui
+ * n'existent pas. `contientDesBoites` est là pour cette question, et un
+ * parcours d'arbre doit s'en servir avant de descendre.
+ *
  * `meta` mérite une précaution : c'est une FullBox, mais des outils dérivés de
  * QuickTime l'écrivent comme une boîte ordinaire — `QuickTime.mov` d'ExifTool
  * en est un. Plutôt que de deviner, on essaie les deux préambules et on retient
@@ -131,17 +139,31 @@ export function chemin(b: Uint8Array, route: string, racine?: Boite[]): Boite | 
 }
 
 /**
- * Toutes les boîtes d'un type donné, à n'importe quelle profondeur.
+ * Les boîtes qui en contiennent d'autres.
  *
- * La descente ne suit que les boîtes qui CONTIENNENT des boîtes. Entrer dans
- * `mdat` — les images et le son, l'essentiel du poids — reviendrait à
- * interpréter des octets de pixels comme des en-têtes : on y trouverait des
- * boîtes qui n'existent pas, sur des mégaoctets, à chaque appel.
+ * Entrer dans `mdat` — les images et le son, l'essentiel du poids — reviendrait
+ * à interpréter des octets de pixels comme des en-têtes : on y trouverait des
+ * boîtes qui n'existent pas, sur des mégaoctets, à chaque appel. Le même
+ * raisonnement vaut pour toutes les feuilles, `tkhd` et `stsz` comprises, dont
+ * la charge est faite de nombres qui se lisent hélas très bien comme des
+ * en-têtes.
+ *
+ * Cette liste est donc la réponse à une seule question, et TOUT parcours
+ * d'arbre doit la poser avant de descendre d'un cran. Elle a été privée
+ * pendant un lot, et le contrôle d'après écriture des vidéos — qui descendait
+ * dans les feuilles — refusait de ce fait toutes les vidéos réelles.
  */
 const CONTENEUSES = new Set([
   'moov', 'trak', 'edts', 'mdia', 'minf', 'dinf', 'stbl', 'mvex', 'moof',
   'traf', 'mfra', 'udta', 'meta', 'ilst', 'stsd', 'gmhd', 'tapt',
 ]);
+
+/** Vrai si une boîte de ce type contient d'autres boîtes plutôt que des données. */
+export function contientDesBoites(type: string): boolean {
+  return CONTENEUSES.has(type);
+}
+
+/** Toutes les boîtes d'un type donné, à n'importe quelle profondeur. */
 
 export function toutesLesBoites(
   b: Uint8Array,

@@ -79,7 +79,10 @@ The full plan, the decisions and the open questions live in [`PLAN-GATE1.md`](PL
   walked again from the first byte and every parent must be exactly filled by its children, and all
   the places that carry the location must agree on the same answer. The genuine independent oracle
   runs in continuous integration, on real files, column by column. Said plainly rather than left to
-  be assumed: see entry Q-050.
+  be assumed: see entries Q-050 and Q-051 — the second records how that replacement check, written
+  where no test could reach it, spent a release refusing every real video, and what now keeps it
+  honest: it is exercised in both directions, and the browser journey clicks through to the produced
+  file instead of stopping at the state of the buttons.
 - **No forgotten copy.** An image can keep the location a second time in a descriptive text packet.
   It is purged — the location only, not the title or the author — then **swept again**: if any trace
   survives, or if the packet is compressed and therefore unreadable to this engine, the removal
