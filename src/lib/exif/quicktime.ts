@@ -39,7 +39,7 @@ import {
   texte,
   toutesLesBoites,
 } from './bmff.ts';
-import { readU16, readU32, writeU32 } from './octets.ts';
+import { lireEntierBE, readU16, readU32, writeU32 } from './octets.ts';
 
 /* ------------------------------------------------------------------ */
 /* La chaîne ISO 6709                                                  */
@@ -155,21 +155,34 @@ const CLE_APPLE_NOM = 'com.apple.quicktime.location.name';
  * Disposition : l'en-tête de huit octets, puis la longueur de la chaîne sur
  * deux octets, puis un code de langue sur deux octets, puis la chaîne.
  */
+/**
+ * La chaîne d'un atome texte d'`udta`, et où elle se trouve.
+ *
+ * Cette disposition sert au lieu comme au reste — `©mak`, `©mod`, `©ART` la
+ * partagent avec `©xyz`. Elle est donc lue à un seul endroit : ce qui distingue
+ * ces atomes est leur NOM, jamais leur forme.
+ */
+function chaineDAtome(b: Uint8Array, x: Boite): { debut: number; longueur: number } | null {
+  const debut = charge(x);
+  if (debut + 4 > finDe(x)) return null;
+  const longueur = readU16(b, debut, 'BE');
+  if (longueur < 1 || debut + 4 + longueur > finDe(x)) return null;
+  return { debut: debut + 4, longueur };
+}
+
 function porteursUdta(b: Uint8Array, udta: Boite | null): Porteur[] {
   if (!udta) return [];
   const out: Porteur[] = [];
   for (const x of enfants(b, udta)) {
     if (!TYPES_XYZ.includes(x.type)) continue;
-    const debut = charge(x);
-    if (debut + 4 > finDe(x)) continue;
-    const longueur = readU16(b, debut, 'BE');
-    if (longueur < 1 || debut + 4 + longueur > finDe(x)) continue;
+    const c = chaineDAtome(b, x);
+    if (!c) continue;
     out.push({
       sorte: 'xyz-udta',
       boite: x,
-      debutTexte: debut + 4,
-      longueurTexte: longueur,
-      texte: texte(b, debut + 4, longueur),
+      debutTexte: c.debut,
+      longueurTexte: c.longueur,
+      texte: texte(b, c.debut, c.longueur),
       nomDeLieu: null,
     });
   }
@@ -222,16 +235,58 @@ function porteurLoci(b: Uint8Array, udta: Boite | null): Porteur[] {
  * Dans les deux cas la valeur est dans une boîte `data` : quatre octets de
  * type, quatre de langue, puis la charge.
  */
+/**
+ * La charge d'une entrée de liste : elle vit dans une boîte `data`, précédée de
+ * quatre octets de type et de quatre de langue.
+ */
+function valeurDeLEntree(
+  b: Uint8Array,
+  entree: Boite,
+): { debut: number; longueur: number } | null {
+  const data = enfants(b, entree).find((d) => d.type === 'data');
+  if (!data) return null;
+  const debut = charge(data) + 8;
+  const longueur = finDe(data) - debut;
+  return longueur > 0 ? { debut, longueur } : null;
+}
+
+/**
+ * Les clés nommées d'Apple, appariées à leurs valeurs.
+ *
+ * `keys` porte les NOMS dans l'ordre, `ilst` porte les VALEURS numérotées : le
+ * lien entre les deux est le RANG, et c'est la seule subtilité du rangement.
+ * Elle est écrite ici une fois — le lecteur du lieu et celui des informations
+ * s'en servent tous les deux, et ne peuvent donc pas en donner deux lectures
+ * différentes.
+ */
+function entreesDesKeys(
+  b: Uint8Array,
+  racine: Boite[],
+): Array<{ nom: string; entree: Boite; valeur: { debut: number; longueur: number } }> {
+  const meta = chemin(b, 'moov/meta', racine);
+  if (!meta) return [];
+  const filles = enfants(b, meta);
+  const keys = filles.find((x) => x.type === 'keys');
+  const ilst = filles.find((x) => x.type === 'ilst');
+  if (!keys || !ilst) return [];
+
+  const parIndex = new Map<number, Boite>();
+  for (const entree of enfants(b, ilst)) {
+    parIndex.set(readU32(b, entree.debut + 4, 'BE'), entree);
+  }
+  const out: Array<{ nom: string; entree: Boite; valeur: { debut: number; longueur: number } }> = [];
+  for (const [i, nom] of listerKeys(b, keys).entries()) {
+    const entree = parIndex.get(i + 1);
+    if (!entree) continue;
+    const valeur = valeurDeLEntree(b, entree);
+    if (valeur) out.push({ nom, entree, valeur });
+  }
+  return out;
+}
+
 function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
   const out: Porteur[] = [];
-
-  const valeurDe = (entree: Boite): { debut: number; longueur: number } | null => {
-    const data = enfants(b, entree).find((d) => d.type === 'data');
-    if (!data) return null;
-    const debut = charge(data) + 8;
-    const longueur = finDe(data) - debut;
-    return longueur > 0 ? { debut, longueur } : null;
-  };
+  const valeurDe = (entree: Boite) => valeurDeLEntree(b, entree);
 
   // Google Photos : la clé est le nom même de la boîte.
   const ilstUdta = chemin(b, 'moov/udta/meta/ilst', racine);
@@ -251,25 +306,9 @@ function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
     }
   }
 
-  // Apple : `keys` nomme, `ilst` numérote. L'entrée dont le TYPE vaut l'index
-  // 1-based de la clé porte la valeur.
-  const meta = chemin(b, 'moov/meta', racine);
-  if (!meta) return out;
-  const filles = enfants(b, meta);
-  const keys = filles.find((x) => x.type === 'keys');
-  const ilst = filles.find((x) => x.type === 'ilst');
-  if (!keys || !ilst) return out;
-
-  const noms = listerKeys(b, keys);
-  const parIndex = new Map<number, Boite>();
-  for (const entree of enfants(b, ilst)) {
-    parIndex.set(readU32(b, entree.debut + 4, 'BE'), entree);
-  }
-  for (const [i, nom] of noms.entries()) {
-    const entree = parIndex.get(i + 1);
-    if (!entree) continue;
-    const v = valeurDe(entree);
-    if (!v) continue;
+  // Apple : `keys` nomme, `ilst` numérote — l'appariement vit dans
+  // `entreesDesKeys`, qui sert aussi à lire les informations du fichier.
+  for (const { nom, entree, valeur: v } of entreesDesKeys(b, racine)) {
     if (nom === CLE_APPLE) {
       out.push({
         sorte: 'keys',
@@ -318,6 +357,162 @@ export function porteursDeLieu(b: Uint8Array): Porteur[] {
     ...porteurLoci(b, udta),
     ...porteursIlst(b, racine),
   ];
+}
+
+/* ------------------------------------------------------------------ */
+/* Ce que la vidéo dit d'elle-même                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Les informations affichables d'une vidéo.
+ *
+ * Le volet « autres informations » ne tenait qu'au second lecteur, celui écrit
+ * par d'autres — et il n'ouvre ni MOV ni MP4. Quatre de ses cinq sources
+ * étaient donc mortes pour une vidéo : elle n'avait rien à dire, et le volet
+ * disparaissait. Ce qui suit va chercher, dans les boîtes que ce module sait
+ * déjà parcourir, ce que le fichier porte réellement.
+ *
+ * UNE SEULE RÈGLE, et c'est celle de tout le moteur : on n'invente aucune
+ * ligne. Un champ absent, vide, ou une date à zéro — ce que valent les
+ * fichiers d'essai et les vidéos réencodées — ne produit rien du tout. Mieux
+ * vaut un volet court qu'un volet qui affirme.
+ */
+export interface InfosVideo {
+  takenAt: string | null;
+  camera: string | null;
+  details: Array<{ cle: string; value: string }>;
+}
+
+/** Secondes écoulées entre le début du calendrier QuickTime et celui d'Unix. */
+const EPOQUE_QUICKTIME = Date.UTC(1904, 0, 1) / 1000;
+
+/** Virgule fixe 16.16, telle que `tkhd` et `loci` l'écrivent tous les deux. */
+const virguleFixe = (b: Uint8Array, o: number) => (readU32(b, o, 'BE') | 0) / 65536;
+
+/** `h:mm:ss` ou `m:ss` — des chiffres, pas des mots : le worker n'a pas de dictionnaire. */
+function duree(secondes: number): string {
+  const t = Math.round(secondes);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  const deux = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${deux(m)}:${deux(s)}` : `${m}:${deux(s)}`;
+}
+
+/**
+ * Vrai si ce texte est affichable tel quel.
+ *
+ * Les atomes d'`udta` sont écrits dans un jeu de caractères que rien ne
+ * déclare, et les fichiers anciens emploient celui du Macintosh. Nous n'avons
+ * pas la table qui le convertit, et l'afficher octet pour octet donnerait du
+ * charabia. Un champ qu'on ne sait pas lire ne s'affiche pas : c'est la même
+ * règle que pour le reste du moteur, appliquée au texte.
+ */
+function affichable(s: string): boolean {
+  for (const c of s) {
+    const n = c.codePointAt(0)!;
+    if (n < 0x20 || (n >= 0x7f && n <= 0x9f)) return false;
+  }
+  return s.length > 0;
+}
+
+/**
+ * Les atomes texte d'`udta`, par nom.
+ *
+ * Deux dispositions se rencontrent, et il faut les deux : la forme QuickTime —
+ * longueur sur deux octets, langue, chaîne — et la forme en boîte `data`, que
+ * les outils dérivés d'iTunes emploient. `©day` est écrit tantôt dans l'une,
+ * tantôt dans l'autre.
+ */
+function textesDUdta(b: Uint8Array, racine: Boite[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const udta = chemin(b, 'moov/udta', racine);
+  if (!udta) return out;
+  for (const x of enfants(b, udta)) {
+    const c = chaineDAtome(b, x) ?? valeurDeLEntree(b, x);
+    if (!c) continue;
+    const valeur = texte(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
+    if (affichable(valeur)) out.set(x.type, valeur);
+  }
+  return out;
+}
+
+export function infosVideo(b: Uint8Array): InfosVideo {
+  const details: InfosVideo['details'] = [];
+  let takenAt: string | null = null;
+  let camera: string | null = null;
+
+  const racine = boites(b, 0, b.length);
+  const moov = racine.find((x) => x.type === 'moov');
+  if (!moov) return { takenAt, camera, details };
+
+  const cles = new Map(entreesDesKeys(b, racine).map((e) => [
+    e.nom,
+    texte(b, e.valeur.debut, e.valeur.longueur).trim(),
+  ]));
+  const atomes = textesDUdta(b, racine);
+  const premier = (...candidats: (string | undefined)[]) =>
+    candidats.find((v) => v && v.trim()) ?? null;
+
+  // L'appareil. Apple le nomme par clés, les autres par atomes texte.
+  const marque = premier(cles.get('com.apple.quicktime.make'), atomes.get('©mak'));
+  const modele = premier(cles.get('com.apple.quicktime.model'), atomes.get('©mod'));
+  camera = [marque, modele].filter(Boolean).join(' ') || null;
+
+  // La date. Celle qu'un appareil écrit vaut mieux que celle du conteneur : la
+  // seconde est parfois l'heure du réencodage, et souvent à zéro.
+  const datee = premier(cles.get('com.apple.quicktime.creationdate'), atomes.get('©day'));
+  if (datee) takenAt = datee;
+
+  const mvhd = enfants(b, moov).find((x) => x.type === 'mvhd');
+  if (mvhd) {
+    const v = b[charge(mvhd)];
+    const o = charge(mvhd) + 4;
+    const large = v === 1;
+    const creee = large ? lireEntierBE(b, o + 8, 8) : readU32(b, o, 'BE');
+    const echelle = readU32(b, o + (large ? 16 : 8), 'BE');
+    const total = large ? lireEntierBE(b, o + 20, 8) : readU32(b, o + 12, 'BE');
+
+    /*
+     * Une date de conteneur n'est crédible que si elle est plausible.
+     *
+     * Zéro n'est pas le 1er janvier 1904, c'est une date absente — et beaucoup
+     * d'outils écrivent à la place la valeur qui retombe pile sur le 1er
+     * janvier 1970, ce qui est un remplissage tout autant. Le format QuickTime
+     * date de 1991 : rien d'antérieur ne peut être une prise de vue. On
+     * s'abstient donc plutôt que d'afficher une date que personne n'a vécue.
+     */
+    if (!takenAt && creee > 0) {
+      const quand = new Date((creee + EPOQUE_QUICKTIME) * 1000);
+      if (!Number.isNaN(quand.valueOf()) && quand.getUTCFullYear() >= 1990) {
+        takenAt = quand.toISOString();
+      }
+    }
+    if (echelle > 0 && total > 0) {
+      details.push({ cle: 'Duree', value: duree(total / echelle) });
+    }
+  }
+
+  // Les dimensions : celles de la première piste qui en déclare — la première
+  // piste tout court peut être le son, qui n'en a pas.
+  for (const trak of enfants(b, moov).filter((x) => x.type === 'trak')) {
+    const tkhd = enfants(b, trak).find((x) => x.type === 'tkhd');
+    if (!tkhd) continue;
+    const fin = finDe(tkhd);
+    const l = virguleFixe(b, fin - 8);
+    const h = virguleFixe(b, fin - 4);
+    if (l >= 1 && h >= 1) {
+      details.push({ cle: 'Dimensions', value: `${Math.round(l)} × ${Math.round(h)}` });
+      break;
+    }
+  }
+
+  const logiciel = premier(cles.get('com.apple.quicktime.software'), atomes.get('©swr'));
+  if (logiciel) details.push({ cle: 'Software', value: logiciel });
+  const auteur = premier(cles.get('com.apple.quicktime.author'), atomes.get('©ART'));
+  if (auteur) details.push({ cle: 'Artist', value: auteur });
+
+  return { takenAt, camera, details };
 }
 
 /* ------------------------------------------------------------------ */

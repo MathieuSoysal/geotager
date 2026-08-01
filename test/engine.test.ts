@@ -31,6 +31,7 @@ import { boites, enfants, toutesLesBoites } from '../src/lib/exif/bmff.ts';
 import { writeU32 } from '../src/lib/exif/octets.ts';
 import {
   accepteAjoutVideo,
+  infosVideo,
   porteursConcordent,
   structureIntacte,
   copieDuLieuAilleursVideo,
@@ -1183,7 +1184,7 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 const VIDEOS = [
   'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
   'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
-  'fragmente.mp4',
+  'fragmente.mp4', 'appareil.mp4',
 ];
 
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
@@ -1632,6 +1633,71 @@ scenario('Le lieu créé est écrit dans les deux rangements attendus', () => {
     !copieDuLieuAilleursVideo(vide.bytes));
   const reste = exif(['-a', '-G1', '-s', '-ee', '-gps*', outVide]).trim();
   check('et l\'oracle ne trouve plus rien', reste === '', reste.slice(0, 120));
+});
+
+/*
+ * Ce qu'une vidéo dit d'elle-même.
+ *
+ * Le volet « autres informations » ne tenait qu'au second lecteur, qui n'ouvre
+ * ni MOV ni MP4 : une vidéo n'avait donc rien à y mettre, et il disparaissait.
+ * Ce scénario est le PREMIER de tout le dépôt à regarder ce volet — ni les
+ * vidéos ni les photos n'en avaient jamais eu.
+ *
+ * Il vérifie les deux sens, et le second compte autant : ce qui doit être là y
+ * est, et ce qui ne doit PAS y être n'y est pas. Un fichier dont la date est
+ * un remplissage ne doit pas afficher de date.
+ */
+scenario('Une vidéo dit sa durée, ses dimensions et sa date', () => {
+  const lignes = (nom: string) => {
+    const i = infosVideo(new Uint8Array(readFileSync(join(FIXTURES, nom))));
+    return { i, m: new Map(i.details.map((d) => [d.cle, d.value])) };
+  };
+
+  for (const nom of VIDEOS) {
+    const { m } = lignes(nom);
+    // Toutes portent des images : la taille est la seule ligne due partout.
+    check(`${nom} : les dimensions sont lues`, /^\d+ × \d+$/.test(m.get('Dimensions') ?? ''),
+      m.get('Dimensions') ?? '(rien)');
+  }
+
+  // La durée et la date, croisées avec l'oracle indépendant.
+  for (const [nom, dureeAttendue, dateAttendue] of [
+    ['piste-de-lieu.mp4', '0:24', '2018-01-24'],
+    ['tete-nue.mov', '0:05', '2005-08-11'],
+  ] as const) {
+    const { i, m } = lignes(nom);
+    check(`${nom} : la durée est lue`, m.get('Duree') === dureeAttendue, m.get('Duree') ?? '(rien)');
+    check(`${nom} : la date est lue`, (i.takenAt ?? '').startsWith(dateAttendue), String(i.takenAt));
+    // L'oracle lit les mêmes champs dans le même fichier.
+    const oracle = exif(['-s3', '-CreateDate', join(FIXTURES, nom)]).trim();
+    check(`${nom} : et l'oracle dit la même date`,
+      oracle.slice(0, 10).replace(/:/g, '-') === dateAttendue, oracle);
+  }
+
+  // Et le sens inverse. Ces deux-là portent une date de remplissage — zéro pour
+  // l'un, la valeur qui retombe pile sur le 1er janvier 1970 pour l'autre. Rien
+  // ne doit s'afficher : une date que personne n'a vécue n'est pas une date.
+  for (const nom of ['sans-lieu.mp4', 'fragmente.mp4']) {
+    const { i } = lignes(nom);
+    check(`${nom} : aucune date n'est inventée`, i.takenAt === null, String(i.takenAt));
+  }
+
+  // L'appareil, sur le seul fichier qui le nomme.
+  const { i: avecAppareil } = lignes('appareil.mp4');
+  check('appareil.mp4 : l\'appareil est lu',
+    avecAppareil.camera === 'Geotager Modele Temoin', String(avecAppareil.camera));
+  const { i: sansAppareil } = lignes('piste-de-lieu.mp4');
+  check('piste-de-lieu.mp4 : aucun appareil n\'est inventé', sansAppareil.camera === null);
+
+  // Aucune valeur illisible : les anciens fichiers écrivent leur texte dans un
+  // jeu de caractères que rien ne déclare, et l'afficher octet pour octet
+  // donnerait du charabia. On préfère ne rien montrer.
+  for (const nom of VIDEOS) {
+    const { i } = lignes(nom);
+    const sale = i.details.find((d) => /[\u0000-\u001f\u007f-\u009f]/.test(d.value));
+    check(`${nom} : rien d'illisible n'est affiché`, sale === undefined,
+      sale ? `${sale.cle}=${JSON.stringify(sale.value)}` : '');
+  }
 });
 
 /** Un fichier réel PORTEUR d'un lieu, par format. Sans lui, aucune preuve. */

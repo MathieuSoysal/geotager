@@ -2164,3 +2164,57 @@ invisible après ce lot, c'est le fichier lui-même qu'il faudra : un MP4 de té
 peut-être un rangement qu'aucune des six vidéos du corpus ne montre.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-053 — Une vidéo n'avait rien à dire dans « les autres informations »
+
+**Contexte :** le volet repliable n'apparaît pas sur une vidéo. Mesuré dans un vrai navigateur :
+seize lignes sur un `Canon_40D.jpg`, dix-huit sur un `DSCN0010.jpg` — et **zéro** sur un MP4 sans
+lieu, où le volet disparaît entièrement. Une vidéo qui porte un lieu s'en tire avec **une** ligne :
+la position, que la pastille affiche déjà juste au-dessus.
+
+La condition est `infos.length === 0` (`src/lib/ui/app.ts:319`), et `infos` se remplit de cinq
+sources : `camera`, `takenAt`, `position`, `altitude`, `details`. **Quatre sur cinq ne sont écrites
+que dans le bloc `if (tags)` de `lire()`**, alimenté par le second lecteur — que la V1.7 a cessé
+d'appeler sur une vidéo puisqu'il n'ouvre ni MOV ni MP4. Il ne restait donc que la position.
+
+Ce n'est pas une régression du volet : personne n'avait jamais écrit la lecture des informations
+d'une vidéo. Le lot précédent a ouvert les quatre opérations sur le LIEU et s'est arrêté là.
+
+**Retenu : lire ce que le fichier porte réellement**, dans les boîtes que le module parcourt déjà —
+durée et date depuis `mvhd`, dimensions depuis le `tkhd` de la première piste qui en déclare (la
+première piste tout court peut être le son), appareil et logiciel depuis les clés nommées d'Apple ou
+les atomes texte d'`udta`.
+
+L'essentiel de la conception est de la **réutilisation**, pas du code neuf : l'appariement
+rang → valeur des clés d'Apple — la seule partie subtile du rangement — est sorti du lecteur du lieu
+pour servir aux deux, et le décodage des atomes texte d'`udta` de même. Aucun changement de
+contrat : `PhotoRead.details` est depuis toujours le canal ouvert prévu pour cela, et sa
+documentation dit déjà que la clé est un identifiant stable que l'interface traduit.
+
+**Trois refus, et ils valent mieux que les lignes ajoutées :**
+
+- **Une date de remplissage n'est pas une date.** Zéro n'est pas le 1er janvier 1904, et beaucoup
+  d'outils écrivent la valeur qui retombe pile sur le 1er janvier 1970 — `bear.mp4` le fait. Le
+  format QuickTime datant de 1991, rien d'antérieur ne peut être une prise de vue : on s'abstient.
+- **Un texte qu'on ne sait pas décoder ne s'affiche pas.** Les atomes d'`udta` sont écrits dans un
+  jeu de caractères que rien ne déclare, et les fichiers anciens emploient celui du Macintosh.
+  `tete-nue.mov` porte ainsi un auteur dont le premier octet ne veut rien dire chez nous. Faute de
+  la table qui le convertit, l'afficher octet pour octet donnerait du charabia.
+- **Deux dispositions, pas une.** `©day` s'écrit tantôt à la façon QuickTime — longueur, langue,
+  chaîne — tantôt dans une boîte `data`. Les deux sont lues ; une seule aurait rendu la moitié des
+  fichiers muets.
+
+**Ce qu'on n'affiche pas, délibérément :** le nom du codage vidéo. Il est trivial à lire — le
+parcours qui cherche les pistes de lieu le croise déjà — et il ne dit rien à quelqu'un venu placer
+un lieu sur une vidéo.
+
+**Et le vrai trou du lot : personne n'avait jamais regardé ce volet.** Ni `engine.test.ts` ni
+`e2e.test.mjs` ne mentionnaient `#autres`, `details`, `takenAt` ou `camera` — pour aucun format.
+C'est pour cela que ceci pouvait être livré sans que rien ne bronche. Les scénarios ajoutés
+l'ouvrent enfin, sur une photo comme sur une vidéo, et vérifient les DEUX SENS : ce qui doit y être
+y est, et ce qui ne doit pas y être n'y est pas. Un fichier témoin a été préparé pour la ligne
+« Appareil », qu'aucune vidéo du corpus ne portait — sans lui, elle aurait été écrite sans preuve.
+
+**Bloque :** non.

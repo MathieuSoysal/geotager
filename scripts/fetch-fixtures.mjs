@@ -168,6 +168,11 @@ const PREPARES = [
     args: ['-n', '-UserData:LocationInformation=Avignon Role=shooting Lat=43.9493 Lon=4.8055 Alt=26'],
   },
   {
+    nom: 'appareil.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 qui nomme son appareil — sans lui, la ligne « Appareil » du volet ne serait éprouvée par rien',
+    args: ['-n', '-UserData:Make=Geotager', '-UserData:Model=Modele Temoin'],
+  },
+  {
     nom: 'texte-de-lieu.mov', depuis: 'tete-nue.mov', requis: true,
     role: 'QuickTime dont le paquet de texte descriptif nomme la ville, sans aucune coordonnée',
     args: ['-XMP:City=Avignon', '-XMP:Country=France'],

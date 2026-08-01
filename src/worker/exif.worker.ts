@@ -24,6 +24,7 @@ import {
 import { type Capacites, type Motif, capacitesDe } from '../lib/exif/capacites.ts';
 import {
   ecrirePositionVideo,
+  infosVideo,
   effacerPositionVideo,
   lirePositionVideo,
   porteursConcordent,
@@ -271,6 +272,22 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   let takenAt: string | null = null;
   let camera: string | null = null;
   const details: Array<{ cle: string; value: string }> = [];
+
+  /*
+   * Une vidéo dit ce qu'elle est, mais pas au même endroit qu'une photo.
+   *
+   * Le volet « autres informations » ne tenait qu'au second lecteur, et il
+   * n'ouvre ni MOV ni MP4 : quatre de ses cinq sources étaient donc mortes ici.
+   * Une vidéo sans lieu n'avait aucune ligne à montrer, et le volet
+   * disparaissait — alors que le fichier porte sa durée, ses dimensions, sa
+   * date et souvent son appareil.
+   */
+  if (format === 'video') {
+    const infos = infosVideo(bytes);
+    takenAt = infos.takenAt;
+    camera = infos.camera;
+    details.push(...infos.details);
+  }
 
   try {
     // Le second lecteur n'ouvre ni MOV ni MP4 : l'appeler sur une vidéo, c'est
