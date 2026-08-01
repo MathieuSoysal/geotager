@@ -118,6 +118,55 @@ export function cellules(c: Capacites): boolean[] {
 }
 
 /* ------------------------------------------------------------------ */
+/* Les types de fichier                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Format reconnu ⇄ type déclaré, et les extensions qui vont avec.
+ *
+ * Source unique, pour la même raison que la matrice : cette table était écrite
+ * deux fois — dans le manifeste et dans les tests — et le fichier PRODUIT, lui,
+ * ne la lisait nulle part. Il sortait donc sans type déclaré du tout.
+ *
+ * Ce que cela coûte quand on l'oublie, et c'est ce qui a motivé la table :
+ * un fichier rangé dans les téléchargements d'un téléphone SANS type n'est pas
+ * indexé comme une vidéo. La galerie ne lui montre aucune fiche, et notre
+ * propre sélecteur — restreint aux images et aux vidéos — peut cesser de le
+ * proposer. Le fichier est parfait, et l'utilisateur ne voit rien.
+ *
+ * L'ordre compte : le premier type d'un format est celui qu'on DÉCLARE en
+ * écrivant. Les suivants ne servent qu'à reconnaître.
+ */
+export const TYPES_PAR_FORMAT: Partial<Record<Format, { types: string[]; extensions: string[] }>> = {
+  jpeg: { types: ['image/jpeg'], extensions: ['.jpg', '.jpeg'] },
+  png: { types: ['image/png'], extensions: ['.png'] },
+  webp: { types: ['image/webp'], extensions: ['.webp'] },
+  heic: { types: ['image/heic', 'image/heif'], extensions: ['.heic', '.heif'] },
+  avif: { types: ['image/avif'], extensions: ['.avif'] },
+  tiff: { types: ['image/tiff'], extensions: ['.tif', '.tiff'] },
+  gif: { types: ['image/gif'], extensions: ['.gif'] },
+  video: { types: ['video/mp4', 'video/quicktime'], extensions: ['.mp4', '.m4v', '.mov'] },
+};
+
+/**
+ * Le type à DÉCLARER pour un fichier de ce format, ou null.
+ *
+ * Une vidéo se décline en deux types selon l'emballage, et l'extension du nom
+ * est le seul indice qui les sépare — les octets, eux, sont les mêmes boîtes.
+ * C'est le seul endroit du moteur où le nom du fichier a voix au chapitre, et
+ * seulement pour choisir entre deux étiquettes également vraies.
+ */
+export function typeDeclare(format: Format, nom = ''): string | null {
+  const entree = TYPES_PAR_FORMAT[format];
+  if (!entree) return null;
+  const point = nom.lastIndexOf('.');
+  const ext = point < 0 ? '' : nom.slice(point).toLowerCase();
+  if (format === 'video' && (ext === '.mov' || ext === '.qt')) return 'video/quicktime';
+  if (format === 'heic' && ext === '.heif') return 'image/heif';
+  return entree.types[0];
+}
+
+/* ------------------------------------------------------------------ */
 /* Les phrases                                                         */
 /* ------------------------------------------------------------------ */
 

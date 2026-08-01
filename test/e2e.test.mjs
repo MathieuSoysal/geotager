@@ -435,13 +435,49 @@ await page.fill('#coords', '43.90811, 4.86387');
 await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
 check('le bouton devient actif', (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
 
+await page.addInitScript(() => {
+  const vrai = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (o) => { window.__typeProduit = o && o.type; return vrai(o); };
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'sans-lieu.mp4'));
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+await page.fill('#coords', '43.90811, 4.86387');
+await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
 const [videoDl] = await Promise.all([
   page.waitForEvent('download', { timeout: 60_000 }),
   page.click('#telecharger'),
 ]);
+const typeAnnonce = await page.evaluate(() => window.__typeProduit);
 const videoProduite = join('/tmp', videoDl.suggestedFilename());
 await videoDl.saveAs(videoProduite);
 check('un fichier est bien produit', statSync(videoProduite).size > 0);
+
+/*
+ * Le TYPE annoncé, et pas seulement le contenu.
+ *
+ * Le fichier produit sortait sans type déclaré. Sur un téléphone, un fichier
+ * rangé dans les téléchargements sans type n'est pas indexé comme une vidéo :
+ * la galerie ne lui montre aucune fiche, et notre propre sélecteur — restreint
+ * aux images et aux vidéos — peut cesser de le proposer. Le fichier était
+ * parfait, et l'utilisateur ne voyait rien. Aucun contrôle ne regardait ce que
+ * le navigateur DIT du fichier ; celui-ci le regarde.
+ */
+check('le fichier produit s\'annonce comme une vidéo',
+  typeAnnonce === 'video/mp4', typeAnnonce || '(aucun type)');
+
+// Et il repasse par le sélecteur, qui filtre sur ce type-là.
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', videoProduite);
+await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+check('rechargé dans l\'outil, il montre le lieu écrit',
+  /43\.908/.test((await page.locator('#pill-position').textContent()).trim()));
+
+// Enfin les mots : plus une phrase ne doit appeler « photo » une vidéo.
+const zoneVideo = (await page.locator('#etat-actif').innerText()).toLowerCase();
+check('aucune phrase n\'appelle « photo » une vidéo',
+  !zoneVideo.includes('photo'),
+  zoneVideo.split('\n').filter((l) => l.includes('photo')).slice(0, 3).join(' | '));
 
 const reluVideo = execFileSync(
   'exiftool',

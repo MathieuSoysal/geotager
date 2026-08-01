@@ -88,17 +88,27 @@ export interface Dictionnaire {
 
   app: {
     /** Titre masqué de l'état actif : cible du focus après le chargement. */
-    titreActif: string;
-    changer: string;
-    ouPrise: string;
+    /*
+     * Les phrases qui suivent prennent le NOM du genre de fichier chargé.
+     *
+     * L'outil disait « photo » partout, y compris sous une pastille annonçant
+     * « Video ». Le français rend la chose simple : « photo » et « vidéo » sont
+     * tous deux féminins, donc le nom se substitue sans rien accorder.
+     *
+     * Seules les phrases dites QUAND UN FICHIER EST CHARGÉ en prennent un : là
+     * où aucun fichier n'est là, aucun genre n'est connu.
+     */
+    titreActif: (nom: string) => string;
+    changer: (nom: string) => string;
+    ouPrise: (nom: string) => string;
     aideCoords: string;
-    aideCoordsFort: string;
+    aideCoordsFort: (nom: string) => string;
     /** Saisie que l'analyseur refuse : texte d'erreur, annoncé et affiché. */
     coordsInvalides: string;
     /** La carte de choix du lieu — repliée tant qu'on ne la demande pas. */
     ouvrirCarte: string;
     fermerCarte: string;
-    avisCarte: string;
+    avisCarte: (nom: string) => string;
     /** L'import du code de la carte a échoué — hors ligne, typiquement. */
     carteIndisponible: string;
     carteLabel: string;
@@ -106,13 +116,13 @@ export interface Dictionnaire {
     zoomAvant: string;
     zoomArriere: string;
     contributeurs: string;
-    repereOrigine: string;
+    repereOrigine: (nom: string) => string;
     positionChoisie: (p: string) => string;
-    telecharger: string;
+    telecharger: (nom: string) => string;
     /** Pourquoi « Télécharger » est inactif tant qu'aucun lieu n'est choisi. */
     telechargerPourquoi: string;
     /** Partager la photo PRODUITE — jamais l'originale. */
-    partagerSortie: string;
+    partagerSortie: (nom: string) => string;
     effacer: string;
     effacerTout: string;
     autres: string;
@@ -127,8 +137,8 @@ export interface Dictionnaire {
     modifiables: string;
     lecturePlurielle: (n: number) => string;
     traitement: (i: number, n: number) => string;
-    photoLue: (p: string) => string;
-    photoLueSansPosition: string;
+    photoLue: (p: string, nom: string) => string;
+    photoLueSansPosition: (nom: string) => string;
     illisibleAlerte: string;
     aucunProduit: string;
     aucunProduitAnnonce: string;
@@ -138,10 +148,19 @@ export interface Dictionnaire {
     virgule: string;
     octets: [string, string, string];
     nomVideo: string;
+    /**
+     * Le nom du genre, et son pluriel. `neutre` sert au lot mélangé : quand un
+     * lot porte des photos ET des vidéos, aucun des deux noms n'est vrai.
+     */
+    noms: {
+      photo: string; photos: string;
+      video: string; videos: string;
+      neutre: string; neutres: string;
+    };
     nomInconnu: string;
-    telechargerPhotos: (n: number) => string;
+    telechargerPhotos: (n: number, nom: string, pluriel: string) => string;
     depuisOrigine: (d: string) => string;
-    nouvellePosition: string;
+    nouvellePosition: (nom: string) => string;
     pretsVerifies: (n: number) => string;
     pretsAvecEchecs: (n: number, e: number) => string;
     /** Le partage est arrivé mais les octets n'ont pas survécu au trajet. */

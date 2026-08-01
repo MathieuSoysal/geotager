@@ -1442,7 +1442,10 @@ scenario('Un ajout ne fait que décaler, jamais réécrire', () => {
 
     const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
     const ajoute = pose.bytes.length - src.length;
-    check(`${nom} : le fichier grandit d'un seul rangement`, ajoute > 0 && ajoute < 64, `${ajoute} o`);
+    // Deux rangements sur un MP4 — le simple et celui d'Apple —, un seul sur un
+    // QuickTime. Dans tous les cas, quelques dizaines d'octets et pas davantage.
+    check(`${nom} : le fichier ne grandit que de ses rangements`,
+      ajoute > 0 && ajoute < 512, `${ajoute} o`);
 
     // Le point d'insertion se lit dans la STRUCTURE, et non au premier octet
     // qui diffère : les tailles des parents et les rangs des tronçons changent
@@ -1523,7 +1526,15 @@ scenario('Et ce contrôle sait échouer', () => {
   // rangement du lieu devient simplement le voisin de `udta` au lieu d'être son
   // enfant. C'est la relecture de la position qui l'attrape, en ne retrouvant
   // plus rien. Les deux contrôles se complètent, et aucun ne suffit seul.
-  const glisse = sain.slice();
+  //
+  // On l'éprouve sur un QuickTime, qui ne porte QU'UN rangement : sur un MP4, le
+  // second — celui d'Apple — porterait encore le lieu, et masquerait la
+  // démonstration. Que deux rangements se couvrent l'un l'autre est une bonne
+  // nouvelle ; ce n'est pas une raison de ne plus éprouver le filet.
+  const seul = new Uint8Array(readFileSync(join(FIXTURES, 'tete-nue.mov')));
+  const seulEcrit = ecrirePositionVideo(seul, AVIGNON.lat, AVIGNON.lon).bytes;
+  check('le témoin à un seul rangement en a bien un', porteursDeLieu(seulEcrit).length === 1);
+  const glisse = seulEcrit.slice();
   const moov = boiteDeTete(glisse, 'moov');
   const udta = enfants(glisse, moov).find((x) => x.type === 'udta')!;
   writeU32(glisse, udta.debut, udta.taille - 34, 'BE');
@@ -1584,6 +1595,43 @@ scenario('fragmente.mp4 — un fichier fragmenté est refusé avant l\'action', 
   let leve = false;
   try { ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon); } catch { leve = true; }
   check('l\'écriture lève plutôt que d\'abîmer le fichier', leve);
+});
+
+scenario('Le lieu créé est écrit dans les deux rangements attendus', () => {
+  /*
+   * `moov/udta/©xyz` est ce que lisent Android, FFmpeg, VLC et MediaInfo. Les
+   * logiciels d'Apple ne lisent que la clé nommée. Écrire les deux, c'est la
+   * différence entre « le fichier porte le lieu » et « le lieu se voit ».
+   *
+   * L'oracle est interrogé GROUPE PAR GROUPE, et non sur la position composée :
+   * celle-ci se contenterait d'un seul rangement et ne dirait rien de l'autre.
+   */
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'deux-rangements.mp4');
+  writeFileSync(out, pose.bytes);
+
+  const sortes = porteursDeLieu(pose.bytes).map((p) => p.sorte).sort();
+  check('les deux rangements sont là', JSON.stringify(sortes) === '["keys","xyz-udta"]',
+    sortes.join('+'));
+
+  for (const groupe of ['UserData', 'Keys']) {
+    const lu = exif(['-n', '-s3', `-${groupe}:GPSCoordinates`, out]).trim();
+    check(`l'oracle lit le lieu dans « ${groupe} »`, lu.startsWith('43.9'), lu || '(rien)');
+  }
+  check('la structure reste debout', structureIntacte(pose.bytes));
+  check('et le fichier reste identique partout ailleurs',
+    memesOctetsHorsPlages(src, pose.bytes, pose.changed));
+
+  // Et l'effacement les retire TOUS LES DEUX : n'en retirer qu'un rendrait un
+  // fichier que l'utilisateur croirait propre.
+  const vide = effacerPositionVideo(pose.bytes);
+  const outVide = join(tmp, 'deux-rangements-vide.mp4');
+  writeFileSync(outVide, vide.bytes);
+  check('l\'effacement ne laisse aucun rangement porteur',
+    !copieDuLieuAilleursVideo(vide.bytes));
+  const reste = exif(['-a', '-G1', '-s', '-ee', '-gps*', outVide]).trim();
+  check('et l\'oracle ne trouve plus rien', reste === '', reste.slice(0, 120));
 });
 
 /** Un fichier réel PORTEUR d'un lieu, par format. Sans lui, aucune preuve. */

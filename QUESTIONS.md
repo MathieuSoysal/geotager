@@ -2092,3 +2092,75 @@ aucun fichier — un raisonnement, pas une mesure. `bear-av1.mp4` de `chromium/c
 il rejoint le corpus sous la même licence que son voisin.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-052 — Le fichier produit ne disait pas ce qu'il était, et l'outil appelait « photo » une vidéo
+
+**Contexte :** deux signalements après Q-051, et ils ne sont pas de même nature.
+
+**Le premier est net.** Dix-sept phrases de `app` disent « photo » dans chaque langue, et elles
+s'affichaient telles quelles sous une pastille qui annonçait pourtant « Video » : *« Where was this
+photo taken? »*, *« Download the photo »*. L'outil nommait mal ce qu'il avait sous la main.
+
+**Le second n'a pas pu être reproduit**, et il faut le dire avant tout le reste : « je ne vois rien
+dans les informations de la vidéo ». Vérifié pied à pied — le correctif de Q-051 **est** déployé
+(le worker servi a le même contenu, octet pour octet, que la build locale) ; le fichier produit porte
+son lieu à sa place canonique ; l'oracle le relit ; et les six vidéos du corpus font l'aller-retour
+complet dans un vrai navigateur, chargement, saisie, clic, téléchargement, rechargement, sans une
+faute.
+
+Reste une cause matérielle, trouvée en lisant le chemin de sortie, et qui explique le symptôme de
+bout en bout **sans qu'aucun octet du fichier soit en cause** : le fichier produit sortait **sans
+type déclaré**, et le partage l'annonçait explicitement comme un flux d'octets quelconque. Sur un
+téléphone, un fichier rangé dans les téléchargements sans type n'est pas indexé comme une vidéo : la
+galerie ne lui montre aucune fiche, et notre propre sélecteur — restreint aux images et aux vidéos —
+peut cesser de le proposer. Le fichier est parfait, et l'utilisateur ne voit rien.
+
+Cela valait pour les photos aussi. C'est la vidéo qui l'a rendu visible, parce qu'une vidéo se
+consulte presque toujours par la galerie.
+
+**Retenu :**
+
+1. **Le fichier produit déclare son type**, au téléchargement comme au partage. La table format ⇄
+   type était écrite deux fois — dans le manifeste et dans les tests — et le fichier produit ne la
+   lisait nulle part : elle est désormais unique, et le manifeste en dérive au lieu de la recopier.
+   La source est le format que le MOTEUR a reconnu dans les octets, jamais le type que le système
+   attache au fichier d'entrée — c'est justement celui-là qui est vide ou faux dans les cas qui nous
+   occupent, ce que Q-042 avait déjà relevé pour le sélecteur.
+2. **Les mots suivent le fichier chargé.** Les phrases dites quand un fichier est là prennent le nom
+   de son genre. Le français rendait la chose simple : « photo » et « vidéo » sont tous deux
+   féminins, donc rien à accorder. Un lot mélangé retombe sur un nom neutre — aucun des deux n'y
+   serait vrai. Le héros, les titres de page et les guides ne bougent pas : c'est ce que les gens
+   cherchent, et aucun fichier n'y est chargé.
+3. **Le lieu s'écrit aussi à la façon d'Apple.** `moov/udta/©xyz` est ce que lisent Android, FFmpeg,
+   VLC et MediaInfo ; les logiciels d'Apple ne lisent que la clé nommée
+   `com.apple.quicktime.location.ISO6709`. Les deux sont désormais écrits ensemble, et effacés
+   ensemble — la règle du tout ou rien de Q-050 s'applique telle quelle.
+
+   Deux bornes volontaires : rien n'est écrit si `moov/meta` existe déjà — il faudrait allonger deux
+   tables et renuméroter, et aucun fichier du corpus n'a cette forme, donc rien ne l'éprouverait ; et
+   rien n'est écrit dans un vrai QuickTime, dont `©xyz` est de toute façon le rangement natif.
+
+   **Un détail mesuré plutôt que supposé :** la norme fait de `meta` une « FullBox », qui porte
+   quatre octets de version. Écrite ainsi, l'oracle n'y lit RIEN ; écrite sans, il y lit le lieu — et
+   c'est la forme qu'ExifTool produit lui-même. Ce rangement n'existant que pour être lu par
+   d'autres, on suit le lecteur et non le texte.
+4. **Un échec cesse d'être muet.** Sur un fichier seul, n'importe quel échec s'affichait « aucun
+   fichier produit », alors que la phrase exacte — traduite, propre à chaque code — était calculée
+   puis jetée : la liste des états n'est rendue qu'à partir de deux fichiers. Ce défaut a coûté deux
+   allers-retours de diagnostic, faute que l'outil dise ce qu'il savait déjà.
+
+**Un défaut trouvé en écrivant le troisième point, et qui vaut d'être noté.** L'insertion déduisait
+de la POSITION à quelle boîte un ajout appartenait. C'est faux dans un cas parfaitement ordinaire :
+quand `udta` est la dernière boîte de `moov`, les deux finissent au même octet, et rien dans la
+position ne distingue « dans udta » de « après udta, dans moov ». `udta` avalait donc le rangement
+d'Apple, qui devenait invisible pour tout le monde — nous compris. Chaque insertion dit désormais
+chez qui elle va, au lieu de le laisser deviner.
+
+**Ce qui reste ouvert.** Le second signalement n'est pas reproduit. La cause proposée se corrige sur
+pièces et explique le symptôme entièrement, mais elle n'est pas prouvée être la sienne. S'il reste
+invisible après ce lot, c'est le fichier lui-même qu'il faudra : un MP4 de téléphone porte
+peut-être un rangement qu'aucune des six vidéos du corpus ne montre.
+
+**Bloque :** non.

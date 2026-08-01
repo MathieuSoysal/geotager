@@ -220,7 +220,7 @@ const jsonLd = {
                  quand il remplaçait l'état vide : le focus retombait sur
                  `body`, et il fallait retraverser la page à la tabulation pour
                  revenir à l'endroit où l'on était. Ce titre est la cible. -->
-            <h2 class="visually-hidden" id="titre-actif" tabindex="-1">{T.app.titreActif}</h2>
+            <h2 class="visually-hidden" id="titre-actif" tabindex="-1">{T.app.titreActif(T.app.noms.photo)}</h2>
             <div class="island-hd">
               <div class="filename">
                 <!-- `bdi` : un nom de fichier vient de l'utilisateur, et un nom arabe ou
@@ -229,7 +229,7 @@ const jsonLd = {
                 <span class="pill" id="pill-format"></span>
                 <span class="pill hot" id="pill-position" hidden></span>
               </div>
-              <button class="btn ghost xs" type="button" id="changer">{T.app.changer}</button>
+              <button class="btn ghost xs" type="button" id="changer">{T.app.changer(T.app.noms.photo)}</button>
             </div>
             <div class="panel">
               <div id="lot" hidden>
@@ -240,7 +240,7 @@ const jsonLd = {
               <div id="alerte-format" class="alerte" hidden></div>
 
               <div>
-                <label class="champ" for="coords">{T.app.ouPrise}</label>
+                <label class="champ" for="coords" id="coords-label">{T.app.ouPrise(T.app.noms.photo)}</label>
                 <div class="box">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#FF3385" stroke-width="2.1" stroke-linecap="round" aria-hidden="true">
                     <circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.3-4.3"></path>
@@ -267,7 +267,7 @@ const jsonLd = {
                   />
                 </div>
                 <p class="aide" id="coords-aide">
-                  {T.app.aideCoords}<b>{T.app.aideCoordsFort}</b>
+                  {T.app.aideCoords}<b id="coords-aide-fort">{T.app.aideCoordsFort(T.app.noms.photo)}</b>
                 </p>
                 <!-- Une saisie que l'analyseur refuse ne disait rien du tout :
                      le bouton de téléchargement se grisait, et c'était le seul
@@ -292,7 +292,7 @@ const jsonLd = {
                        ligne il n'est donc pas là, et l'import dynamique échoue.
                        Il faut le dire ici plutôt que de laisser un cadre vide. -->
                   <p class="alerte attention" id="carte-erreur" hidden></p>
-                  <p class="aide avis">{T.app.avisCarte}</p>
+                  <p class="aide avis" id="carte-avis">{T.app.avisCarte(T.app.noms.photo)}</p>
                   <div class="carte-cadre">
                     <div
                       class="carte-vue"
@@ -331,7 +331,7 @@ const jsonLd = {
                 id="telecharger"
                 aria-disabled="true"
                 aria-describedby="telecharger-pourquoi">
-                {T.app.telecharger}
+                {T.app.telecharger(T.app.noms.photo)}
               </button>
               <!-- Les trois autres contrôles inactifs sont déjà expliqués : la
                    phrase de capacité dit ce que le fichier permet, et elle est
@@ -344,7 +344,7 @@ const jsonLd = {
                    fichiers-là. La photo nettoyée devait jusqu'ici passer par le
                    dossier de téléchargement pour aller ailleurs. -->
               <button class="btn ghost" type="button" id="partager-sortie" hidden>
-                {T.app.partagerSortie}
+                {T.app.partagerSortie(T.app.noms.photo)}
               </button>
               <div class="minor">
                 <button class="btn ghost" type="button" id="effacer">{T.app.effacer}</button>

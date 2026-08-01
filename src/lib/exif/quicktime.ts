@@ -572,38 +572,55 @@ function ajouterLeLieu(b: Uint8Array, p: LatLon, aNeutraliser: Porteur[] = []): 
   xyz.set(chaine, 12);
 
   const udta = enfants(b, moov).find((x) => x.type === 'udta') ?? null;
-  const ajout = udta ? xyz : nouvelleUdta(xyz);
   // On insère À LA FIN de `udta` quand elle existe, et à la fin de `moov`
   // sinon : dans les deux cas, aucune boîte SŒUR ne change de place à
   // l'intérieur de son parent.
-  const insertion = udta ? finDe(udta) : finDe(moov);
+  const insertions: Insertion[] = [
+    udta
+      ? { a: finDe(udta), octets: xyz, dans: [udta, moov] }
+      : { a: finDe(moov), octets: nouvelleUdta(xyz), dans: [moov] },
+  ];
 
-  const out = new Uint8Array(b.length + ajout.length);
-  out.set(b.subarray(0, insertion), 0);
-  out.set(ajout, insertion);
-  out.set(b.subarray(insertion), insertion + ajout.length);
+  // La seconde copie, celle que lisent les logiciels d'Apple. Voir `metaApple`
+  // pour ce qui la borne.
+  const apple = metaApple(b, moov, racine, s);
+  if (apple) insertions.push({ a: finDe(moov), octets: apple, dans: [moov] });
+
+  const { out, deplacer } = inserer(b, insertions);
 
   // Les anciens rangements partent AVANT que le nouveau ne serve : laisser en
   // place une copie que nous n'avons pas su réécrire ferait dire deux lieux au
-  // même fichier. Ils sont tous avant le point d'insertion, donc leurs
+  // même fichier. Ils sont tous avant les points d'insertion, donc leurs
   // positions restent valables.
   const changed: Plage[] = [];
   for (const porteur of aNeutraliser) neutraliser(out, porteur.boite, changed);
 
-  // Les parents grandissent d'autant. `udta` d'abord — son champ de taille est
-  // avant celui de `moov` dans le fichier, mais l'ordre d'écriture est sans
-  // importance : ce sont deux endroits distincts.
+  /*
+   * Les parents grandissent de ce qui a été inséré CHEZ EUX — et chaque
+   * insertion DIT chez qui elle va, plutôt que de le laisser déduire de sa
+   * position.
+   *
+   * La déduction géométrique est fausse dans un cas parfaitement ordinaire :
+   * quand `udta` est la dernière boîte de `moov`, les deux finissent au MÊME
+   * octet, et rien dans la position ne distingue « dans udta » de « après udta,
+   * dans moov ». `udta` avalait alors le rangement d'Apple, qui devenait
+   * invisible pour tout le monde — nous compris.
+   */
   for (const parent of udta ? [udta, moov] : [moov]) {
-    writeU32(out, parent.debut, parent.taille + ajout.length, 'BE');
-    changed.push([parent.debut, parent.debut + 4]);
+    const ajoute = insertions
+      .filter((i) => i.dans.includes(parent))
+      .reduce((n, i) => n + i.octets.length, 0);
+    if (!ajoute) continue;
+    writeU32(out, deplacer(parent.debut), parent.taille + ajoute, 'BE');
+    changed.push([deplacer(parent.debut), deplacer(parent.debut) + 4]);
   }
 
-  // Et les décalages absolus, un par un. Ceux qui désignent un octet situé
-  // avant l'insertion ne bougent pas ; les autres avancent d'autant.
+  // Et les décalages absolus, un par un. Chacun avance de ce qui a été inséré
+  // AVANT l'octet qu'il désigne — rien de plus.
   for (const e of tableDeDecalages(b, racine).entrees) {
-    if (e.valeur < insertion) continue;
-    const pos = e.pos < insertion ? e.pos : e.pos + ajout.length;
-    const v = e.valeur + ajout.length;
+    const v = deplacer(e.valeur);
+    if (v === e.valeur) continue;
+    const pos = deplacer(e.pos);
     if (e.largeur === 4) writeU32(out, pos, v, 'BE');
     else {
       writeU32(out, pos, Math.floor(v / 4294967296), 'BE');
@@ -612,8 +629,134 @@ function ajouterLeLieu(b: Uint8Array, p: LatLon, aNeutraliser: Porteur[] = []): 
     changed.push([pos, pos + e.largeur]);
   }
 
-  changed.push([insertion, out.length]);
+  changed.push([Math.min(...insertions.map((i) => i.a)), out.length]);
   return { bytes: out, changed };
+}
+
+/** Un bloc d'octets à glisser devant l'octet `a` du fichier d'origine. */
+interface Insertion {
+  a: number;
+  octets: Uint8Array;
+  /** Les boîtes dont la taille doit grandir d'autant. Dites, jamais devinées. */
+  dans: Boite[];
+}
+
+/**
+ * Glisse plusieurs blocs d'un coup, et rend de quoi traduire les positions.
+ *
+ * Un seul point d'insertion suffisait tant qu'il n'y avait qu'un rangement à
+ * écrire. Il y en a deux depuis que le lieu s'écrit aussi à la façon d'Apple,
+ * et ils ne sont pas au même endroit : d'où cette généralisation, plutôt que
+ * deux passes dont la seconde travaillerait sur des positions déjà fausses.
+ */
+function inserer(
+  b: Uint8Array,
+  insertions: Insertion[],
+): { out: Uint8Array; deplacer: (o: number) => number } {
+  const tri = [...insertions].sort((x, y) => x.a - y.a);
+  const total = tri.reduce((n, i) => n + i.octets.length, 0);
+  const out = new Uint8Array(b.length + total);
+  let lu = 0;
+  let ecrit = 0;
+  for (const i of tri) {
+    out.set(b.subarray(lu, i.a), ecrit);
+    ecrit += i.a - lu;
+    lu = i.a;
+    out.set(i.octets, ecrit);
+    ecrit += i.octets.length;
+  }
+  out.set(b.subarray(lu), ecrit);
+
+  // Un octet d'origine avance de tout ce qui a été glissé AVANT lui. À égalité
+  // — une insertion pile sur sa position — le bloc passe devant, donc il compte.
+  const deplacer = (o: number) =>
+    o + tri.filter((i) => i.a <= o).reduce((n, i) => n + i.octets.length, 0);
+  return { out, deplacer };
+}
+
+/** Une boîte quelconque : en-tête de huit octets, puis la charge. */
+function boite(type: string, ...morceaux: Uint8Array[]): Uint8Array {
+  const charge = morceaux.reduce((n, m) => n + m.length, 0);
+  const out = new Uint8Array(8 + charge);
+  writeU32(out, 0, out.length, 'BE');
+  out.set(Uint8Array.from(type, (c) => c.charCodeAt(0)), 4);
+  let o = 8;
+  for (const m of morceaux) { out.set(m, o); o += m.length; }
+  return out;
+}
+
+const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
+
+/**
+ * La seconde copie du lieu, celle que lisent les logiciels d'Apple.
+ *
+ * `moov/udta/©xyz` est ce que lisent Android, FFmpeg, VLC et MediaInfo — c'est
+ * de loin le rangement le plus répandu, et c'est celui qu'écrivent les
+ * appareils. Les logiciels d'Apple, eux, ne lisent que la clé nommée
+ * `com.apple.quicktime.location.ISO6709`, dans un `moov/meta` où les noms
+ * vivent dans `keys` et les valeurs dans `ilst`, appariés par leur RANG.
+ *
+ * Deux bornes, et elles sont volontaires :
+ *
+ *   - **Seulement quand `moov/meta` n'existe pas encore.** S'il existe, il
+ *     faudrait allonger `keys` ET `ilst` à deux endroits distincts, et
+ *     renuméroter. Aucun fichier du corpus n'a cette forme, donc rien ne
+ *     l'éprouverait : le lieu s'écrit alors dans le seul rangement simple, ce
+ *     qui reste vrai et lisible partout.
+ *   - **Seulement sur la famille MP4.** Un vrai QuickTime écrit son `meta`
+ *     sans les quatre octets de version, un MP4 avec — et c'est le second cas
+ *     qu'un appareil d'Apple produit. Plutôt que de deviner dans un fichier
+ *     dont la forme est déjà inhabituelle, on s'abstient : `©xyz` est de toute
+ *     façon le rangement natif de QuickTime.
+ */
+function metaApple(
+  b: Uint8Array,
+  moov: Boite,
+  racine: Boite[],
+  iso: string,
+): Uint8Array | null {
+  if (enfants(b, moov).some((x) => x.type === 'meta')) return null;
+  const ftyp = racine.find((x) => x.type === 'ftyp');
+  if (!ftyp || texte(b, charge(ftyp), 4) === 'qt  ') return null;
+
+  const versionEtDrapeaux = new Uint8Array(4);
+
+  // `hdlr` annonce que les noms de ce `meta` sont des clés nommées : « mdta ».
+  const hdlr = boite(
+    'hdlr',
+    versionEtDrapeaux, new Uint8Array(4), ascii('mdta'), new Uint8Array(12 + 1),
+  );
+
+  // `keys` : le compte, puis une entrée par nom.
+  const nom = boite('mdta', ascii(CLE_APPLE));
+  const compte = new Uint8Array(4);
+  writeU32(compte, 0, 1, 'BE');
+  const keys = boite('keys', versionEtDrapeaux, compte, nom.subarray(0));
+
+  // `ilst` : une entrée dont le TYPE est le rang de la clé, portant une boîte
+  // `data`. Le type de charge vaut 1 — du texte.
+  const enTete = new Uint8Array(8);
+  writeU32(enTete, 0, 1, 'BE'); // type de charge : texte
+  writeU32(enTete, 4, 0, 'BE'); // langue
+  const data = boite('data', enTete, ascii(iso));
+  const entree = new Uint8Array(8 + data.length);
+  writeU32(entree, 0, entree.length, 'BE');
+  writeU32(entree, 4, 1, 'BE'); // le RANG de la clé, et non quatre lettres
+  entree.set(data, 8);
+  const ilst = boite('ilst', entree);
+
+  /*
+   * `meta` s'écrit ici SANS les quatre octets de version et de drapeaux.
+   *
+   * La norme ISO en fait pourtant une « FullBox », qui les porterait. Mais ce
+   * rangement-là n'existe que pour être lu par les logiciels d'Apple, et la
+   * question n'est donc pas ce que dit la norme : c'est ce qu'ils lisent.
+   * Mesuré, les deux formes écrites dans le même fichier et données à l'oracle
+   * indépendant : la forme longue ne rend RIEN, la forme courte rend le lieu.
+   * C'est aussi celle qu'ExifTool écrit lui-même quand on lui demande d'inscrire
+   * cette clé. On suit le lecteur, pas le texte.
+   */
+  return boite('meta', hdlr, keys, ilst);
 }
 
 /** Une `udta` toute neuve, qui n'enveloppe que la boîte qu'on vient d'écrire. */
