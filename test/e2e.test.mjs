@@ -416,7 +416,47 @@ for (const bouton of ['#effacer', '#effacer-tout']) {
     (await page.locator(bouton).getAttribute('aria-disabled')) === 'true');
 }
 
-console.log('\nUne vidéo ordinaire : les quatre opérations sont offertes');
+/*
+ * The journey that was missing, and that would have caught the reported
+ * failure.
+ *
+ * The old one stopped at the state of the interface: field live, buttons live.
+ * That is exactly what the screenshot showed before the failure: the tool
+ * offered, and did not deliver. As long as we do not click and do not pick up
+ * the file, half the path is executed by nobody.
+ */
+console.log('\nUne vidéo sans lieu : ajout mené jusqu\'au fichier récupéré');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'sans-lieu.mp4'));
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+check('le bouton est inactif tant qu\'aucun lieu n\'est saisi',
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'true');
+
+await page.fill('#coords', '43.90811, 4.86387');
+await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
+check('le bouton devient actif', (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
+
+const [videoDl] = await Promise.all([
+  page.waitForEvent('download', { timeout: 60_000 }),
+  page.click('#telecharger'),
+]);
+const videoProduite = join('/tmp', videoDl.suggestedFilename());
+await videoDl.saveAs(videoProduite);
+check('un fichier est bien produit', statSync(videoProduite).size > 0);
+
+const reluVideo = execFileSync(
+  'exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', videoProduite],
+  { encoding: 'utf8' },
+).trim().split('\n').map(Number);
+check('l\'oracle relit dans la vidéo le lieu demandé',
+  Math.abs(reluVideo[0] - 43.90811) < 0.0001 && Math.abs(reluVideo[1] - 4.86387) < 0.0001,
+  `relu ${reluVideo.join(', ')}`);
+check('la vidéo reste lisible après le passage par le navigateur',
+  execFileSync('exiftool', ['-s3', '-ImageSize', videoProduite], { encoding: 'utf8' }).trim()
+    === execFileSync('exiftool', ['-s3', '-ImageSize', join(FIXTURES, 'sans-lieu.mp4')], { encoding: 'utf8' }).trim());
+
+console.log('\nUne vidéo ordinaire : effacement mené jusqu\'au fichier récupéré');
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
 await page.setInputFiles('#picker', join(FIXTURES, 'avec-lieu.mp4'));
 await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
@@ -426,6 +466,17 @@ check('et le champ accepte une saisie',
   (await page.locator('#coords').getAttribute('readonly')) === null);
 check('l\'effacement est offert',
   (await page.locator('#effacer').getAttribute('aria-disabled')) !== 'true');
+
+const [videoVide] = await Promise.all([
+  page.waitForEvent('download', { timeout: 60_000 }),
+  page.click('#effacer'),
+]);
+const videoNettoyee = join('/tmp', videoVide.suggestedFilename());
+await videoVide.saveAs(videoNettoyee);
+const residuVideo = execFileSync('exiftool', ['-a', '-ee', '-gps*', videoNettoyee], { encoding: 'utf8' }).trim();
+check('l\'oracle ne trouve plus aucun lieu dans la vidéo', residuVideo === '', residuVideo.slice(0, 120));
+check('et le fichier garde exactement sa taille',
+  statSync(videoNettoyee).size === statSync(join(FIXTURES, 'avec-lieu.mp4')).size);
 
 // The checks above only see the sentences these three files trigger. The
 // journey has eleven, and it is the one we did not anticipate that will say

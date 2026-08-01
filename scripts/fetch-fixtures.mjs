@@ -108,6 +108,8 @@ const FICHIERS = [
     role: 'Vrai MP4 sans lieu — exerce la création' },
   { nom: 'tete-nue.mov', url: `${EXIFTOOL}/QuickTime.mov`, requis: true,
     role: 'Vrai QuickTime SANS boîte de tête — le format ne se devine qu\'à la structure' },
+  { nom: 'fragmente.mp4', url: `${CHROMIUM}/bear-av1.mp4`, requis: true,
+    role: 'MP4 fragmenté — les rangs absolus y vivent là où ce moteur ne va pas : éprouve le refus' },
 ];
 
 /**

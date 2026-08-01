@@ -27,8 +27,12 @@ import {
 } from '../src/lib/exif/conteneurs.ts';
 import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
+import { boites, enfants, toutesLesBoites } from '../src/lib/exif/bmff.ts';
+import { writeU32 } from '../src/lib/exif/octets.ts';
 import {
   accepteAjoutVideo,
+  porteursConcordent,
+  structureIntacte,
   copieDuLieuAilleursVideo,
   ecrireIso6709,
   ecrirePositionVideo,
@@ -1153,6 +1157,13 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 // the timed tracks live in the data the engine skips over.
 // Each of those cases now has its file, and its scenario.
 
+/** Every video in the corpus. Each exercises a case the others do not. */
+const VIDEOS = [
+  'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
+  'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
+  'fragmente.mp4',
+];
+
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
   // The same position, written in degrees, in degrees and minutes, then in
   // degrees, minutes and seconds. The count of digits before the decimal point
@@ -1385,6 +1396,171 @@ scenario('sans-lieu.mp4 — ajouter un lieu sans toucher aux images', () => {
     `${taille} octets`);
   check('la vidéo reste lisible',
     exif(['-s3', '-ImageSize', out]).trim() === exif(['-s3', '-ImageSize', chemin]).trim());
+});
+
+/*
+ * The byte-exact proof, restored to full strength on the route that grows the
+ * file.
+ *
+ * `memesOctetsHorsPlages` compares index by index. An insertion shifts
+ * everything after it, so the announced range necessarily covers the whole tail
+ * of the file, and the proof, on that route, proves almost nothing: on an
+ * eight-megabyte file it exempts eight megabytes.
+ *
+ * What has to be established is not "nothing moved", which is false by
+ * construction, but "nothing changed": the tail of the produced file must be
+ * the tail of the original, shifted by exactly what we inserted, and not one
+ * byte more.
+ */
+scenario('Un ajout ne fait que décaler, jamais réécrire', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    const s = sonderVideo(src);
+    if (s.position || !s.capacites.ajouter) continue;
+
+    const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+    const ajoute = pose.bytes.length - src.length;
+    check(`${nom} : le fichier grandit d'un seul rangement`, ajoute > 0 && ajoute < 64, `${ajoute} o`);
+
+    // The insertion point is read from the structure, not from the first byte
+    // that differs: the parents' sizes and the chunk offsets change too, and
+    // they live before the insertion point.
+    const moov = boites(src, 0, src.length).find((x) => x.type === 'moov')!;
+    const udta = enfants(src, moov).find((x) => x.type === 'udta');
+    const insertion = udta ? udta.debut + udta.taille : moov.debut + moov.taille;
+
+    // The comparison that follows only means something if no offset table lives
+    // after the insertion point. Otherwise its entries change, legitimately,
+    // and the tail of the file is no longer a simple shift. No file in the
+    // corpus is in that case; we require it rather than assume it, so that this
+    // check fails plainly the day a file puts one there.
+    const tables = toutesLesBoites(src, 'stco').concat(toutesLesBoites(src, 'co64'));
+    check(`${nom} : aucune table de rangs après le point d'insertion`,
+      tables.every((t) => t.debut < insertion));
+
+    const avant = Buffer.from(src.subarray(insertion));
+    const apres = Buffer.from(pose.bytes.subarray(insertion + ajoute));
+    check(`${nom} : tout ce qui suit l'insertion est l'original, décalé`,
+      avant.equals(apres), `${avant.length} o comparés depuis ${insertion}`);
+  }
+});
+
+/*
+ * The post-write check, exercised in both directions.
+ *
+ * For videos it stands in for the second, independently written reader that
+ * does not exist in a browser. It shipped green and yet refused every real
+ * video: it descended into leaf boxes, whose payload is made of numbers that
+ * read like headers. No test reached it, because it lived in the worker while
+ * the video scenarios called the engine directly, without going through a full
+ * write.
+ *
+ * Hence the two halves below, and the second counts as much as the first: a
+ * check nobody has ever seen fail is not a check.
+ */
+scenario('La description de chaque vidéo se tient debout', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    check(`${nom} : à l'entrée`, structureIntacte(src));
+
+    // And on the output of every operation the probe opens: that is where a
+    // forgotten box size would live.
+    const s = sonderVideo(src);
+    if (s.position ? s.capacites.corriger : s.capacites.ajouter) {
+      const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+      check(`${nom} : après écriture`, structureIntacte(pose.bytes));
+      check(`${nom} : les rangements s'accordent après écriture`,
+        porteursConcordent(pose.bytes));
+    }
+    if (s.capacites.effacer) {
+      check(`${nom} : après effacement`, structureIntacte(effacerPositionVideo(src).bytes));
+    }
+  }
+});
+
+scenario('Et ce contrôle sait échouer', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  const sain = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon).bytes;
+  check('le fichier sain passe', structureIntacte(sain));
+
+  const boiteDeTete = (b: Uint8Array, t: string) =>
+    boites(b, 0, b.length).find((x) => x.type === t)!;
+
+  // The defect genuinely feared: a box that grew whose parent kept its old
+  // size. It is the only defect the byte-exact proof would not see, since it
+  // compares bytes, not declared sizes.
+  for (const [nom, ecart] of [['gardée trop courte', -34], ['annoncée trop longue', 8]] as const) {
+    const abime = sain.slice();
+    const moov = boiteDeTete(abime, 'moov');
+    writeU32(abime, moov.debut, moov.taille + ecart, 'BE');
+    check(`une description ${nom} est refusée`, !structureIntacte(abime));
+  }
+
+  // What this check does not see, and what catches it elsewhere: if it is
+  // `udta` that keeps its old size, the structure stays coherent, and the
+  // location box simply becomes `udta`'s sibling instead of its child.
+  // Rereading the position catches that, by no longer finding anything. The two
+  // checks complement each other, and neither is enough on its own.
+  const glisse = sain.slice();
+  const moov = boiteDeTete(glisse, 'moov');
+  const udta = enfants(glisse, moov).find((x) => x.type === 'udta')!;
+  writeU32(glisse, udta.debut, udta.taille - 34, 'BE');
+  check('un lieu sorti de sa boîte échappe à la structure', structureIntacte(glisse));
+  check('mais la relecture de la position ne le retrouve plus',
+    lirePositionVideo(glisse) === null);
+});
+
+/*
+ * What we advertise matches what we do, on videos too.
+ *
+ * This is the property the earlier defect broke in front of a user: the field
+ * was live, the button was live, and the write failed. Nothing checked it for
+ * video, since the matrix scenario covers only one witness file per format.
+ */
+scenario('Ce que la sonde vidéo ouvre réussit, ce qu\'elle ferme lève', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    const s = sonderVideo(src);
+
+    const essai = (agir: () => Uint8Array) => {
+      try { return { ok: true, bytes: agir() }; } catch { return { ok: false, bytes: null }; }
+    };
+
+    const annonceEcriture = s.position ? s.capacites.corriger : s.capacites.ajouter;
+    const ecriture = essai(() => ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon).bytes);
+    check(`${nom} : l'écriture annoncée ${annonceEcriture ? 'possible' : 'fermée'} se comporte ainsi`,
+      ecriture.ok === annonceEcriture);
+    // An advertised write must also pass the post-write check, or the
+    // application will refuse it after the fact, which was the exact defect.
+    if (annonceEcriture && ecriture.bytes) {
+      check(`${nom} : et elle survit au contrôle d'après écriture`,
+        structureIntacte(ecriture.bytes) && porteursConcordent(ecriture.bytes));
+      const relu = lirePositionVideo(ecriture.bytes);
+      check(`${nom} : le lieu relu est celui demandé`,
+        relu !== null && distanceMetres(relu, AVIGNON) < 1);
+    }
+
+    const effacement = essai(() => effacerPositionVideo(src).bytes);
+    check(`${nom} : l'effacement annoncé ${s.capacites.effacer ? 'possible' : 'fermé'} se comporte ainsi`,
+      effacement.ok === s.capacites.effacer);
+    if (s.capacites.effacer && effacement.bytes) {
+      check(`${nom} : et il survit au contrôle d'après écriture`,
+        structureIntacte(effacement.bytes));
+    }
+  }
+});
+
+scenario('fragmente.mp4 — un fichier fragmenté est refusé avant l\'action', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'fragmente.mp4')));
+  const haut = boites(src, 0, src.length).map((x) => x.type);
+  check('le fichier est bien fragmenté', haut.includes('moof') || haut.includes('mfra'), haut.join(' '));
+  // Its absolute offsets live in places this module does not rewrite. The
+  // refusal already existed; it rested on no file.
+  check('la création y est refusée', !accepteAjoutVideo(src));
+  check('et la sonde le dit avant l\'action', !sonderVideo(src).capacites.ajouter);
+  let leve = false;
+  try { ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon); } catch { leve = true; }
+  check('l\'écriture lève plutôt que d\'abîmer le fichier', leve);
 });
 
 /** One real file carrying a location, per format. Without it, no proof. */
