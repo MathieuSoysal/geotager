@@ -82,12 +82,21 @@ export const MATRICE: LigneMatrice[] = [
     // conteneur le dit avant l'action.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
-  // « Lire » a longtemps porté « oui » ici sans qu'aucune ligne de code ne lise
-  // une vidéo : le moteur rendait « aucune position » sans consulter le moindre
-  // lecteur, et le second lecteur n'ouvre ni MOV ni MP4. La case était fausse.
-  // Elle le reste tant qu'aucune vidéo réelle ne peut l'éprouver — aucun corpus
-  // public sous licence libre n'en fournit. Voir Q-006 et Q-039.
-  { formats: ['video'], capacites: RIEN },
+  {
+    formats: ['video'],
+    // Ces quatre cases ont passé six mois à « pas encore » faute d'un FICHIER,
+    // pas faute de code : la recherche de corpus de Q-006 avait conclu qu'aucune
+    // vidéo réelle sous licence libre n'existait, et c'était inexact. Trois en
+    // ont été trouvées, et chaque case est désormais exécutée sur l'une d'elles.
+    //
+    // Une vidéo range son lieu en TEXTE, à plusieurs endroits à la fois. Corriger
+    // ne déplace aucun octet quand les rangements sont assez longs ; sinon, le
+    // fichier grandit, ce qui demande la même permission qu'un ajout. Et quand
+    // le lieu est aussi écrit tout au long de l'enregistrement — une caméra
+    // d'action le fait —, les trois opérations d'écriture se ferment fichier par
+    // fichier plutôt que de rendre un fichier faussement propre. Voir Q-050.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
+  },
 ];
 
 /** Ce que l'outil sait faire d'un format, indépendamment du fichier reçu. */
@@ -129,7 +138,11 @@ export type Motif =
   | 'copie-ailleurs'
   | 'lecture-seule'
   | 'sans-lieu-possible'
-  | 'video'
+  // Une vidéo qui enregistre le lieu tout au long de son déroulement. La seule
+  // raison qui ferme les trois écritures d'un coup en laissant la lecture
+  // ouverte : le lieu principal s'affiche très bien, et c'est justement
+  // pourquoi il faut dire qu'il n'est pas le seul.
+  | 'lieu-en-mouvement'
   | 'inconnu';
 
 // Les phrases elles-mêmes vivent dans src/lib/i18n/ : le moteur rend un motif,

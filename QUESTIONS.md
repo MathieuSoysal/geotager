@@ -1910,3 +1910,103 @@ installée, en rouvrant le site dans un onglet ordinaire. C'est précisément le
 et c'est le seul qu'aucun test local ne remplace.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-050 — Le corpus vidéo existait, et la recherche l'avait manqué
+
+**Contexte :** Q-006 puis Q-039 ont fermé la ligne des vidéos, et la deuxième l'a fermée jusqu'à la
+lecture — vérifié en exécutant le moteur : aucune ligne de code ne lisait une vidéo. Le blocage
+retenu n'était pas du code, c'était **un fichier** : « Recherche menée le 27/07/2026, toutes
+négatives : `ianare/exif-samples`, `drewnoakes/metadata-extractor-images`, `Exiv2/exiv2`,
+`exiftool/exiftool`, `gopro/gpmf-parser`, `google/spatial-media` ne contiennent aucun
+`.mov`/`.mp4`/`.m4v`/`.3gp` ».
+
+**Cette conclusion était inexacte sur deux des six dépôts cités**, et c'est tout le lot :
+
+- `exiftool/exiftool` porte bien `t/images/QuickTime.mov` — 3 871 o, sous la licence Artistic/GPL de
+  sa distribution. Il n'a **aucune boîte de tête** : il commence directement par la description des
+  pistes, ce qui est parfaitement légal en QuickTime — la boîte de type est une invention MP4,
+  arrivée après. C'est précisément ce qui le rendait « inconnu » pour notre reconnaissance de format.
+- `gopro/gpmf-parser` porte `samples/hero6.mp4` — 8 878 253 o, Apache-2.0, donc **dans** l'allowlist.
+  Une vraie HERO6, avec un lieu écrit par l'appareil (`+33.1265-117.3272/`) **et** une piste dont la
+  description est `gpmd`, avec vingt-trois charges `GPS5` dans les données. C'est-à-dire l'objection
+  centrale de Q-006, disponible sous forme de fichier.
+
+S'y ajoute `bear.mp4` de `chromium/chromium` (41 358 o, BSD-3-Clause) : un vrai MP4 sans lieu, qui
+éprouve la création. Les trois sont inscrits dans `CREDITS.md`, et la réserve sur Artistic/GPL est
+traitée comme celle de `drewnoakes` — hors allowlist, nommée, et jamais distribuée.
+
+Deux d'entre eux reçoivent leur lieu de départ d'ExifTool, selon le patron déjà retenu en Q-035, et
+dans **trois rangements différents à dessein** : notre lecteur doit comprendre les trois.
+
+**Retenu : les quatre colonnes s'ouvrent**, chacune adossée à un discriminant exécuté sur un fichier
+réel. Voici, une par une, les quatre objections de Q-006 et ce qu'elles deviennent.
+
+**1. `@xyz` (Samsung) et 2. `com.apple.quicktime.location.ISO6709`.** Lus, réécrits et effacés comme
+les autres. Cinq rangements sont couverts : la forme simple, la variante Samsung, la liste d'éléments
+qu'écrit Google Photos, les clés nommées d'Apple, et la forme 3GPP. Et la règle qui compte est le
+**tout ou rien** : ils sont tous réécrits ensemble ou aucun ne l'est. Un fichier dont un rangement
+dit Avignon et dont l'autre dit encore San Diego serait un mensonge de plus, pas un demi-succès.
+
+**3. `location.name` — le lieu en toutes lettres.** C'était le reproche le plus juste : « le balayage
+résiduel cherche des coordonnées, pas des toponymes ; il rendrait "aucun résidu" sur un fichier qui
+dit "Avignon" en clair ». Le balayage cherche désormais les deux. La forme 3GPP range le nom de la
+ville juste avant les coordonnées, et le paquet de texte descriptif porte `photoshop:City`,
+`photoshop:Country` et `Iptc4xmpExt:LocationCreated` — la purge de `xmp.ts`, écrite pour les photos,
+s'applique telle quelle. Deux fichiers l'éprouvent : l'un qui nomme la ville **à côté** des chiffres,
+l'autre qui la nomme **sans aucun** chiffre. Le test vérifie aussi que le mot n'est plus présent dans
+les octets, et que l'auteur, lui, a survécu.
+
+**Ce que cette garantie ne couvre pas, et il vaut mieux l'écrire que le laisser supposer :** nous
+garantissons que les champs *prévus pour un lieu* sont vides, pas qu'aucun mot du fichier ne désigne
+un endroit du monde. « Avignon » glissé dans un commentaire libre passerait. Nous n'avons pas de
+dictionnaire de noms de lieux, et prétendre en avoir un serait le second mensonge.
+
+**4. Les pistes horodatées, qui vivent dans les données.** Elles ne sont pas touchées — et leur
+présence **ferme les trois écritures** au lieu d'être ignorée. Une piste de description `gpmd`,
+`camm`, `mett` ou `rtmd`, ou une charge `GPMF`, et le fichier est rendu intact avec sa phrase. Fermer
+« Corriger » autant qu'« Effacer » est le point : réécrire le lieu visible en laissant vingt-trois
+relevés seconde par seconde produirait un fichier qui *affiche* un lieu et en *révèle* un autre.
+C'est ce que fait `hero6.mp4`, et le test vérifie que l'opération **lève**, pas qu'elle réussit — et
+que le refus est fondé, en comptant les relevés que l'oracle trouve avec l'option `-ee`.
+
+**Les deux voies d'écriture.** Une chaîne de position peut s'écrire avec plus ou moins de décimales :
+sa longueur vaut dix caractères plus le nombre de décimales. On choisit donc le nombre de décimales
+qui retombe sur la longueur exacte de la chaîne d'origine, et **aucun octet ne bouge** — le fichier
+produit a la taille de l'original. Quand la chaîne en place est trop courte, cette voie est refusée
+plutôt que forcée : dix-huit caractères ne portent que quatre décimales par côté, soit une grille de
+onze mètres, quand le contrôle final du moteur exige le mètre. On efface alors tous les rangements et
+l'on en écrit un seul, assez long — ce qui fait grandir le fichier, et demande donc la même permission
+qu'un ajout. **Le moteur relit toujours ce qu'il vient d'écrire avant de le retenir.**
+
+Même mesure pour la forme 3GPP, et elle est contre-intuitive : ses degrés sont notés en virgule fixe
+sur seize bits, donc par pas d'un soixante-cinq-millième de degré — **un mètre sept en latitude**. Le
+pas de la grille y est plus large que notre tolérance ; ce rangement-là passe donc toujours par la
+voie qui fait grandir, bien que sa largeur ne varie jamais.
+
+**Ce que l'ajout exige.** Faire grandir la description n'est sûr que si l'on sait retrouver tout ce
+qui désigne un octet par son rang. Un fichier fragmenté range ces rangs à des endroits que ce module
+ne réécrit pas : on le refuse. Un rang qui pointe au-delà de la fin du fichier signale une structure
+qu'on n'a pas comprise : on refuse aussi. Sinon, les tables de tronçons sont reprises une par une, et
+le test prouve la chose qui compte sur un fichier de plusieurs mégaoctets : **les images et le son
+sont intacts octet pour octet**, mesuré sur les octets et non sur une taille.
+
+**Ce que ce lot ne prouve pas.** Le contrôle croisé d'une photo repose sur un **second lecteur écrit
+par d'autres**. Pour une vidéo, il n'existe pas dans un navigateur : `exifr` n'ouvre ni MOV ni MP4.
+Deux contrôles à nous le remplacent — la structure est reparcourue depuis le premier octet et chaque
+parent doit être exactement rempli par ses enfants, ce qui attrape le défaut réellement redouté ici,
+l'arithmétique des tailles ; et tous les rangements doivent s'accorder sur la même réponse. Le vrai
+lecteur indépendant, ExifTool, passe en intégration continue, sur de vrais fichiers, colonne par
+colonne. C'est moins que pour une photo, et le README le dit aussi.
+
+Restent hors du lot, faute de fichier pour les éprouver : les fichiers fragmentés (refusés sans
+qu'aucun test ne le montre), et l'écriture dans un espace libre existant pour corriger sans grandir
+une chaîne trop courte — aucune case n'en dépend.
+
+**Enfin, un défaut voisin, trouvé en écrivant les tests.** L'inventaire qui prouve que « tout le reste
+est préservé » excluait les tags `[GPS]`. ExifTool range le lieu d'une vidéo sous `[UserData]`,
+`[Keys]` ou `[ItemList]`, **jamais** sous `[GPS]` : l'inventaire aurait donc comparé une position à
+une position, et signalé comme une perte le changement qu'on venait de demander.
+
+**Bloque :** non.

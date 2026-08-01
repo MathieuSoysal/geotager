@@ -14,8 +14,8 @@ photo n'entre dans aucune, dans un cas comme dans l'autre.
 
 ## État
 
-**V1.1 — les quatre opérations sur tous les formats d'image.** Lire, corriger, ajouter et effacer
-un lieu sur JPEG, HEIC, AVIF, PNG, WebP et TIFF. Ajouter n'agrandit rien sur place&nbsp;: sur une
+**V1.7 — les quatre opérations sur tous les formats, vidéos comprises.** Lire, corriger, ajouter
+et effacer un lieu sur JPEG, HEIC, AVIF, PNG, WebP, TIFF, MOV et MP4. Ajouter n'agrandit rien sur place&nbsp;: sur une
 photo d'iPhone, le nouveau bloc est ajouté en fin de fichier et une seule adresse est repointée,
 si bien qu'aucun octet existant ne bouge. Corriger et effacer ne déplacent pas un octet du tout&nbsp;:
 le fichier produit a exactement la taille de l'original.
@@ -24,9 +24,20 @@ Deux limites, dites *avant* l'action et non après&nbsp;: un WebP de forme simpl
 emplacement prévu pour un lieu, et **un négatif numérique — DNG, NEF, CR2 — n'accepte pas qu'on lui
 en ajoute un**, parce qu'un négatif est un TIFF et qu'abîmer un original serait irréparable.
 
-Les vidéos sont hors de portée pour l'instant, y compris en lecture&nbsp;: une vidéo range le lieu
-à plusieurs endroits, parfois en toutes lettres, et aucun corpus public sous licence libre ne
-fournit de vidéo réelle pour l'éprouver.
+**Les vidéos aussi, depuis la V1.7** — MOV et MP4. Une vidéo range son lieu en texte, et non dans le
+bloc qu'utilise une photo&nbsp;; et elle le range à plusieurs endroits à la fois&nbsp;: la forme
+simple que tous les lecteurs comprennent, la variante de Samsung, les clés nommées d'Apple, et la
+forme 3GPP qui écrit la ville **en toutes lettres** à côté des chiffres. Tous sont lus, tous sont
+réécrits ensemble, tous sont effacés ensemble. Un fichier dont un rangement dit Avignon et dont
+l'autre dit encore San Diego est un mensonge&nbsp;: il n'est jamais produit.
+
+Une limite propre aux vidéos, et c'est la limite honnête&nbsp;: **une caméra d'action enregistre le
+chemin parcouru, seconde par seconde, du début à la fin.** Cette trace vit parmi les images
+elles-mêmes, que ce moteur ne réécrit jamais — c'est ce qui lui permet de travailler sur un fichier
+de 8 Mo sans le décoder. Sur un tel fichier, le lieu peut donc être *montré* mais ni corrigé, ni
+ajouté, ni effacé, et cela vous est dit avant que vous n'agissiez, pas après. Changer le lieu
+visible en laissant survivre une trace seconde par seconde serait le pire que cet outil puisse
+faire.
 
 | Format | Lire | Corriger | Ajouter | Effacer |
 |---|---|---|---|---|
@@ -35,7 +46,7 @@ fournit de vidéo réelle pour l'éprouver.
 | PNG | oui | oui | oui | oui |
 | WebP *(forme étendue)* | oui | oui | oui | oui |
 | TIFF *(hors fichiers bruts)* | oui | oui | oui | oui |
-| Vidéos (MOV, MP4) | pas encore | pas encore | pas encore | pas encore |
+| Vidéos (MOV, MP4) | oui | oui | oui | oui |
 
 *« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont
 deux opérations différentes&nbsp;: la première ne change pas la taille du fichier, la seconde si.
@@ -65,7 +76,13 @@ Le plan complet, les décisions et les points non tranchés sont dans
   relit le fichier entier, sous réserve qu'il ait su ouvrir l'original&nbsp;: il ne connaît pas tous
   les formats, et son silence sur un fichier qu'il n'ouvre pas ne prouverait rien. Un écart de plus
   d'un mètre, un résidu après effacement ou un désaccord annulent l'opération et rendent l'original
-  intact. Voir [`QUESTIONS.md`](QUESTIONS.md), entrée Q-030.
+  intact. Voir [`QUESTIONS.md`](QUESTIONS.md), entrée Q-030. **Pour une vidéo, ce second moteur
+  n'existe pas dans un navigateur** — aucun des lecteurs que nous pourrions embarquer n'ouvre MOV ni
+  MP4 —, et il est remplacé par deux contrôles à nous&nbsp;: la structure est reparcourue depuis le
+  premier octet et chaque parent doit être exactement rempli par ses enfants, et tous les endroits
+  qui portent le lieu doivent s'accorder sur la même réponse. Le vrai lecteur indépendant passe en
+  intégration continue, sur de vrais fichiers, colonne par colonne. Dit franchement plutôt que
+  laissé à supposer&nbsp;: voir l'entrée Q-050.
 - **Aucune copie oubliée.** Une image peut ranger le lieu une seconde fois dans un paquet de texte
   descriptif. Il est purgé — le lieu seul, pas le titre ni l'auteur —, puis **re-balayé**&nbsp;: s'il
   en subsiste la moindre trace, ou si le paquet est compressé et donc illisible pour ce moteur,

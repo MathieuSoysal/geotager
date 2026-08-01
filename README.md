@@ -13,8 +13,8 @@ never opens it makes no outside request at all — and your photo is never part 
 
 ## Status
 
-**V1.1 — all four operations on every image format.** Read, change, add and remove a location on
-JPEG, HEIC, AVIF, PNG, WebP and TIFF. Adding grows nothing in place: on an iPhone photo, the new
+**V1.7 — all four operations on every format, videos included.** Read, change, add and remove a
+location on JPEG, HEIC, AVIF, PNG, WebP, TIFF, MOV and MP4. Adding grows nothing in place: on an iPhone photo, the new
 block is appended at the end of the file and a single address is repointed, so no existing byte
 moves. Changing and removing move no byte at all: the file produced is exactly the size of the
 original.
@@ -23,9 +23,19 @@ Two limits, announced *before* you act rather than after: a simple-form WebP has
 location, and **a camera raw file — DNG, NEF, CR2 — will not accept having one added**, because a
 raw file is a TIFF and damaging an original would be irreversible.
 
-Videos are out of reach for now, reading included: a video keeps the location in several places at
-once, sometimes spelled out in words, and no public corpus under a free licence provides a real
-video to prove it against.
+**Videos too, since V1.7** — MOV and MP4. A video keeps its location as text rather than in the
+block a photo uses, and it keeps it in several places at once: the plain form every player reads,
+Samsung's variant, Apple's named keys, and the 3GPP form that writes the town out **in words** next
+to the numbers. All of them are read, all of them are rewritten together, and all of them are
+removed together. A file whose one place says Avignon and whose other still says San Diego is a lie,
+so it is never produced.
+
+One video limit, and it is the honest one: **an action camera records where it went, second by
+second, from beginning to end.** That trail lives among the images themselves, which this engine
+never rewrites — that is what lets it work on an 8 MB file without decoding it. So on such a file
+the location can be *shown* but not changed, added or removed, and you are told so before you touch
+anything, not after. Changing the visible location while a second-by-second trail survives would be
+the worst thing this tool could do.
 
 | Format | Read | Change | Add | Remove |
 |---|---|---|---|---|
@@ -34,7 +44,7 @@ video to prove it against.
 | PNG | yes | yes | yes | yes |
 | WebP *(extended form)* | yes | yes | yes | yes |
 | TIFF *(excluding camera raw)* | yes | yes | yes | yes |
-| Videos (MOV, MP4) | not yet | not yet | not yet | not yet |
+| Videos (MOV, MP4) | yes | yes | yes | yes |
 
 *“Change” replaces a location that is already there, “add” creates one where there is none. They are
 two different operations: the first does not change the file size, the second does. The table on
@@ -64,7 +74,12 @@ The full plan, the decisions and the open questions live in [`PLAN-GATE1.md`](PL
   it could open the original: it does not know every format, and its silence about a file it cannot
   open would prove nothing. A gap of more than a metre, a residue after removal, or a disagreement
   cancels the operation and hands the original back intact. See [`QUESTIONS.md`](QUESTIONS.md),
-  entry Q-030.
+  entry Q-030. **For a video that second engine does not exist in a browser** — none of the readers
+  we could ship opens MOV or MP4 — so it is replaced by two checks of our own: the structure is
+  walked again from the first byte and every parent must be exactly filled by its children, and all
+  the places that carry the location must agree on the same answer. The genuine independent oracle
+  runs in continuous integration, on real files, column by column. Said plainly rather than left to
+  be assumed: see entry Q-050.
 - **No forgotten copy.** An image can keep the location a second time in a descriptive text packet.
   It is purged — the location only, not the title or the author — then **swept again**: if any trace
   survives, or if the packet is compressed and therefore unreadable to this engine, the removal

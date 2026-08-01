@@ -46,7 +46,7 @@ export const fr: Dictionnaire = {
     titre: 'Changez le lieu',
     titreEm: "d'une photo",
     sous: "Rien n'est envoyé nulle part : tout se passe dans votre navigateur.",
-    formats: 'JPEG · HEIC · PNG · WebP · TIFF',
+    formats: 'JPEG · HEIC · PNG · WebP · TIFF · MOV · MP4',
     sansJs: 'Geotager a besoin de JavaScript pour lire et modifier une photo. Tout continue de se passer sur votre appareil : rien n\'est envoyé nulle part.',
     defiler: "Comment ça marche, et pourquoi c'est privé ↓",
   },
@@ -164,8 +164,8 @@ export const fr: Dictionnaire = {
       'Nous savons lire la position de ce fichier, mais pas encore la modifier sans risquer de l’abîmer.',
     'sans-lieu-possible':
       'Cette image n’a pas d’emplacement prévu pour un lieu, et nous ne savons pas encore lui en créer un.',
-    video:
-      'Nous ne savons pas encore travailler sur les vidéos : une vidéo range le lieu à plusieurs endroits, parfois en toutes lettres, et nous préférons ne rien promettre que nous ne tenions.',
+    'lieu-en-mouvement':
+      'Cette vidéo enregistre aussi le chemin parcouru par la caméra, seconde par seconde, du début à la fin. Nous savons vous montrer le lieu principal, mais nous ne savons pas retirer cette trace sans reconstruire tout l’enregistrement — nous préférons donc ne rien changer plutôt que de vous rendre un fichier que vous croiriez propre.',
     inconnu: 'Nous ne reconnaissons pas ce type de fichier.',
   },
 
@@ -211,7 +211,7 @@ export const fr: Dictionnaire = {
       png: { libelle: 'PNG' },
       webp: { libelle: 'WebP', mention: 'forme étendue' },
       tiff: { libelle: 'TIFF', mention: 'hors fichiers bruts' },
-      video: { libelle: 'Vidéos (MOV, MP4)' },
+      video: { libelle: 'Vidéos (MOV, MP4)', mention: 'hors lieu en mouvement' },
     },
   },
 

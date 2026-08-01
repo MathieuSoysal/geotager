@@ -29,59 +29,7 @@ import { ecrireEntierBE, lireEntierBE, readU16, readU32, writeU32 } from './octe
 import { type Conteneur, type Emplacement, type Plage, type Pose } from './conteneurs.ts';
 import { AJOUT_IMPOSSIBLE, detecterFormat } from './conteneurs.ts';
 import { MARQUEURS_DE_LIEU } from './xmp.ts';
-
-interface Boite {
-  type: string;
-  debut: number;
-  /** Longueur de l'en-tête, charge utile exclue. */
-  entete: number;
-  /** Longueur totale, en-tête compris. */
-  taille: number;
-  /**
-   * Taille telle qu'elle est ÉCRITE dans le fichier, avant interprétation.
-   *
-   * La valeur 0 signifie « jusqu'à la fin du fichier ». Une fois résolue en
-   * longueur effective, cette nuance disparaît — et elle est décisive pour
-   * l'ajout : ajouter une boîte derrière une boîte qui s'étend jusqu'à la fin
-   * la ferait avaler par elle.
-   */
-  declaree: number;
-}
-
-const texte = (b: Uint8Array, o: number, n: number) =>
-  String.fromCharCode(...b.subarray(o, o + n));
-
-/**
- * Parcourt une suite de boîtes.
- *
- * Trois formes d'en-tête existent et se rencontrent toutes dans la nature :
- * une taille sur 32 bits, la valeur 1 qui renvoie à une taille sur 64 bits, et
- * la valeur 0 qui signifie « jusqu'à la fin du fichier » — courante sur les
- * grosses boîtes de données écrites en flux. Un parcours qui ignore les deux
- * dernières s'arrête trop tôt et conclut qu'il n'y a pas de métadonnées.
- */
-function boites(b: Uint8Array, debut: number, fin: number): Boite[] {
-  const out: Boite[] = [];
-  let o = debut;
-  while (o + 8 <= fin) {
-    const declaree = readU32(b, o, 'BE');
-    let taille = declaree;
-    const type = texte(b, o + 4, 4);
-    let entete = 8;
-    if (taille === 1) {
-      if (o + 16 > fin) break;
-      taille = lireEntierBE(b, o + 8, 8);
-      entete = 16;
-    } else if (taille === 0) {
-      taille = fin - o;
-    }
-    if (type === 'uuid') entete += 16;
-    if (taille < entete || o + taille > fin) break;
-    out.push({ type, debut: o, entete, taille, declaree });
-    o += taille;
-  }
-  return out;
-}
+import { type Boite, boites, texte } from './bmff.ts';
 
 /**
  * Sous-boîtes de `meta`.
@@ -90,6 +38,10 @@ function boites(b: Uint8Array, debut: number, fin: number): Boite[] {
  * ses enfants. Des outils dérivés de QuickTime l'écrivent pourtant comme une
  * boîte ordinaire. Plutôt que de deviner, on essaie les deux et on retient
  * celle qui produit une table des emplacements.
+ *
+ * `bmff.ts` sait descendre dans une `meta` quelconque ; ici le départage n'est
+ * pas « laquelle remplit le parent » mais « laquelle porte un `iloc` », qui est
+ * le seul critère juste quand c'est la table des emplacements qu'on cherche.
  */
 function enfantsDeMeta(b: Uint8Array, meta: Boite): Boite[] {
   const fin = meta.debut + meta.taille;

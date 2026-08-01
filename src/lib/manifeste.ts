@@ -72,11 +72,15 @@ export function manifeste(langue: Langue): string {
        * EN MÉMOIRE, et les passe à la page qui suit. Rien n'est écrit sur le
        * disque, pas même le temps d'un aller-retour : voir `sw-modele.js`.
        *
-       * Images seulement. L'outil accepte les vidéos dans le sélecteur — mieux
-       * vaut prendre le fichier et expliquer que le refuser sans un mot — mais
-       * s'inscrire dans le menu de partage des vidéos serait autre chose : ce
-       * serait se proposer pour un travail qu'on ne sait pas faire, à quelqu'un
-       * qui ne nous a rien demandé.
+       * Les vidéos y figurent depuis que les quatre cases de leur ligne sont
+       * ouvertes. Elles n'y étaient pas tant qu'aucune opération ne leur était
+       * offerte : s'inscrire au menu de partage d'un format qu'on ne sait pas
+       * traiter, c'est se proposer pour un travail qu'on ne sait pas faire, à
+       * quelqu'un qui ne l'a pas demandé.
+       *
+       * `image/*` reste, et n'a pas d'équivalent en face : le partage doit
+       * rester STRICTEMENT plus large que « Ouvrir avec », pour la raison
+       * expliquée plus bas.
        */
       share_target: {
         action: `${T.base}partager`,
@@ -95,6 +99,8 @@ export function manifeste(langue: Langue): string {
                 'image/heif',
                 'image/avif',
                 'image/tiff',
+                'video/quicktime',
+                'video/mp4',
               ],
             },
           ],
@@ -124,12 +130,17 @@ export function manifeste(langue: Langue): string {
        * s'AJOUTE à ce que la fenêtre tenait déjà — voir `charger` dans
        * `ui/app.ts`.
        *
-       * Les mêmes formats que le partage, à deux absences près, et pour la même
-       * raison qu'y manquent les vidéos. Un GIF n'a nulle part où mettre un
-       * lieu — le moteur le range en « sans-lieu-possible » — et un fichier brut
-       * d'appareil, DNG, NEF ou CR2, ne doit rien recevoir du tout. S'inscrire
-       * pour eux serait se proposer pour un travail qu'on ne sait pas faire, à
-       * quelqu'un qui ne l'a pas demandé.
+       * Les mêmes formats que le partage, à deux absences près. Un GIF n'a
+       * nulle part où mettre un lieu — le moteur le range en
+       * « sans-lieu-possible » — et un fichier brut d'appareil, DNG, NEF ou
+       * CR2, ne doit rien recevoir du tout. S'inscrire pour eux serait se
+       * proposer pour un travail qu'on ne sait pas faire, à quelqu'un qui ne
+       * l'a pas demandé.
+       *
+       * Les vidéos y sont entrées avec leur colonne « ajouter ». Le test
+       * l'exige dans les DEUX SENS : un format à qui le tableau sait donner un
+       * lieu et qui manquerait ici resterait invisible du menu « Ouvrir avec »
+       * du système, sans que rien ne le signale.
        */
       file_handlers: [
         {
@@ -142,6 +153,8 @@ export function manifeste(langue: Langue): string {
             'image/heif': ['.heif'],
             'image/avif': ['.avif'],
             'image/tiff': ['.tif', '.tiff'],
+            'video/quicktime': ['.mov'],
+            'video/mp4': ['.mp4', '.m4v'],
           },
         },
       ],

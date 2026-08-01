@@ -397,16 +397,46 @@ check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phrase), 
 check('le champ de saisie est en lecture seule',
   (await page.locator('#coords').getAttribute('readonly')) !== null);
 
-// Les deux contrôles ci-dessus ne voient que les deux phrases que ces deux
-// fichiers déclenchent. Le parcours en compte onze, et c'est celle qu'on n'a
-// pas prévue qui dira « conteneur » à l'utilisateur.
+console.log('\nUne vidéo dont le lieu bouge : lue, et pas touchée');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'piste-de-lieu.mp4'));
+await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+const phraseVideo = (await page.locator('#alerte-format').textContent()).trim();
+check('la raison est annoncée avant toute action', phraseVideo.length > 0, phraseVideo.slice(0, 80));
+check('elle reste sans jargon de format',
+  !MOTS_INTERDITS.en.test(phraseVideo), phraseVideo.slice(0, 80));
+// Le lieu principal S'AFFICHE, et c'est le point : c'est parce qu'on sait le
+// lire qu'il faut dire qu'il n'est pas le seul.
+const luVideo = (await page.locator('#pill-position').textContent()).trim();
+check('le lieu écrit par l\'appareil est bien affiché', /33\.12/.test(luVideo), luVideo);
+check('mais le champ reste en lecture seule',
+  (await page.locator('#coords').getAttribute('readonly')) !== null);
+for (const bouton of ['#effacer', '#effacer-tout']) {
+  check(`${bouton} est inactif sur une vidéo dont le lieu bouge`,
+    (await page.locator(bouton).getAttribute('aria-disabled')) === 'true');
+}
+
+console.log('\nUne vidéo ordinaire : les quatre opérations sont offertes');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'avec-lieu.mp4'));
+await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+check('le lieu de la vidéo est affiché',
+  /43\.94/.test((await page.locator('#pill-position').textContent()).trim()));
+check('et le champ accepte une saisie',
+  (await page.locator('#coords').getAttribute('readonly')) === null);
+check('l\'effacement est offert',
+  (await page.locator('#effacer').getAttribute('aria-disabled')) !== 'true');
+
+// Les contrôles ci-dessus ne voient que les phrases que ces trois fichiers
+// déclenchent. Le parcours en compte onze, et c'est celle qu'on n'a pas prévue
+// qui dira « conteneur » à l'utilisateur.
 console.log('\nAucune phrase du parcours ne porte de jargon');
 const { MATRICE } = await import('../src/lib/exif/capacites.ts');
 const { DICOS, LANGUES } = await import('../src/lib/i18n/index.ts');
 const MOTIFS = [
   'ok', 'sans-lieu', 'sans-emplacement', 'forme-inhabituelle', 'rangement-inconnu',
   'copie-compressee', 'copie-ailleurs', 'lecture-seule', 'sans-lieu-possible',
-  'video', 'inconnu',
+  'lieu-en-mouvement', 'inconnu',
 ];
 // Les deux langues, et toutes les phrases de chacune : c'est la phrase qu'on
 // n'a pas prévue qui dira « container » à l'utilisateur.

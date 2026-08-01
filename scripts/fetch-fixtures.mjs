@@ -36,6 +36,9 @@ const IANARE = 'https://raw.githubusercontent.com/ianare/exif-samples/master';
 const DREWNOAKES = 'https://raw.githubusercontent.com/drewnoakes/metadata-extractor-images/main';
 const LIBAVIF = 'https://raw.githubusercontent.com/AOMediaCodec/libavif/main/tests/data';
 const PIXLS = 'https://raw.pixls.us/getfile.php';
+const GOPRO = 'https://raw.githubusercontent.com/gopro/gpmf-parser/main/samples';
+const CHROMIUM = 'https://raw.githubusercontent.com/chromium/chromium/main/media/test/data';
+const EXIFTOOL = 'https://raw.githubusercontent.com/exiftool/exiftool/master/t/images';
 
 /**
  * `requis` traduit mécaniquement la règle du projet : une case du tableau ne
@@ -97,6 +100,16 @@ const FICHIERS = [
     role: 'Canon EOS 40D — brut propriétaire à magie secondaire' },
   { nom: 'negatif.tif', url: `${PIXLS}/2465/nice/Kodak%20-%20EOS%20DCS%203%20-%208bit%20(4:3).TIF`, requis: true,
     role: 'Kodak EOS DCS 3 — un négatif numérique qui EST un « .tif »' },
+
+  // Les vidéos. Q-006 les avait fermées faute de fichier, et cette conclusion
+  // était inexacte : ces trois-là existent, sous licence libre, et chacune
+  // éprouve un cas que les deux autres ne montrent pas. Voir Q-050.
+  { nom: 'piste-de-lieu.mp4', url: `${GOPRO}/hero6.mp4`, requis: true,
+    role: 'GoPro HERO6 — lieu écrit par un vrai appareil, ET une piste qui l\'enregistre en continu' },
+  { nom: 'sans-lieu.mp4', url: `${CHROMIUM}/bear.mp4`, requis: true,
+    role: 'Vrai MP4 sans lieu — exerce la création' },
+  { nom: 'tete-nue.mov', url: `${EXIFTOOL}/QuickTime.mov`, requis: true,
+    role: 'Vrai QuickTime SANS boîte de tête — le format ne se devine qu\'à la structure' },
 ];
 
 /**
@@ -123,6 +136,39 @@ const PREPARES = [
     nom: 'bandes-avec-lieu.tif', depuis: 'multi-bandes.tif', requis: true,
     role: 'TIFF à soixante et une bandes portant le bloc de position d\'un vrai Nikon',
     args: ['-tagsfromfile', join(DIR, 'DSCN0010.jpg'), '-gps:all'],
+  },
+
+  /*
+   * Les vidéos géolocalisées. Le préfixe de groupe n'est pas décoratif : dans
+   * ExifTool, `ItemList` est PRÉFÉRÉ à l'écriture, donc un `-GPSCoordinates=`
+   * nu irait ailleurs que voulu. Les trois rangements ci-dessous sont écrits à
+   * dessein dans trois endroits DIFFÉRENTS — notre lecteur doit comprendre les
+   * trois, et c'est plus exigeant qu'un fichier trouvé déjà géolocalisé.
+   *
+   * Six décimales, et non quatre : une chaîne de dix-huit caractères n'a que
+   * quatre décimales par côté, soit une grille de onze mètres, et le contrôle
+   * final du moteur exige le mètre. Le fichier de référence doit donc porter
+   * une chaîne assez longue pour que la correction se fasse SUR PLACE.
+   */
+  {
+    nom: 'avec-lieu.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 réel dont ExifTool a inscrit le lieu à la façon la plus répandue',
+    args: ['-n', '-UserData:GPSCoordinates=+43.949300+004.805500/'],
+  },
+  {
+    nom: 'avec-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime dont le lieu est rangé à la façon d\'Apple, par clés nommées',
+    args: ['-n', '-Keys:GPSCoordinates=+43.949300+004.805500/'],
+  },
+  {
+    nom: 'nom-de-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime qui écrit le lieu EN TOUTES LETTRES à côté des coordonnées — le cas « Avignon » de Q-006',
+    args: ['-n', '-UserData:LocationInformation=Avignon Role=shooting Lat=43.9493 Lon=4.8055 Alt=26'],
+  },
+  {
+    nom: 'texte-de-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime dont le paquet de texte descriptif nomme la ville, sans aucune coordonnée',
+    args: ['-XMP:City=Avignon', '-XMP:Country=France'],
   },
 ];
 
