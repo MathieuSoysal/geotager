@@ -37,7 +37,7 @@ import {
   texte,
   toutesLesBoites,
 } from './bmff.ts';
-import { readU16, readU32, writeU32 } from './octets.ts';
+import { lireEntierBE, readU16, readU32, writeU32 } from './octets.ts';
 
 // The ISO 6709 string
 
@@ -147,21 +147,34 @@ const CLE_APPLE_NOM = 'com.apple.quicktime.location.name';
  * Layout: the eight-byte header, the string length in two bytes, a two-byte
  * language code, then the string.
  */
+/**
+ * The string of a `udta` text atom, and where it sits.
+ *
+ * This layout serves the location as it serves the rest: `©mak`, `©mod` and
+ * `©ART` share it with `©xyz`. It is therefore read in one place, since what
+ * distinguishes these atoms is their name, never their shape.
+ */
+function chaineDAtome(b: Uint8Array, x: Boite): { debut: number; longueur: number } | null {
+  const debut = charge(x);
+  if (debut + 4 > finDe(x)) return null;
+  const longueur = readU16(b, debut, 'BE');
+  if (longueur < 1 || debut + 4 + longueur > finDe(x)) return null;
+  return { debut: debut + 4, longueur };
+}
+
 function porteursUdta(b: Uint8Array, udta: Boite | null): Porteur[] {
   if (!udta) return [];
   const out: Porteur[] = [];
   for (const x of enfants(b, udta)) {
     if (!TYPES_XYZ.includes(x.type)) continue;
-    const debut = charge(x);
-    if (debut + 4 > finDe(x)) continue;
-    const longueur = readU16(b, debut, 'BE');
-    if (longueur < 1 || debut + 4 + longueur > finDe(x)) continue;
+    const c = chaineDAtome(b, x);
+    if (!c) continue;
     out.push({
       sorte: 'xyz-udta',
       boite: x,
-      debutTexte: debut + 4,
-      longueurTexte: longueur,
-      texte: texte(b, debut + 4, longueur),
+      debutTexte: c.debut,
+      longueurTexte: c.longueur,
+      texte: texte(b, c.debut, c.longueur),
       nomDeLieu: null,
     });
   }
@@ -214,16 +227,57 @@ function porteurLoci(b: Uint8Array, udta: Boite | null): Porteur[] {
  * In both cases the value is in a `data` box: four bytes of type, four of
  * language, then the payload.
  */
+/**
+ * The payload of a list entry: it lives in a `data` box, preceded by four bytes
+ * of type and four of language.
+ */
+function valeurDeLEntree(
+  b: Uint8Array,
+  entree: Boite,
+): { debut: number; longueur: number } | null {
+  const data = enfants(b, entree).find((d) => d.type === 'data');
+  if (!data) return null;
+  const debut = charge(data) + 8;
+  const longueur = finDe(data) - debut;
+  return longueur > 0 ? { debut, longueur } : null;
+}
+
+/**
+ * Apple's named keys, paired with their values.
+ *
+ * `keys` holds the names in order, `ilst` holds the numbered values: the link
+ * between them is the rank, and that is the only subtlety of the slot. It is
+ * written once here, so the location reader and the information reader cannot
+ * read it two different ways.
+ */
+function entreesDesKeys(
+  b: Uint8Array,
+  racine: Boite[],
+): Array<{ nom: string; entree: Boite; valeur: { debut: number; longueur: number } }> {
+  const meta = chemin(b, 'moov/meta', racine);
+  if (!meta) return [];
+  const filles = enfants(b, meta);
+  const keys = filles.find((x) => x.type === 'keys');
+  const ilst = filles.find((x) => x.type === 'ilst');
+  if (!keys || !ilst) return [];
+
+  const parIndex = new Map<number, Boite>();
+  for (const entree of enfants(b, ilst)) {
+    parIndex.set(readU32(b, entree.debut + 4, 'BE'), entree);
+  }
+  const out: Array<{ nom: string; entree: Boite; valeur: { debut: number; longueur: number } }> = [];
+  for (const [i, nom] of listerKeys(b, keys).entries()) {
+    const entree = parIndex.get(i + 1);
+    if (!entree) continue;
+    const valeur = valeurDeLEntree(b, entree);
+    if (valeur) out.push({ nom, entree, valeur });
+  }
+  return out;
+}
+
 function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
   const out: Porteur[] = [];
-
-  const valeurDe = (entree: Boite): { debut: number; longueur: number } | null => {
-    const data = enfants(b, entree).find((d) => d.type === 'data');
-    if (!data) return null;
-    const debut = charge(data) + 8;
-    const longueur = finDe(data) - debut;
-    return longueur > 0 ? { debut, longueur } : null;
-  };
+  const valeurDe = (entree: Boite) => valeurDeLEntree(b, entree);
 
   // Google Photos: the key is the box name itself.
   const ilstUdta = chemin(b, 'moov/udta/meta/ilst', racine);
@@ -243,25 +297,9 @@ function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
     }
   }
 
-  // Apple: `keys` names, `ilst` numbers. The entry whose type equals the key's
-  // 1-based index carries the value.
-  const meta = chemin(b, 'moov/meta', racine);
-  if (!meta) return out;
-  const filles = enfants(b, meta);
-  const keys = filles.find((x) => x.type === 'keys');
-  const ilst = filles.find((x) => x.type === 'ilst');
-  if (!keys || !ilst) return out;
-
-  const noms = listerKeys(b, keys);
-  const parIndex = new Map<number, Boite>();
-  for (const entree of enfants(b, ilst)) {
-    parIndex.set(readU32(b, entree.debut + 4, 'BE'), entree);
-  }
-  for (const [i, nom] of noms.entries()) {
-    const entree = parIndex.get(i + 1);
-    if (!entree) continue;
-    const v = valeurDe(entree);
-    if (!v) continue;
+  // Apple: `keys` names, `ilst` numbers. The pairing lives in `entreesDesKeys`,
+  // which also serves reading the file's information.
+  for (const { nom, entree, valeur: v } of entreesDesKeys(b, racine)) {
     if (nom === CLE_APPLE) {
       out.push({
         sorte: 'keys',
@@ -310,6 +348,157 @@ export function porteursDeLieu(b: Uint8Array): Porteur[] {
     ...porteurLoci(b, udta),
     ...porteursIlst(b, racine),
   ];
+}
+
+// What the video says about itself
+
+/**
+ * The displayable information of a video.
+ *
+ * The details panel depended entirely on the second reader, written by somebody
+ * else, and it opens neither MOV nor MP4. Four of its five sources were dead
+ * for a video: it had nothing to say, and the panel disappeared. What follows
+ * looks for what the file actually carries, in the boxes this module already
+ * knows how to walk.
+ *
+ * One rule, the engine's throughout: no line is invented. A field that is
+ * absent, empty, or a date of zero, which is what test files and re-encoded
+ * videos amount to, produces nothing at all. A short panel beats one that
+ * asserts.
+ */
+export interface InfosVideo {
+  takenAt: string | null;
+  camera: string | null;
+  details: Array<{ cle: string; value: string }>;
+}
+
+/** Seconds between the start of the QuickTime calendar and Unix's. */
+const EPOQUE_QUICKTIME = Date.UTC(1904, 0, 1) / 1000;
+
+/** 16.16 fixed point, as both `tkhd` and `loci` write it. */
+const virguleFixe = (b: Uint8Array, o: number) => (readU32(b, o, 'BE') | 0) / 65536;
+
+/** `h:mm:ss` or `m:ss`. Digits, not words: the worker has no dictionary. */
+function duree(secondes: number): string {
+  const t = Math.round(secondes);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  const deux = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${deux(m)}:${deux(s)}` : `${m}:${deux(s)}`;
+}
+
+/**
+ * True if this text can be displayed as it stands.
+ *
+ * `udta` atoms are written in a character set nothing declares, and older files
+ * use the Macintosh one. We do not have the table that converts it, and showing
+ * it byte for byte would produce gibberish. A field we cannot read is not
+ * displayed, the same rule the rest of the engine follows, applied to text.
+ */
+function affichable(s: string): boolean {
+  for (const c of s) {
+    const n = c.codePointAt(0)!;
+    if (n < 0x20 || (n >= 0x7f && n <= 0x9f)) return false;
+  }
+  return s.length > 0;
+}
+
+/**
+ * The `udta` text atoms, by name.
+ *
+ * Two layouts occur and both are needed: the QuickTime form (two-byte length,
+ * language, string) and the `data` box form that iTunes-derived tools use.
+ * `©day` is written sometimes in one, sometimes in the other.
+ */
+function textesDUdta(b: Uint8Array, racine: Boite[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const udta = chemin(b, 'moov/udta', racine);
+  if (!udta) return out;
+  for (const x of enfants(b, udta)) {
+    const c = chaineDAtome(b, x) ?? valeurDeLEntree(b, x);
+    if (!c) continue;
+    const valeur = texte(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
+    if (affichable(valeur)) out.set(x.type, valeur);
+  }
+  return out;
+}
+
+export function infosVideo(b: Uint8Array): InfosVideo {
+  const details: InfosVideo['details'] = [];
+  let takenAt: string | null = null;
+  let camera: string | null = null;
+
+  const racine = boites(b, 0, b.length);
+  const moov = racine.find((x) => x.type === 'moov');
+  if (!moov) return { takenAt, camera, details };
+
+  const cles = new Map(entreesDesKeys(b, racine).map((e) => [
+    e.nom,
+    texte(b, e.valeur.debut, e.valeur.longueur).trim(),
+  ]));
+  const atomes = textesDUdta(b, racine);
+  const premier = (...candidats: (string | undefined)[]) =>
+    candidats.find((v) => v && v.trim()) ?? null;
+
+  // The device. Apple names it by key, the others by text atom.
+  const marque = premier(cles.get('com.apple.quicktime.make'), atomes.get('©mak'));
+  const modele = premier(cles.get('com.apple.quicktime.model'), atomes.get('©mod'));
+  camera = [marque, modele].filter(Boolean).join(' ') || null;
+
+  // The date. The one a device wrote beats the container's: the second is
+  // sometimes the re-encoding time, and often zero.
+  const datee = premier(cles.get('com.apple.quicktime.creationdate'), atomes.get('©day'));
+  if (datee) takenAt = datee;
+
+  const mvhd = enfants(b, moov).find((x) => x.type === 'mvhd');
+  if (mvhd) {
+    const v = b[charge(mvhd)];
+    const o = charge(mvhd) + 4;
+    const large = v === 1;
+    const creee = large ? lireEntierBE(b, o + 8, 8) : readU32(b, o, 'BE');
+    const echelle = readU32(b, o + (large ? 16 : 8), 'BE');
+    const total = large ? lireEntierBE(b, o + 20, 8) : readU32(b, o + 12, 'BE');
+
+    /*
+     * A container date is only credible if it is plausible.
+     *
+     * Zero is not 1 January 1904, it is an absent date, and many tools write
+     * instead the value that lands exactly on 1 January 1970, which is filler
+     * just the same. The QuickTime format dates from 1991: nothing earlier can
+     * be a capture time. So we abstain rather than show a date nobody lived.
+     */
+    if (!takenAt && creee > 0) {
+      const quand = new Date((creee + EPOQUE_QUICKTIME) * 1000);
+      if (!Number.isNaN(quand.valueOf()) && quand.getUTCFullYear() >= 1990) {
+        takenAt = quand.toISOString();
+      }
+    }
+    if (echelle > 0 && total > 0) {
+      details.push({ cle: 'Duree', value: duree(total / echelle) });
+    }
+  }
+
+  // Dimensions: those of the first track that declares any. The first track
+  // outright may be the audio, which has none.
+  for (const trak of enfants(b, moov).filter((x) => x.type === 'trak')) {
+    const tkhd = enfants(b, trak).find((x) => x.type === 'tkhd');
+    if (!tkhd) continue;
+    const fin = finDe(tkhd);
+    const l = virguleFixe(b, fin - 8);
+    const h = virguleFixe(b, fin - 4);
+    if (l >= 1 && h >= 1) {
+      details.push({ cle: 'Dimensions', value: `${Math.round(l)} × ${Math.round(h)}` });
+      break;
+    }
+  }
+
+  const logiciel = premier(cles.get('com.apple.quicktime.software'), atomes.get('©swr'));
+  if (logiciel) details.push({ cle: 'Software', value: logiciel });
+  const auteur = premier(cles.get('com.apple.quicktime.author'), atomes.get('©ART'));
+  if (auteur) details.push({ cle: 'Artist', value: auteur });
+
+  return { takenAt, camera, details };
 }
 
 // A location that moves, which we cannot remove

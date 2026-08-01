@@ -149,6 +149,8 @@ export const fr: Dictionnaire = {
     ISO: 'Sensibilité',
     FocalLength: 'Focale',
     LensModel: 'Objectif',
+    Duree: 'Durée',
+    Dimensions: 'Dimensions',
     Software: 'Logiciel',
     Artist: 'Auteur',
     Copyright: 'Copyright',

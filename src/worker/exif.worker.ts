@@ -24,6 +24,7 @@ import {
 import { type Capacites, type Motif, capacitesDe } from '../lib/exif/capacites.ts';
 import {
   ecrirePositionVideo,
+  infosVideo,
   effacerPositionVideo,
   lirePositionVideo,
   porteursConcordent,
@@ -264,6 +265,21 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   let takenAt: string | null = null;
   let camera: string | null = null;
   const details: Array<{ cle: string; value: string }> = [];
+
+  /*
+   * A video says what it is, but not in the same place as a photo.
+   *
+   * The details panel depended entirely on the second reader, and it opens
+   * neither MOV nor MP4: four of its five sources were dead here. A video with
+   * no location had no line to show and the panel disappeared, even though the
+   * file carries its duration, its dimensions, its date and often its device.
+   */
+  if (format === 'video') {
+    const infos = infosVideo(bytes);
+    takenAt = infos.takenAt;
+    camera = infos.camera;
+    details.push(...infos.details);
+  }
 
   try {
     // The second reader opens neither MOV nor MP4: calling it on a video would

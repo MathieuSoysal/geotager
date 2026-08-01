@@ -151,6 +151,8 @@ export const en: Dictionnaire = {
     ISO: 'ISO',
     FocalLength: 'Focal length',
     LensModel: 'Lens',
+    Duree: 'Length',
+    Dimensions: 'Size',
     Software: 'Software',
     Artist: 'Author',
     Copyright: 'Copyright',
