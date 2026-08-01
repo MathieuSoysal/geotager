@@ -31,6 +31,7 @@ import {
   boites,
   charge,
   chemin,
+  contientDesBoites,
   enfants,
   finDe,
   texte,
@@ -412,13 +413,20 @@ function tableDeDecalages(b: Uint8Array, racine: Boite[]): TableDeDecalages {
  */
 export function accepteAjoutVideo(b: Uint8Array): boolean {
   const racine = boites(b, 0, b.length);
-  if (!racine.some((x) => x.type === 'moov')) return false;
+  const moov = racine.find((x) => x.type === 'moov');
+  if (!moov) return false;
   if (racine.some((x) => x.type === 'moof' || x.type === 'sidx' || x.type === 'mfra')) {
     return false;
   }
   // A box extending to the end of the file would swallow anything appended
   // behind it.
   if (racine.some((x) => x.declaree === 0 && finDe(x) === b.length)) return false;
+  // The boxes whose size we increase must carry it in four bytes. A 64-bit
+  // size is written elsewhere, the first four bytes then holding only a marker,
+  // and increasing it here would overwrite the marker instead of the size. That
+  // is rare enough on a `moov` that no witness file exists, so we refuse.
+  const aResizer = [moov, ...enfants(b, moov).filter((x) => x.type === 'udta')];
+  if (aResizer.some((x) => x.entete !== 8)) return false;
   const { entrees } = tableDeDecalages(b, racine);
   return entrees.every((e) => e.valeur > 0 && e.valeur < b.length);
 }
@@ -720,6 +728,60 @@ export function copieDuLieuAilleursVideo(b: Uint8Array): boolean {
   return false;
 }
 
+// The post-write check
+
+/**
+ * True if the file's description still holds together.
+ *
+ * On a photo the post-write guarantee rests on a second reader written by
+ * somebody else. For a video none exists in a browser, and this replaces it:
+ * every box that contains others must be exactly filled by its children. It
+ * targets the bug actually feared here, which is not byte order, since we write
+ * text, but size arithmetic: a box that grew while a parent kept its old size.
+ *
+ * Two choices, and the first cost a whole release:
+ *
+ *   1. Only boxes that contain boxes are descended into. The previous version
+ *      descended everywhere, including into `tkhd` and `stsz`, whose payloads
+ *      are numbers that read as plausible headers. It returned false on every
+ *      real video, which refused writing and erasing on all of them.
+ *   2. A container with no parsable child passes. The asymmetry of risk
+ *      requires it: a false negative forbids every write, the bug just fixed,
+ *      while a false positive is still caught by the two neighbouring checks,
+ *      the byte-exact proof and the location read-back.
+ *
+ * This function lives here rather than in the worker for a reason worth
+ * writing down: in the worker no test could reach it, which is exactly why the
+ * bug shipped.
+ */
+export function structureIntacte(b: Uint8Array): boolean {
+  const haut = boites(b, 0, b.length);
+  if (!haut.length || finDe(haut[haut.length - 1]) !== b.length) return false;
+  const moov = haut.find((x) => x.type === 'moov');
+  if (!moov) return false;
+
+  const descendre = (parent: Boite, profondeur: number): boolean => {
+    if (profondeur > 12) return true;
+    const filles = enfants(b, parent);
+    if (!filles.length) return true;
+    if (finDe(filles[filles.length - 1]) !== finDe(parent)) return false;
+    return filles
+      .filter((f) => contientDesBoites(f.type))
+      .every((f) => descendre(f, profondeur + 1));
+  };
+  return descendre(moov, 0);
+}
+
+/** True if every slot in the file agrees on the same location. */
+export function porteursConcordent(b: Uint8Array): boolean {
+  const lus = porteursDeLieu(b)
+    .map(positionDe)
+    .filter((x): x is LatLon => x !== null);
+  // A slot saying something different from the others would be exactly the lie
+  // this module exists to prevent.
+  return lus.every((x) => distanceMetres(x, lus[0]) < 1);
+}
+
 // What we can do with this file
 
 /**
@@ -753,7 +815,13 @@ function assezLong(p: Porteur): boolean {
   // stores its location that way therefore goes through the route that grows,
   // which replaces it with a long enough string.
   if (p.binaire) return false;
-  return p.longueurTexte - altitudeDe(p.texte).length >= LONGUEUR_NEUVE;
+  // And the question is put to `ecrireIso6709` itself rather than restating its
+  // limits here. It has two, since a string can be too long as readily as too
+  // short, and checking only one meant announcing a correction the write would
+  // then refuse.
+  const utile = p.longueurTexte - altitudeDe(p.texte).length;
+  return utile >= LONGUEUR_NEUVE
+    && ecrireIso6709({ lat: 0, lon: 0 }, p.longueurTexte, altitudeDe(p.texte)) !== null;
 }
 
 /** What the tool can do with this video, with the reason that goes with it. */

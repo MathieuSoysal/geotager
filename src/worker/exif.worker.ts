@@ -25,12 +25,11 @@ import { type Capacites, type Motif, capacitesDe } from '../lib/exif/capacites.t
 import {
   ecrirePositionVideo,
   effacerPositionVideo,
-  lireIso6709,
   lirePositionVideo,
-  porteursDeLieu,
+  porteursConcordent,
   sonderVideo,
+  structureIntacte,
 } from '../lib/exif/quicktime.ts';
-import { type Boite, boites, enfants, finDe } from '../lib/exif/bmff.ts';
 import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres, validerPosition } from '../lib/exif/coords.ts';
@@ -409,22 +408,12 @@ const accord = (a: LatLon | null, b: LatLon | null): boolean =>
  *
  * The real independent reader, ExifTool, runs in continuous integration on real
  * files, column by column.
+ *
+ * Both checks live in `quicktime.ts` rather than here: in this file no test
+ * could reach them, since `engine.test.ts` does not import a module that pulls
+ * in `self`, `exifr` and the message protocol. That is exactly how a check that
+ * refused every video shipped green.
  */
-function structureIntacte(b: Uint8Array): boolean {
-  const haut = boites(b, 0, b.length);
-  if (!haut.length || finDe(haut[haut.length - 1]) !== b.length) return false;
-  const moov = haut.find((x) => x.type === 'moov');
-  if (!moov) return false;
-  const verifier = (parent: Boite, profondeur: number): boolean => {
-    if (profondeur > 12) return true;
-    const filles = enfants(b, parent);
-    if (!filles.length) return true;
-    if (finDe(filles[filles.length - 1]) !== finDe(parent)) return false;
-    return filles.every((f) => verifier(f, profondeur + 1));
-  };
-  return verifier(moov, 0);
-}
-
 async function verifierVideo(
   produit: Uint8Array,
   attendu: LatLon | null,
@@ -437,20 +426,13 @@ async function verifierVideo(
     }
   })();
 
-  const accordent = (() => {
+  const croise = (() => {
     try {
-      // A slot saying something different from the others would be exactly the
-      // lie this module exists to prevent.
-      const lus = porteursDeLieu(produit)
-        .map((p) => (p.binaire ? validerPosition({ lat: p.binaire.lat, lon: p.binaire.lon }) : lireIso6709(p.texte)))
-        .filter((x): x is LatLon => x !== null);
-      return lus.every((x) => accord(x, parNous));
+      return structureIntacte(produit) && porteursConcordent(produit);
     } catch {
       return false;
     }
   })();
-
-  const croise = structureIntacte(produit) && accordent;
   if (attendu === null) {
     return { verified: parNous, drift: parNous === null ? 0 : Infinity, croise, croiseComplet: false };
   }

@@ -86,6 +86,13 @@ function preambule(type: string): number {
 /**
  * Direct children of a box.
  *
+ * The caller must already know this box contains others. This function reads
+ * bytes; it cannot tell a leaf from a container, and it will never pretend to.
+ * The payload of a `tkhd` or an `stsz` is made of numbers, and numbers read
+ * perfectly well as plausible headers, yielding boxes that do not exist.
+ * `contientDesBoites` answers that question, and any tree walk must consult it
+ * before descending.
+ *
  * `meta` needs care: it is a FullBox, but QuickTime-derived tools write it as
  * an ordinary box (ExifTool's `QuickTime.mov` among them). Rather than guess,
  * both preambles are tried and the one producing a box sequence that exactly
@@ -126,16 +133,29 @@ export function chemin(b: Uint8Array, route: string, racine?: Boite[]): Boite | 
 }
 
 /**
- * Every box of a given type, at any depth.
+ * Boxes that contain other boxes.
  *
- * The descent only follows boxes that contain boxes. Descending into `mdat`,
- * the images and sound and most of the file's weight, would mean reading pixel
- * bytes as headers: megabytes of boxes that do not exist, on every call.
+ * Descending into `mdat`, the images and sound and most of the file's weight,
+ * would mean reading pixel bytes as headers: megabytes of boxes that do not
+ * exist, on every call. The same holds for every leaf, `tkhd` and `stsz`
+ * included, whose payloads are numbers that read all too well as headers.
+ *
+ * This list is therefore the answer to a single question, and every tree walk
+ * must ask it before descending a level. It was private for one release, and
+ * the post-write check for videos, which did descend into leaves, rejected
+ * every real video as a result.
  */
 const CONTENEUSES = new Set([
   'moov', 'trak', 'edts', 'mdia', 'minf', 'dinf', 'stbl', 'mvex', 'moof',
   'traf', 'mfra', 'udta', 'meta', 'ilst', 'stsd', 'gmhd', 'tapt',
 ]);
+
+/** True if a box of this type holds other boxes rather than data. */
+export function contientDesBoites(type: string): boolean {
+  return CONTENEUSES.has(type);
+}
+
+/** Every box of a given type, at any depth. */
 
 export function toutesLesBoites(
   b: Uint8Array,
