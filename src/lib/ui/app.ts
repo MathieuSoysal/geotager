@@ -10,10 +10,48 @@ import { parseCoordinates, formatDecimal, formatDms, distanceMetres, formatDista
 import type { Carte } from './carte.ts';
 import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '../exif/types.ts';
 import { dicoDuDocument, type CodeErreur } from '../i18n/index.ts';
+import { typeDeclare } from '../exif/capacites.ts';
 
 // The words for this page. The document's `lang` attribute was written at
 // build time: we do not guess the language, we read it.
 const T = dicoDuDocument();
+
+/**
+ * The name of the kind of file loaded: "photo", "video", or neither.
+ *
+ * The tool said "photo" everywhere, including under a badge announcing "Video".
+ * The sentences take this name, and choose it here:
+ *
+ *   - one kind in the batch, its own name;
+ *   - two kinds mixed, neither is true, so the neutral name;
+ *   - nothing loaded, keep "photo", which is what the served HTML already
+ *     carries and what most people come to drop.
+ */
+function motDuGenre(pluriel = false): string {
+  const N = T.app.noms;
+  const lus = items.map((i) => i.read?.format).filter(Boolean);
+  const videos = lus.filter((f) => f === 'video').length;
+  if (lus.length === 0) return pluriel ? N.photos : N.photo;
+  if (videos === lus.length) return pluriel ? N.videos : N.video;
+  if (videos === 0) return pluriel ? N.photos : N.photo;
+  return pluriel ? N.neutres : N.neutre;
+}
+
+/**
+ * Rewrites the sentences the served HTML already carries.
+ *
+ * They are rendered at build time with the default word: without JavaScript the
+ * page stays correct, and with it, it follows the file actually loaded.
+ */
+function majMotsDuGenre(): void {
+  const nom = motDuGenre();
+  el.titreActif.textContent = T.app.titreActif(nom);
+  el.changer.textContent = T.app.changer(nom);
+  el.coordsLabel.textContent = T.app.ouPrise(nom);
+  el.coordsAideFort.textContent = T.app.aideCoordsFort(nom);
+  el.carteAvis.textContent = T.app.avisCarte(nom);
+  el.partagerSortie.textContent = T.app.partagerSortie(nom);
+}
 
 /** The sentence for an error, in the page's language. */
 const messageErreur = (code: string, secours: string): string =>
@@ -58,6 +96,9 @@ const el = {
   majPlusTard: $<HTMLButtonElement>('maj-plus-tard'),
   installer: $<HTMLButtonElement>('installer'),
   titreActif: $('titre-actif'),
+  coordsLabel: $('coords-label'),
+  coordsAideFort: $('coords-aide-fort'),
+  carteAvis: $('carte-avis'),
   annonce: $('annonce'),
 };
 
@@ -194,6 +235,8 @@ function marquerEtape(n: 1 | 2 | 3): void {
  */
 function versEtatVide(deplacerFocus = false): void {
   items.length = 0;
+  // Before emptying: `motDuGenre` reads `items`, and returns "photo" once empty.
+  queueMicrotask(majMotsDuGenre);
   principal = null;
   cible = null;
   precision = null;
@@ -231,6 +274,8 @@ function afficherPrincipal(): void {
 
   el.vide.hidden = true;
   el.actif.hidden = false;
+  // Words first: the title announced below borrows them.
+  majMotsDuGenre();
   el.nom.textContent = r.name;
   el.nom.title = r.name;
   el.pillFormat.textContent = `${NOM_FORMAT[r.format] ?? r.format} · ${octets(r.size)}`;
@@ -298,8 +343,8 @@ function afficherPrincipal(): void {
    * stayed silent right beside it.
    */
   const etat = r.position
-    ? T.app.photoLue(formatDecimal(r.position))
-    : T.app.photoLueSansPosition;
+    ? T.app.photoLue(formatDecimal(r.position), motDuGenre())
+    : T.app.photoLueSansPosition(motDuGenre());
   annoncer(phrase ? `${etat} ${phrase}` : etat);
 }
 
@@ -396,7 +441,7 @@ async function ouvrirCarte(): Promise<void> {
   }
 
   carte = creerCarte(el.carteVue, {
-    textes: { origine: T.app.repereOrigine },
+    textes: { origine: T.app.repereOrigine(motDuGenre()) },
     onChoix: (p, m) => {
       cible = p;
       precision = m;
@@ -420,7 +465,7 @@ function majResultat(): void {
   if (!cible || enApplication) {
     el.resultat.hidden = !cible;
     inactiver(el.telecharger, true);
-    el.telecharger.textContent = T.app.telechargerPhotos(items.length);
+    el.telecharger.textContent = T.app.telechargerPhotos(items.length, motDuGenre(), motDuGenre(true));
     return;
   }
   el.resultat.hidden = false;
@@ -428,10 +473,10 @@ function majResultat(): void {
   const origine = principal?.read?.position;
   el.resultatDetail.textContent = origine
     ? T.app.depuisOrigine(formatDistance(distanceMetres(origine, cible), T.app.virgule))
-    : T.app.nouvellePosition;
+    : T.app.nouvellePosition(motDuGenre());
   const modifiables = items.filter((i) => i.read?.can.write).length;
   inactiver(el.telecharger, modifiables === 0);
-  el.telecharger.textContent = T.app.telechargerPhotos(modifiables);
+  el.telecharger.textContent = T.app.telechargerPhotos(modifiables, motDuGenre(), motDuGenre(true));
   marquerEtape(3);
 }
 
@@ -563,6 +608,24 @@ function nomSortie(nom: string, prefixe: string): string {
   return point > 0 ? `${nom.slice(0, point)}${prefixe}${nom.slice(point)}` : `${nom}${prefixe}`;
 }
 
+/**
+ * The type to declare on the produced file.
+ *
+ * It came out with no type at all, and sharing announced it as an arbitrary
+ * byte stream. This is not a finishing touch: a file placed in a phone's
+ * downloads with no type is not indexed as a video. The gallery shows no entry
+ * for it, and our own picker, restricted to images and videos, may stop
+ * offering it. The file is perfect and the user sees nothing.
+ *
+ * The engine is asked first, since it recognised the format in the bytes. The
+ * `type` the system attaches to the input file is only a fallback: it is
+ * precisely the one that is empty or wrong in the cases that concern us, since
+ * a file from a messaging folder often arrives without one.
+ */
+function typeDuProduit(it: Item, nom: string): string {
+  return (it.read && typeDeclare(it.read.format, nom)) || it.file.type || '';
+}
+
 /** The three write controls, handed back to the user. */
 function rendreLesBoutons(): void {
   enApplication = false;
@@ -618,7 +681,8 @@ async function appliquerMaintenant(
   inactiver(el.effacerTout, true);
 
   const statuts = new Map<string, string>();
-  const produits: Array<{ name: string; input: Uint8Array }> = [];
+  let derniereRaison = '';
+  const produits: Array<{ name: string; input: Uint8Array; type: string }> = [];
   let echecs = 0;
 
   /*
@@ -642,10 +706,14 @@ async function appliquerMaintenant(
     const res: WriteResult = rep.payload;
     if (res.ok) {
       statuts.set(it.id, `✓ ${res.route === 'P1' ? T.app.sansRienDeplacer : T.app.ecrit}`);
-      produits.push({ name: nomSortie(it.file.name, prefixe), input: res.bytes });
+      const nom = nomSortie(it.file.name, prefixe);
+      produits.push({ name: nom, input: res.bytes, type: typeDuProduit(it, nom) });
     } else {
       echecs++;
       statuts.set(it.id, messageErreur(res.code, res.message).slice(0, 40));
+      // The whole sentence, for the single-file case: it exists, translated,
+      // and it was computed and then thrown away. See below.
+      derniereRaison = messageErreur(res.code, res.message);
     }
   }
 
@@ -664,13 +732,29 @@ async function appliquerMaintenant(
     el.alerteFormat.hidden = false;
     el.alerteFormat.classList.remove('attention');
     el.alerteFormat.classList.add('grave');
-    el.alerteFormat.textContent = T.app.aucunProduit;
+    /*
+     * The reason, not the observation.
+     *
+     * On a single file, every failure displayed "no file produced", while the
+     * exact sentence, translated and specific to each code, was computed just
+     * above and then thrown away: `statuts` is only rendered from two files
+     * upwards. A bug that took two round trips to diagnose, for want of the
+     * tool saying what it already knew.
+     *
+     * In a batch the observation is still the right sentence: reasons can
+     * differ from one file to the next, and the list gives them one by one.
+     */
+    el.alerteFormat.textContent =
+      concernes.length === 1 && derniereRaison ? derniereRaison : T.app.aucunProduit;
     annoncer(T.app.aucunProduitAnnonce);
     return;
   }
 
   if (produits.length === 1) {
-    telechargerBlob(new Blob([produits[0].input as BlobPart]), produits[0].name);
+    telechargerBlob(
+      new Blob([produits[0].input as BlobPart], { type: produits[0].type }),
+      produits[0].name,
+    );
   } else {
     const zip = await downloadZip(produits).blob();
     telechargerBlob(zip, T.app.zip);
@@ -683,9 +767,7 @@ async function appliquerMaintenant(
    * conflating them would cost the most.
    */
   proposerPartage(
-    produits.map(
-      (p) => new File([p.input as BlobPart], p.name, { type: 'application/octet-stream' }),
-    ),
+    produits.map((p) => new File([p.input as BlobPart], p.name, { type: p.type })),
   );
 
   marquerEtape(3);

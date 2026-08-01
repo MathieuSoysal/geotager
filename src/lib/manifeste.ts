@@ -18,6 +18,38 @@
  */
 import type { Langue } from './i18n/types.ts';
 import { DICOS, LANGUES } from './i18n/index.ts';
+import { TYPES_PAR_FORMAT, capacitesDe } from './exif/capacites.ts';
+import type { Format } from './exif/types.ts';
+
+/**
+ * The types "Open with" offers, derived from the capability table.
+ *
+ * Written by hand they drifted, and the test caught the omission both ways.
+ * They are now read from the same table the interface takes the produced file's
+ * type from, so a format open to adding cannot be missing here, nor appear here
+ * without being able to receive a location.
+ */
+function typesOuvrables(): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [format, entree] of Object.entries(TYPES_PAR_FORMAT)) {
+    if (!capacitesDe(format as Format).ajouter) continue;
+    for (const type of entree.types) {
+      out[type] = entree.extensions.filter(
+        (e) => entree.types.length === 1 || estExtensionDe(type, e),
+      );
+    }
+  }
+  return out;
+}
+
+/** Which extension goes with which type, when a format has several. */
+function estExtensionDe(type: string, ext: string): boolean {
+  if (type === 'video/quicktime') return ext === '.mov';
+  if (type === 'video/mp4') return ext === '.mp4' || ext === '.m4v';
+  if (type === 'image/heif') return ext === '.heif';
+  if (type === 'image/heic') return ext === '.heic';
+  return true;
+}
 
 /** The application background: cold-start splash screen and title bar. */
 export const FOND = '#17161b';
@@ -137,22 +169,7 @@ export function manifeste(langue: Langue): string {
        * here would stay invisible in the system's "Open with" menu, with
        * nothing to flag it.
        */
-      file_handlers: [
-        {
-          action: T.base,
-          accept: {
-            'image/jpeg': ['.jpg', '.jpeg'],
-            'image/png': ['.png'],
-            'image/webp': ['.webp'],
-            'image/heic': ['.heic'],
-            'image/heif': ['.heif'],
-            'image/avif': ['.avif'],
-            'image/tiff': ['.tif', '.tiff'],
-            'video/quicktime': ['.mov'],
-            'video/mp4': ['.mp4', '.m4v'],
-          },
-        },
-      ],
+      file_handlers: [{ action: T.base, accept: typesOuvrables() }],
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

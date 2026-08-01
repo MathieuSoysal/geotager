@@ -114,6 +114,52 @@ export function cellules(c: Capacites): boolean[] {
   return [c.lire, c.corriger, c.ajouter, c.effacer];
 }
 
+// File types
+
+/**
+ * Recognised format to declared type, and the extensions that go with it.
+ *
+ * Single source, for the same reason as the matrix: this table used to be
+ * written twice, in the manifest and in the tests, and the produced file read
+ * it in neither place. It came out with no declared type at all.
+ *
+ * What that costs when forgotten, and what motivated the table: a file placed
+ * in a phone's downloads with no type is not indexed as a video. The gallery
+ * shows no entry for it, and our own picker, restricted to images and videos,
+ * may stop offering it. The file is perfect, and the user sees nothing.
+ *
+ * Order matters: the first type of a format is the one declared when writing.
+ * The rest only serve to recognise.
+ */
+export const TYPES_PAR_FORMAT: Partial<Record<Format, { types: string[]; extensions: string[] }>> = {
+  jpeg: { types: ['image/jpeg'], extensions: ['.jpg', '.jpeg'] },
+  png: { types: ['image/png'], extensions: ['.png'] },
+  webp: { types: ['image/webp'], extensions: ['.webp'] },
+  heic: { types: ['image/heic', 'image/heif'], extensions: ['.heic', '.heif'] },
+  avif: { types: ['image/avif'], extensions: ['.avif'] },
+  tiff: { types: ['image/tiff'], extensions: ['.tif', '.tiff'] },
+  gif: { types: ['image/gif'], extensions: ['.gif'] },
+  video: { types: ['video/mp4', 'video/quicktime'], extensions: ['.mp4', '.m4v', '.mov'] },
+};
+
+/**
+ * The type to declare for a file of this format, or null.
+ *
+ * A video comes in two types depending on the wrapper, and the file extension
+ * is the only clue that separates them; the bytes are the same boxes. This is
+ * the one place in the engine where the file name has a say, and only to pick
+ * between two equally true labels.
+ */
+export function typeDeclare(format: Format, nom = ''): string | null {
+  const entree = TYPES_PAR_FORMAT[format];
+  if (!entree) return null;
+  const point = nom.lastIndexOf('.');
+  const ext = point < 0 ? '' : nom.slice(point).toLowerCase();
+  if (format === 'video' && (ext === '.mov' || ext === '.qt')) return 'video/quicktime';
+  if (format === 'heic' && ext === '.heif') return 'image/heif';
+  return entree.types[0];
+}
+
 // Sentences
 
 /**

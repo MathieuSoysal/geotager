@@ -87,17 +87,27 @@ export interface Dictionnaire {
 
   app: {
     /** Hidden title of the active state: focus target after loading. */
-    titreActif: string;
-    changer: string;
-    ouPrise: string;
+    /*
+     * The sentences below take the name of the kind of file loaded.
+     *
+     * The tool said "photo" everywhere, including under a badge announcing
+     * "Video". French makes it simple: "photo" and "vidéo" are both feminine,
+     * so the name substitutes without any agreement.
+     *
+     * Only sentences said when a file is loaded take one: where no file is
+     * present, no kind is known.
+     */
+    titreActif: (nom: string) => string;
+    changer: (nom: string) => string;
+    ouPrise: (nom: string) => string;
     aideCoords: string;
-    aideCoordsFort: string;
+    aideCoordsFort: (nom: string) => string;
     /** Input the parser refuses: error text, announced and displayed. */
     coordsInvalides: string;
     /** The location picker map, folded away until it is asked for. */
     ouvrirCarte: string;
     fermerCarte: string;
-    avisCarte: string;
+    avisCarte: (nom: string) => string;
     /** Loading the map code failed, typically offline. */
     carteIndisponible: string;
     carteLabel: string;
@@ -105,13 +115,13 @@ export interface Dictionnaire {
     zoomAvant: string;
     zoomArriere: string;
     contributeurs: string;
-    repereOrigine: string;
+    repereOrigine: (nom: string) => string;
     positionChoisie: (p: string) => string;
-    telecharger: string;
+    telecharger: (nom: string) => string;
     /** Why "Download" is inactive while no location has been chosen. */
     telechargerPourquoi: string;
     /** Share the produced photo, never the original. */
-    partagerSortie: string;
+    partagerSortie: (nom: string) => string;
     effacer: string;
     effacerTout: string;
     autres: string;
@@ -126,8 +136,8 @@ export interface Dictionnaire {
     modifiables: string;
     lecturePlurielle: (n: number) => string;
     traitement: (i: number, n: number) => string;
-    photoLue: (p: string) => string;
-    photoLueSansPosition: string;
+    photoLue: (p: string, nom: string) => string;
+    photoLueSansPosition: (nom: string) => string;
     illisibleAlerte: string;
     aucunProduit: string;
     aucunProduitAnnonce: string;
@@ -137,10 +147,19 @@ export interface Dictionnaire {
     virgule: string;
     octets: [string, string, string];
     nomVideo: string;
+    /**
+     * The kind name and its plural. `neutre` serves the mixed batch: when a
+     * batch holds photos and videos, neither name is true.
+     */
+    noms: {
+      photo: string; photos: string;
+      video: string; videos: string;
+      neutre: string; neutres: string;
+    };
     nomInconnu: string;
-    telechargerPhotos: (n: number) => string;
+    telechargerPhotos: (n: number, nom: string, pluriel: string) => string;
     depuisOrigine: (d: string) => string;
-    nouvellePosition: string;
+    nouvellePosition: (nom: string) => string;
     pretsVerifies: (n: number) => string;
     pretsAvecEchecs: (n: number, e: number) => string;
     /** The share arrived but the bytes did not survive the trip. */
@@ -156,6 +175,14 @@ export interface Dictionnaire {
     ajoutees: (n: number) => string;
     /** The batch is full: the excess is not added, and that is said. */
     lotPlafonne: (n: number) => string;
+    /**
+     * The install button, and what is said once installation succeeds.
+     *
+     * The button only exists if the browser offers to install, which it never
+     * does when the app already is.
+     */
+    installer: string;
+    installee: string;
     /** Update banner, never automatic. See `sw-modele.js`. */
     majDispo: string;
     majTravaux: string;

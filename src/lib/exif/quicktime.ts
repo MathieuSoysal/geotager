@@ -550,36 +550,52 @@ function ajouterLeLieu(b: Uint8Array, p: LatLon, aNeutraliser: Porteur[] = []): 
   xyz.set(chaine, 12);
 
   const udta = enfants(b, moov).find((x) => x.type === 'udta') ?? null;
-  const ajout = udta ? xyz : nouvelleUdta(xyz);
   // Insertion goes at the end of `udta` when it exists, and at the end of
   // `moov` otherwise: either way no sibling box changes place inside its parent.
-  const insertion = udta ? finDe(udta) : finDe(moov);
+  const insertions: Insertion[] = [
+    udta
+      ? { a: finDe(udta), octets: xyz, dans: [udta, moov] }
+      : { a: finDe(moov), octets: nouvelleUdta(xyz), dans: [moov] },
+  ];
 
-  const out = new Uint8Array(b.length + ajout.length);
-  out.set(b.subarray(0, insertion), 0);
-  out.set(ajout, insertion);
-  out.set(b.subarray(insertion), insertion + ajout.length);
+  // The second copy, the one Apple software reads. See `metaApple` for what
+  // bounds it.
+  const apple = metaApple(b, moov, racine, s);
+  if (apple) insertions.push({ a: finDe(moov), octets: apple, dans: [moov] });
+
+  const { out, deplacer } = inserer(b, insertions);
 
   // The old slots go before the new one is used: leaving a copy we could not
   // rewrite would have the same file state two locations. They all sit before
-  // the insertion point, so their positions stay valid.
+  // the insertion points, so their positions stay valid.
   const changed: Plage[] = [];
   for (const porteur of aNeutraliser) neutraliser(out, porteur.boite, changed);
 
-  // The parents grow by as much. `udta` first: its size field comes before
-  // `moov`'s in the file, though the write order does not matter since they are
-  // two distinct places.
+  /*
+   * Parents grow by what was inserted inside them, and each insertion states
+   * which box it goes into rather than leaving it to be inferred from position.
+   *
+   * Geometric inference is wrong in a perfectly ordinary case: when `udta` is
+   * the last box in `moov`, both end at the same byte, and nothing in the
+   * position distinguishes "inside udta" from "after udta, inside moov". `udta`
+   * then swallowed Apple's slot, which became invisible to everyone, us
+   * included.
+   */
   for (const parent of udta ? [udta, moov] : [moov]) {
-    writeU32(out, parent.debut, parent.taille + ajout.length, 'BE');
-    changed.push([parent.debut, parent.debut + 4]);
+    const ajoute = insertions
+      .filter((i) => i.dans.includes(parent))
+      .reduce((n, i) => n + i.octets.length, 0);
+    if (!ajoute) continue;
+    writeU32(out, deplacer(parent.debut), parent.taille + ajoute, 'BE');
+    changed.push([deplacer(parent.debut), deplacer(parent.debut) + 4]);
   }
 
-  // And the absolute offsets, one by one. Those addressing a byte before the
-  // insertion do not move; the others advance by as much.
+  // And the absolute offsets, one by one. Each advances by whatever was
+  // inserted before the byte it addresses, and no more.
   for (const e of tableDeDecalages(b, racine).entrees) {
-    if (e.valeur < insertion) continue;
-    const pos = e.pos < insertion ? e.pos : e.pos + ajout.length;
-    const v = e.valeur + ajout.length;
+    const v = deplacer(e.valeur);
+    if (v === e.valeur) continue;
+    const pos = deplacer(e.pos);
     if (e.largeur === 4) writeU32(out, pos, v, 'BE');
     else {
       writeU32(out, pos, Math.floor(v / 4294967296), 'BE');
@@ -588,8 +604,131 @@ function ajouterLeLieu(b: Uint8Array, p: LatLon, aNeutraliser: Porteur[] = []): 
     changed.push([pos, pos + e.largeur]);
   }
 
-  changed.push([insertion, out.length]);
+  changed.push([Math.min(...insertions.map((i) => i.a)), out.length]);
   return { bytes: out, changed };
+}
+
+/** A block of bytes to slip in before byte `a` of the original file. */
+interface Insertion {
+  a: number;
+  octets: Uint8Array;
+  /** The boxes whose size must grow by as much. Stated, never guessed. */
+  dans: Boite[];
+}
+
+/**
+ * Inserts several blocks at once, and returns enough to translate positions.
+ *
+ * One insertion point was enough while there was only one slot to write. There
+ * have been two since the location is also written Apple's way, and they are
+ * not in the same place: hence this generalisation, rather than two passes
+ * whose second would work on positions already wrong.
+ */
+function inserer(
+  b: Uint8Array,
+  insertions: Insertion[],
+): { out: Uint8Array; deplacer: (o: number) => number } {
+  const tri = [...insertions].sort((x, y) => x.a - y.a);
+  const total = tri.reduce((n, i) => n + i.octets.length, 0);
+  const out = new Uint8Array(b.length + total);
+  let lu = 0;
+  let ecrit = 0;
+  for (const i of tri) {
+    out.set(b.subarray(lu, i.a), ecrit);
+    ecrit += i.a - lu;
+    lu = i.a;
+    out.set(i.octets, ecrit);
+    ecrit += i.octets.length;
+  }
+  out.set(b.subarray(lu), ecrit);
+
+  // An original byte advances by everything slipped in before it. On a tie, an
+  // insertion exactly at its position, the block goes first, so it counts.
+  const deplacer = (o: number) =>
+    o + tri.filter((i) => i.a <= o).reduce((n, i) => n + i.octets.length, 0);
+  return { out, deplacer };
+}
+
+/** Any box: an eight-byte header, then the payload. */
+function boite(type: string, ...morceaux: Uint8Array[]): Uint8Array {
+  const charge = morceaux.reduce((n, m) => n + m.length, 0);
+  const out = new Uint8Array(8 + charge);
+  writeU32(out, 0, out.length, 'BE');
+  out.set(Uint8Array.from(type, (c) => c.charCodeAt(0)), 4);
+  let o = 8;
+  for (const m of morceaux) { out.set(m, o); o += m.length; }
+  return out;
+}
+
+const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
+
+/**
+ * The second copy of the location, the one Apple software reads.
+ *
+ * `moov/udta/©xyz` is what Android, FFmpeg, VLC and MediaInfo read; it is by
+ * far the most widespread slot and the one devices write. Apple software reads
+ * only the named key `com.apple.quicktime.location.ISO6709`, in a `moov/meta`
+ * where names live in `keys` and values in `ilst`, paired by rank.
+ *
+ * Two limits, both deliberate:
+ *
+ *   - Only when `moov/meta` does not exist yet. If it does, both `keys` and
+ *     `ilst` would have to grow in two separate places and be renumbered. No
+ *     file in the corpus has that shape, so nothing would test it: the location
+ *     then goes into the single simple slot, which stays true and readable
+ *     everywhere.
+ *   - Only on the MP4 family. A true QuickTime writes its `meta` without the
+ *     four version bytes and an MP4 with them, and the second is what an Apple
+ *     device produces. Rather than guess inside a file whose shape is already
+ *     unusual we abstain; `©xyz` is QuickTime's native slot anyway.
+ */
+function metaApple(
+  b: Uint8Array,
+  moov: Boite,
+  racine: Boite[],
+  iso: string,
+): Uint8Array | null {
+  if (enfants(b, moov).some((x) => x.type === 'meta')) return null;
+  const ftyp = racine.find((x) => x.type === 'ftyp');
+  if (!ftyp || texte(b, charge(ftyp), 4) === 'qt  ') return null;
+
+  const versionEtDrapeaux = new Uint8Array(4);
+
+  // `hdlr` announces that this `meta`'s names are named keys: "mdta".
+  const hdlr = boite(
+    'hdlr',
+    versionEtDrapeaux, new Uint8Array(4), ascii('mdta'), new Uint8Array(12 + 1),
+  );
+
+  // `keys`: the count, then one entry per name.
+  const nom = boite('mdta', ascii(CLE_APPLE));
+  const compte = new Uint8Array(4);
+  writeU32(compte, 0, 1, 'BE');
+  const keys = boite('keys', versionEtDrapeaux, compte, nom.subarray(0));
+
+  // `ilst`: an entry whose type is the key's rank, carrying a `data` box. The
+  // payload type is 1, meaning text.
+  const enTete = new Uint8Array(8);
+  writeU32(enTete, 0, 1, 'BE'); // type de charge : texte
+  writeU32(enTete, 4, 0, 'BE'); // langue
+  const data = boite('data', enTete, ascii(iso));
+  const entree = new Uint8Array(8 + data.length);
+  writeU32(entree, 0, entree.length, 'BE');
+  writeU32(entree, 4, 1, 'BE'); // le RANG de la clé, et non quatre lettres
+  entree.set(data, 8);
+  const ilst = boite('ilst', entree);
+
+  /*
+   * `meta` is written here without the four version and flag bytes.
+   *
+   * The ISO standard makes it a FullBox, which would carry them. But this slot
+   * exists only to be read by Apple software, so the question is not what the
+   * standard says, it is what they read. Measured, with both forms written into
+   * the same file and given to the independent oracle: the long form returns
+   * nothing, the short form returns the location. It is also what ExifTool
+   * itself writes when asked to set this key.
+   */
+  return boite('meta', hdlr, keys, ilst);
 }
 
 /** A brand new `udta`, wrapping only the box we just wrote. */

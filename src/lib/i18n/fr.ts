@@ -52,17 +52,17 @@ export const fr: Dictionnaire = {
   },
 
   app: {
-    titreActif: 'Photo chargée',
-    changer: 'Changer de photo',
-    ouPrise: 'Où cette photo a-t-elle été prise ?',
+    titreActif: (nom) => `${nom[0].toUpperCase()}${nom.slice(1)} chargée`,
+    changer: (nom) => `Changer de ${nom}`,
+    ouPrise: (nom) => `Où cette ${nom} a-t-elle été prise ?`,
     aideCoords:
       'Collez des coordonnées depuis une carte : dans Google Maps, clic droit sur le lieu puis clic sur les chiffres pour les copier. Le format décimal et le format degrés-minutes-secondes sont acceptés. ',
-    aideCoordsFort: 'Votre photo reste ici.',
+    aideCoordsFort: (nom) => `Votre ${nom} reste ici.`,
     coordsInvalides: 'Coordonnées non valides — indiquez une latitude et une longitude, par exemple 43,9493, 4,8055.',
     ouvrirCarte: 'Placer sur une carte',
     fermerCarte: 'Fermer la carte',
-    avisCarte:
-      "La carte est dessinée par openstreetmap.org : l'ouvrir leur indique approximativement la zone que vous regardez. Votre photo, elle, ne quitte toujours pas ce navigateur.",
+    avisCarte: (nom) =>
+      `La carte est dessinée par openstreetmap.org : l'ouvrir leur indique approximativement la zone que vous regardez. Votre ${nom}, elle, ne quitte toujours pas ce navigateur.`,
     carteIndisponible: 'La carte n\'a pas pu être chargée — vous êtes peut-être hors ligne. Vous pouvez toujours saisir ou coller des coordonnées ci-dessus.',
     carteLabel: 'Carte. Cliquez un lieu pour y placer le repère.',
     carteAide:
@@ -70,11 +70,11 @@ export const fr: Dictionnaire = {
     zoomAvant: 'Zoom avant',
     zoomArriere: 'Zoom arrière',
     contributeurs: 'contributeurs',
-    repereOrigine: 'Le lieu inscrit dans la photo',
+    repereOrigine: (nom) => `Le lieu inscrit dans la ${nom}`,
     positionChoisie: (p) => `Choisi sur la carte : ${p}`,
-    telecharger: 'Télécharger la photo',
+    telecharger: (nom) => `Télécharger la ${nom}`,
     telechargerPourquoi: 'Indisponible tant qu\'aucun lieu n\'est indiqué ci-dessus.',
-    partagerSortie: 'Partager la photo nettoyée',
+    partagerSortie: (nom) => `Partager la ${nom} nettoyée`,
     effacer: 'Effacer la position',
     effacerTout: 'Tout effacer',
     autres: 'Voir les autres informations',
@@ -89,8 +89,8 @@ export const fr: Dictionnaire = {
     modifiables: 'modifiables',
     lecturePlurielle: (n) => `Lecture de ${n} fichier${n > 1 ? 's' : ''}…`,
     traitement: (i, n) => `Traitement ${i} sur ${n}…`,
-    photoLue: (p) => `Photo lue. Position actuelle : ${p}.`,
-    photoLueSansPosition: 'Photo lue. Aucune position enregistrée dans ce fichier.',
+    photoLue: (p, nom) => `${nom[0].toUpperCase()}${nom.slice(1)} lue. Position actuelle : ${p}.`,
+    photoLueSansPosition: (nom) => `${nom[0].toUpperCase()}${nom.slice(1)} lue. Aucune position enregistrée dans ce fichier.`,
     illisibleAlerte: "Ce fichier n'a pas pu être lu.",
     aucunProduit: "Aucun fichier n'a pu être produit. Vos originaux n'ont pas été modifiés.",
     aucunProduitAnnonce: 'Échec : aucun fichier produit. Vos originaux sont intacts.',
@@ -99,10 +99,17 @@ export const fr: Dictionnaire = {
     virgule: ',',
     octets: ['o', 'Ko', 'Mo'],
     nomVideo: 'Vidéo',
+    noms: {
+      photo: 'photo', photos: 'photos',
+      video: 'vidéo', videos: 'vidéos',
+      // "fichier" is masculine where "photo" and "vidéo" are feminine: the
+      // mixed-batch sentences are written so nothing has to agree.
+      neutre: 'fichier', neutres: 'fichiers',
+    },
     nomInconnu: 'Inconnu',
-    telechargerPhotos: (n) => (n > 1 ? `Télécharger les ${n} photos` : 'Télécharger la photo'),
+    telechargerPhotos: (n, nom, pluriel) => (n > 1 ? `Télécharger les ${n} ${pluriel}` : `Télécharger la ${nom}`),
     depuisOrigine: (d) => `à ${d} de la position d'origine`,
-    nouvellePosition: 'nouvelle position pour cette photo',
+    nouvellePosition: (nom) => `nouvelle position pour cette ${nom}`,
     pretsVerifies: (n) =>
       `${n} fichier${n > 1 ? 's' : ''} prêt${n > 1 ? 's' : ''}, vérifié${n > 1 ? 's' : ''} après écriture.`,
     pretsAvecEchecs: (n, e) =>
