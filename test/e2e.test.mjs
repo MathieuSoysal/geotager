@@ -397,6 +397,37 @@ check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phrase), 
 check('le champ de saisie est en lecture seule',
   (await page.locator('#coords').getAttribute('readonly')) !== null);
 
+/*
+ * The "other information" panel, looked at at last.
+ *
+ * No test in the repository had ever opened it, for a video or for a photo. It
+ * depended entirely on the second reader, which opens neither MOV nor MP4: a
+ * video therefore had nothing to put in it and it disappeared, without anything
+ * complaining.
+ */
+console.log('\nLe volet des autres informations');
+for (const [fichier, attendu] of [
+  ['DSCN0010.jpg', /Camera/],
+  ['piste-de-lieu.mp4', /Length/],
+  ['sans-lieu.mp4', /Size/],
+]) {
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+  await page.setInputFiles('#picker', join(FIXTURES, fichier));
+  await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+  await page.waitForFunction(() => {
+    const d = document.getElementById('autres');
+    return d && !d.hidden;
+  }, null, { timeout: 30_000 }).catch(() => {});
+
+  const present = (await page.locator('#autres').getAttribute('hidden')) === null;
+  check(`${fichier} : le volet est proposé`, present);
+  if (!present) continue;
+  await page.locator('#autres > summary').click();
+  const texte = (await page.locator('#autres-liste').innerText()).trim();
+  check(`${fichier} : et il porte de quoi le remplir`, attendu.test(texte),
+    texte.replace(/\n/g, ' / ').slice(0, 90));
+}
+
 console.log('\nUne vidéo dont le lieu bouge : lue, et pas touchée');
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
 await page.setInputFiles('#picker', join(FIXTURES, 'piste-de-lieu.mp4'));

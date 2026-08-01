@@ -31,6 +31,7 @@ import { boites, enfants, toutesLesBoites } from '../src/lib/exif/bmff.ts';
 import { writeU32 } from '../src/lib/exif/octets.ts';
 import {
   accepteAjoutVideo,
+  infosVideo,
   porteursConcordent,
   structureIntacte,
   copieDuLieuAilleursVideo,
@@ -1161,7 +1162,7 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 const VIDEOS = [
   'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
   'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
-  'fragmente.mp4',
+  'fragmente.mp4', 'appareil.mp4',
 ];
 
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
@@ -1610,6 +1611,71 @@ scenario('Le lieu créé est écrit dans les deux rangements attendus', () => {
     !copieDuLieuAilleursVideo(vide.bytes));
   const reste = exif(['-a', '-G1', '-s', '-ee', '-gps*', outVide]).trim();
   check('et l\'oracle ne trouve plus rien', reste === '', reste.slice(0, 120));
+});
+
+/*
+ * What a video says about itself.
+ *
+ * The "other information" panel depended entirely on the second reader, which
+ * opens neither MOV nor MP4: a video therefore had nothing to put in it, and it
+ * disappeared. This is the first scenario in the repository to look at that
+ * panel; neither videos nor photos had ever had one.
+ *
+ * It checks both directions, and the second counts as much: what must be there
+ * is, and what must not be is not. A file whose date is padding must not show a
+ * date.
+ */
+scenario('Une vidéo dit sa durée, ses dimensions et sa date', () => {
+  const lignes = (nom: string) => {
+    const i = infosVideo(new Uint8Array(readFileSync(join(FIXTURES, nom))));
+    return { i, m: new Map(i.details.map((d) => [d.cle, d.value])) };
+  };
+
+  for (const nom of VIDEOS) {
+    const { m } = lignes(nom);
+    // They all carry images: size is the only line owed everywhere.
+    check(`${nom} : les dimensions sont lues`, /^\d+ × \d+$/.test(m.get('Dimensions') ?? ''),
+      m.get('Dimensions') ?? '(rien)');
+  }
+
+  // Duration and date, cross-checked against the independent oracle.
+  for (const [nom, dureeAttendue, dateAttendue] of [
+    ['piste-de-lieu.mp4', '0:24', '2018-01-24'],
+    ['tete-nue.mov', '0:05', '2005-08-11'],
+  ] as const) {
+    const { i, m } = lignes(nom);
+    check(`${nom} : la durée est lue`, m.get('Duree') === dureeAttendue, m.get('Duree') ?? '(rien)');
+    check(`${nom} : la date est lue`, (i.takenAt ?? '').startsWith(dateAttendue), String(i.takenAt));
+    // The oracle reads the same fields in the same file.
+    const oracle = exif(['-s3', '-CreateDate', join(FIXTURES, nom)]).trim();
+    check(`${nom} : et l'oracle dit la même date`,
+      oracle.slice(0, 10).replace(/:/g, '-') === dateAttendue, oracle);
+  }
+
+  // And the other direction. These two carry a padding date, zero for one and
+  // the value that lands exactly on 1 January 1970 for the other. Nothing must
+  // show: a date nobody lived through is not a date.
+  for (const nom of ['sans-lieu.mp4', 'fragmente.mp4']) {
+    const { i } = lignes(nom);
+    check(`${nom} : aucune date n'est inventée`, i.takenAt === null, String(i.takenAt));
+  }
+
+  // The device, on the only file that names it.
+  const { i: avecAppareil } = lignes('appareil.mp4');
+  check('appareil.mp4 : l\'appareil est lu',
+    avecAppareil.camera === 'Geotager Modele Temoin', String(avecAppareil.camera));
+  const { i: sansAppareil } = lignes('piste-de-lieu.mp4');
+  check('piste-de-lieu.mp4 : aucun appareil n\'est inventé', sansAppareil.camera === null);
+
+  // No unreadable value: older files write their text in a character set
+  // nothing declares, and showing it byte for byte would produce gibberish. We
+  // prefer to show nothing.
+  for (const nom of VIDEOS) {
+    const { i } = lignes(nom);
+    const sale = i.details.find((d) => /[\u0000-\u001f\u007f-\u009f]/.test(d.value));
+    check(`${nom} : rien d'illisible n'est affiché`, sale === undefined,
+      sale ? `${sale.cle}=${JSON.stringify(sale.value)}` : '');
+  }
 });
 
 /** One real file carrying a location, per format. Without it, no proof. */
