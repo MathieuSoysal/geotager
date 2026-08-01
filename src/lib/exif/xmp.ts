@@ -49,6 +49,39 @@ export function porteUnLieu(texte: string): boolean {
   return MARQUEURS_DE_LIEU.some((m) => texte.includes(m));
 }
 
+/**
+ * The location written in a text packet, if it carries one.
+ *
+ * The form is EXIF's, not the decimal degrees one might expect: `43,54.4866N`,
+ * meaning degrees, comma, decimal minutes, then hemisphere. A
+ * degrees-minutes-seconds variant exists too. Reading `43,54.4866` as a number
+ * would yield 43, an error of a hundred kilometres that displays without
+ * looking wrong.
+ *
+ * This module already detected a location here, in order to refuse an
+ * incomplete erase; it could not read one, so the packet was invisible in what
+ * the tool displays while other readers showed it.
+ */
+export function lireLieuXmp(texte: string): { lat: number; lon: number } | null {
+  const valeur = (propriete: string): number | null => {
+    const m = new RegExp(`<${propriete}>([^<]+)</${propriete}>`).exec(texte)
+      ?? new RegExp(`${propriete}\\s*=\\s*["']([^"']+)["']`).exec(texte);
+    if (!m) return null;
+    const brut = m[1].trim();
+    const hemisphere = /[NSEWns ew]$/.test(brut) ? brut.slice(-1).toUpperCase() : '';
+    const chiffres = (hemisphere ? brut.slice(0, -1) : brut).split(',').map(Number);
+    if (!chiffres.length || chiffres.some((n) => !Number.isFinite(n))) return null;
+    // Degrees alone, degrees + minutes, or degrees + minutes + seconds.
+    const v = (chiffres[0] ?? 0) + (chiffres[1] ?? 0) / 60 + (chiffres[2] ?? 0) / 3600;
+    return hemisphere === 'S' || hemisphere === 'W' ? -v : v;
+  };
+  const lat = valeur('exif:GPSLatitude');
+  const lon = valeur('exif:GPSLongitude');
+  if (lat === null || lon === null) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lon };
+}
+
 const echapper = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
