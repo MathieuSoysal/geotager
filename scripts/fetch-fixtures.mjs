@@ -34,6 +34,9 @@ const IANARE = 'https://raw.githubusercontent.com/ianare/exif-samples/master';
 const DREWNOAKES = 'https://raw.githubusercontent.com/drewnoakes/metadata-extractor-images/main';
 const LIBAVIF = 'https://raw.githubusercontent.com/AOMediaCodec/libavif/main/tests/data';
 const PIXLS = 'https://raw.pixls.us/getfile.php';
+const GOPRO = 'https://raw.githubusercontent.com/gopro/gpmf-parser/main/samples';
+const CHROMIUM = 'https://raw.githubusercontent.com/chromium/chromium/main/media/test/data';
+const EXIFTOOL = 'https://raw.githubusercontent.com/exiftool/exiftool/master/t/images';
 
 /**
  * `requis` mechanically encodes the project's rule: a cell of the table only
@@ -95,6 +98,16 @@ const FICHIERS = [
     role: 'Canon EOS 40D — brut propriétaire à magie secondaire' },
   { nom: 'negatif.tif', url: `${PIXLS}/2465/nice/Kodak%20-%20EOS%20DCS%203%20-%208bit%20(4:3).TIF`, requis: true,
     role: 'Kodak EOS DCS 3 — un négatif numérique qui EST un « .tif »' },
+
+  // The videos. They had been closed for want of a file, and that conclusion
+  // was wrong: these three exist under a free licence, and each exercises a case
+  // the other two do not show.
+  { nom: 'piste-de-lieu.mp4', url: `${GOPRO}/hero6.mp4`, requis: true,
+    role: 'GoPro HERO6 — lieu écrit par un vrai appareil, ET une piste qui l\'enregistre en continu' },
+  { nom: 'sans-lieu.mp4', url: `${CHROMIUM}/bear.mp4`, requis: true,
+    role: 'Vrai MP4 sans lieu — exerce la création' },
+  { nom: 'tete-nue.mov', url: `${EXIFTOOL}/QuickTime.mov`, requis: true,
+    role: 'Vrai QuickTime SANS boîte de tête — le format ne se devine qu\'à la structure' },
 ];
 
 /**
@@ -121,6 +134,39 @@ const PREPARES = [
     nom: 'bandes-avec-lieu.tif', depuis: 'multi-bandes.tif', requis: true,
     role: 'TIFF à soixante et une bandes portant le bloc de position d\'un vrai Nikon',
     args: ['-tagsfromfile', join(DIR, 'DSCN0010.jpg'), '-gps:all'],
+  },
+
+  /*
+   * The geotagged videos. The group prefix is not decorative: in ExifTool,
+   * `ItemList` is preferred for writing, so a bare `-GPSCoordinates=` would go
+   * somewhere other than intended. The three slots below are deliberately
+   * written in three different places; our reader has to understand all three,
+   * which is more demanding than a file found already geotagged.
+   *
+   * Six decimals, not four: an eighteen-character string has only four decimals
+   * per side, an eleven-metre grid, and the engine's final check requires the
+   * metre. The reference file must therefore carry a string long enough for the
+   * correction to happen in place.
+   */
+  {
+    nom: 'avec-lieu.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 réel dont ExifTool a inscrit le lieu à la façon la plus répandue',
+    args: ['-n', '-UserData:GPSCoordinates=+43.949300+004.805500/'],
+  },
+  {
+    nom: 'avec-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime dont le lieu est rangé à la façon d\'Apple, par clés nommées',
+    args: ['-n', '-Keys:GPSCoordinates=+43.949300+004.805500/'],
+  },
+  {
+    nom: 'nom-de-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime qui écrit le lieu EN TOUTES LETTRES à côté des coordonnées — le cas « Avignon »',
+    args: ['-n', '-UserData:LocationInformation=Avignon Role=shooting Lat=43.9493 Lon=4.8055 Alt=26'],
+  },
+  {
+    nom: 'texte-de-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime dont le paquet de texte descriptif nomme la ville, sans aucune coordonnée',
+    args: ['-XMP:City=Avignon', '-XMP:Country=France'],
   },
 ];
 

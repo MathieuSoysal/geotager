@@ -397,7 +397,37 @@ check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phrase), 
 check('le champ de saisie est en lecture seule',
   (await page.locator('#coords').getAttribute('readonly')) !== null);
 
-// The two checks above only see the two sentences these two files trigger. The
+console.log('\nUne vidéo dont le lieu bouge : lue, et pas touchée');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'piste-de-lieu.mp4'));
+await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+const phraseVideo = (await page.locator('#alerte-format').textContent()).trim();
+check('la raison est annoncée avant toute action', phraseVideo.length > 0, phraseVideo.slice(0, 80));
+check('elle reste sans jargon de format',
+  !MOTS_INTERDITS.en.test(phraseVideo), phraseVideo.slice(0, 80));
+// The main location does show, and that is the point: it is because we can read
+// it that we have to say it is not the only one.
+const luVideo = (await page.locator('#pill-position').textContent()).trim();
+check('le lieu écrit par l\'appareil est bien affiché', /33\.12/.test(luVideo), luVideo);
+check('mais le champ reste en lecture seule',
+  (await page.locator('#coords').getAttribute('readonly')) !== null);
+for (const bouton of ['#effacer', '#effacer-tout']) {
+  check(`${bouton} est inactif sur une vidéo dont le lieu bouge`,
+    (await page.locator(bouton).getAttribute('aria-disabled')) === 'true');
+}
+
+console.log('\nUne vidéo ordinaire : les quatre opérations sont offertes');
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'avec-lieu.mp4'));
+await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+check('le lieu de la vidéo est affiché',
+  /43\.94/.test((await page.locator('#pill-position').textContent()).trim()));
+check('et le champ accepte une saisie',
+  (await page.locator('#coords').getAttribute('readonly')) === null);
+check('l\'effacement est offert',
+  (await page.locator('#effacer').getAttribute('aria-disabled')) !== 'true');
+
+// The checks above only see the sentences these three files trigger. The
 // journey has eleven, and it is the one we did not anticipate that will say
 // "container" to the user.
 console.log('\nAucune phrase du parcours ne porte de jargon');
@@ -406,7 +436,7 @@ const { DICOS, LANGUES } = await import('../src/lib/i18n/index.ts');
 const MOTIFS = [
   'ok', 'sans-lieu', 'sans-emplacement', 'forme-inhabituelle', 'rangement-inconnu',
   'copie-compressee', 'copie-ailleurs', 'lecture-seule', 'sans-lieu-possible',
-  'video', 'inconnu',
+  'lieu-en-mouvement', 'inconnu',
 ];
 // Both languages, and every sentence of each: it is the sentence we did not
 // anticipate that will say "container" to the user.
@@ -431,7 +461,7 @@ for (const langue of LANGUES) {
    * That is not a sentence from the journey, and the rule is about sentences
    * from the journey.
    */
-  for (const cle of ['partagePerdu', 'ouverturePerdue']) {
+  for (const cle of ['partagePerdu', 'ouverturePerdue', 'installer', 'installee']) {
     const p = T.app[cle];
     check(`${langue} / « ${cle} » : une phrase sans jargon`,
       Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
@@ -1004,6 +1034,124 @@ check("elle a un texte de remplacement",
   ((await page.locator('meta[property="og:image:alt"]').getAttribute('content')) ?? '').length > 10);
 check("elle existe vraiment",
   await page.evaluate(() => fetch('/og.png').then((r) => r.ok)));
+
+/*
+ * The install button.
+ *
+ * A real install prompt cannot be provoked from a test: it comes from the
+ * browser, which decides on criteria we do not drive. What follows can be, so
+ * we hand the page exactly what the browser would hand it, and judge what it
+ * does with it.
+ *
+ * The four locks behind "hidden if already installed" are judged separately, so
+ * that none can fail silently behind another.
+ */
+console.log("\nProposer l'installation, et seulement quand elle est possible");
+
+const POSER_INVITE = () => {
+  // `addInitScript` rather than `addScriptTag`: the latter injects an inline
+  // script, which `script-src 'self'` refuses. This one goes through the
+  // debugging protocol, out of reach of the page policy.
+  window.__invites = { prompt: 0, choix: null };
+  window.__inviterInstall = () => {
+    const e = new Event('beforeinstallprompt');
+    e.prompt = () => {
+      window.__invites.prompt++;
+      return Promise.resolve();
+    };
+    e.userChoice = Promise.resolve({ outcome: 'accepted' });
+    window.dispatchEvent(e);
+  };
+  window.__installee = () => window.dispatchEvent(new Event('appinstalled'));
+  // The bench's browser could answer whatever it likes to "is this application
+  // installed?". We answer in its place, so that the "not installed" case is a
+  // fact of the test rather than luck.
+  navigator.getInstalledRelatedApps = async () => [];
+};
+
+const pageInstall = await contexte.newPage();
+const erreursInstall = [];
+pageInstall.on('pageerror', (e) => erreursInstall.push(String(e)));
+pageInstall.on('console', (m) => {
+  if (m.type() === 'error') erreursInstall.push(m.text());
+});
+await pageInstall.addInitScript(POSER_INVITE);
+await pageInstall.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+
+// Lock 1: the default state is absent. That is what any browser issuing no
+// prompt sees, and any already-installed application.
+check("sans invitation, le bouton n'est pas là",
+  await pageInstall.locator('#installer').isHidden());
+
+// Lock 2: only the prompt reveals it.
+await pageInstall.evaluate(() => window.__inviterInstall());
+check("l'invitation du navigateur fait apparaître le bouton",
+  await pageInstall.locator('#installer').isVisible());
+check('et il est atteignable au clavier',
+  await pageInstall.evaluate(() => {
+    const b = document.getElementById('installer');
+    b.focus();
+    return document.activeElement === b;
+  }));
+
+await pageInstall.click('#installer');
+check("cliquer demande l'installation au navigateur",
+  (await pageInstall.evaluate(() => window.__invites.prompt)) === 1);
+// A prompt is not replayed: a second call on the same event throws.
+check('et le bouton s\'efface, l\'invitation étant consommée',
+  await pageInstall.locator('#installer').isHidden());
+
+// Lock 4: the install succeeds, the button goes away, and we say so.
+await pageInstall.evaluate(() => window.__inviterInstall());
+check('une nouvelle invitation le fait revenir',
+  await pageInstall.locator('#installer').isVisible());
+await pageInstall.evaluate(() => window.__installee());
+check("une fois installée, le bouton disparaît",
+  await pageInstall.locator('#installer').isHidden());
+check('et le lecteur d\'écran l\'apprend',
+  (await pageInstall.locator('#annonce').textContent()).includes('Geotager'));
+
+/*
+ * Lock 3: in the installed window, even a prompt must show nothing.
+ * Playwright's `emulateMedia` does not know `display-mode`, so we fake
+ * `matchMedia` before the island runs, which is exactly what the browser would
+ * answer there.
+ */
+const pageInstallee = await contexte.newPage();
+await pageInstallee.addInitScript(POSER_INVITE);
+await pageInstallee.addInitScript(() => {
+  const vrai = window.matchMedia.bind(window);
+  window.matchMedia = (q) =>
+    q.includes('display-mode') ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : vrai(q);
+});
+await pageInstallee.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await pageInstallee.evaluate(() => window.__inviterInstall());
+check("dans la fenêtre installée, le bouton reste absent malgré l'invitation",
+  await pageInstallee.locator('#installer').isHidden());
+await pageInstallee.close();
+
+/*
+ * Lock 5: the browser answers that the application is already installed.
+ *
+ * It is the only lock that infers nothing: the other four rest on the absence
+ * of a prompt or on the display mode, this one asks the question. It covers the
+ * case the others let through: the application is installed, and the site is
+ * reopened in an ordinary tab.
+ */
+const pageDejaPosee = await contexte.newPage();
+await pageDejaPosee.addInitScript(POSER_INVITE);
+await pageDejaPosee.addInitScript(() => {
+  navigator.getInstalledRelatedApps = async () => [{ platform: 'webapp', url: '/manifest.webmanifest' }];
+});
+await pageDejaPosee.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await pageDejaPosee.evaluate(() => window.__inviterInstall());
+check("quand le navigateur confirme l'installation, le bouton reste absent",
+  await pageDejaPosee.locator('#installer').isHidden());
+await pageDejaPosee.close();
+
+const restantesInstall = erreursInstall.filter((e) => !/Failed to load resource|net::ERR_/.test(e));
+check("aucune exception sur le chemin de l'installation",
+  restantesInstall.length === 0, restantesInstall[0]);
 
 console.log('\nLe décor est décoratif, et il l\'est aussi pour qui n\'en veut pas');
 check('le décor est hors de l\'arbre d\'accessibilité',
