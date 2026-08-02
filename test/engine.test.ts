@@ -1162,7 +1162,7 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 const VIDEOS = [
   'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
   'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
-  'fragmente.mp4', 'appareil.mp4', 'lieu-hors-piste.mp4',
+  'fragmente.mp4', 'appareil.mp4', 'lieu-hors-piste.mp4', 'lieu-illisible.mp4',
 ];
 
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
@@ -1188,6 +1188,109 @@ scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () 
     ecrireIso6709(attendu, 22) === '+43.949300+004.805500/');
   check('l\'altitude déjà écrite est conservée telle quelle',
     ecrireIso6709(attendu, 26, '+026.000') === '+43.9493+004.8055+026.000/');
+  // The name of the reference system takes up room without carrying a
+  // coordinate: it is returned as is, and it is the decimals that give ground.
+  check('le nom du système de repère est conservé tel quel',
+    ecrireIso6709(attendu, 28, '', '/CRSWGS_84/') === '+43.9493+004.8055/CRSWGS_84/',
+    String(ecrireIso6709(attendu, 28, '', '/CRSWGS_84/')));
+});
+
+/**
+ * A video derived from the corpus, whose location string we choose byte by
+ * byte.
+ *
+ * ExifTool writes the string as given as long as it looks valid to it, which is
+ * how most of the forms below come about. For the others, the ones it refuses
+ * to write but knows how to read, we replace the box payload at constant
+ * length: no byte moves, the container stays that of a real video, and only the
+ * string changes.
+ */
+function videoDeChaine(nom: string, ecrite: string, remplacement?: string): string {
+  const dest = join(tmp, `iso6709-${nom}.mp4`);
+  writeFileSync(dest, readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  execFileSync(
+    'exiftool',
+    ['-n', `-UserData:GPSCoordinates=${ecrite}`, '-overwrite_original', dest],
+    { stdio: 'pipe' },
+  );
+  if (remplacement !== undefined) {
+    const b = new Uint8Array(readFileSync(dest));
+    const udta = toutesLesBoites(b, 'udta', boites(b, 0, b.length));
+    const xyz = udta.flatMap((u) => enfants(b, u)).find((x) => x.type === '©xyz');
+    if (!xyz) throw new Error(`${nom} : ExifTool n'a rien écrit`);
+    const debut = xyz.debut + xyz.entete;
+    const longueur = (b[debut] << 8) | b[debut + 1];
+    if (longueur !== remplacement.length) {
+      throw new Error(`${nom} : ${longueur} octets à remplir, ${remplacement.length} fournis`);
+    }
+    for (let i = 0; i < longueur; i++) b[debut + 4 + i] = remplacement.charCodeAt(i);
+    writeFileSync(dest, b);
+  }
+  return dest;
+}
+
+/*
+ * The defect that cost five round trips, and the rule that came out of it.
+ *
+ * Two perfectly common spellings, the C-style string terminated by a null byte
+ * and the one that names its reference system, were located by the engine and
+ * refused by its decoder. The box was there, its text was in front of us, and
+ * the screen showed nothing: no marker, no position line. The phone's own tools
+ * read them fine.
+ *
+ * The missing check is this one: on each spelling, what we read must equal what
+ * the oracle reads. A divergence in that direction, it reads and we do not, is
+ * exactly the reported symptom, and no test could see it.
+ */
+scenario('Ce que l\'oracle lit dans une chaîne de position, nous le lisons aussi', () => {
+  const attendu = { lat: 43.90811, lon: 4.86387 };
+  // [name, what ExifTool writes, what we put in its place, same length]
+  const FORMES: Array<[string, string, string?]> = [
+    ['la forme simple', '+43.908110+004.863870/'],
+    ['terminée par un octet nul', '+43.90811+004.863870/', '+43.90811+004.86387/\u0000'],
+    ['avec une altitude', '+43.908110+004.863870+026.000/'],
+    ['entourée de blancs', '+43.908110+004.863870/', ' +43.90811+004.86387/ '],
+    ['nommant son système de repère', '+43.908110000+004.863870000/', '+43.9081+004.8639/CRSWGS_84/'],
+    ['sans barre oblique finale', '+43.9081+004.864/', '+43.9081+004.8639'],
+    ['en degrés entiers', '+43+004/'],
+    ['en degrés et minutes', '+4354.4866+00451.8322/'],
+    ['en longitude à un seul chiffre', '+43.9081+004.864/', '+43.90811+4.86387'],
+  ];
+
+  for (const [libelle, ecrite, remplacement] of FORMES) {
+    const fichier = videoDeChaine(libelle.replace(/\W+/g, '-'), ecrite, remplacement);
+    const nous = lirePositionVideo(new Uint8Array(readFileSync(fichier)));
+    const oracle = exifPosition(fichier);
+    // A form the oracle is silent about proves nothing about it; it only proves
+    // that we are not silent.
+    if (oracle) {
+      check(`${libelle} : nous lisons ce que l'oracle lit`,
+        nous !== null && distanceMetres(nous, oracle) < 0.5,
+        nous ? `${nous.lat}, ${nous.lon} contre ${oracle.lat}, ${oracle.lon}` : 'null');
+    } else {
+      check(`${libelle} : l'oracle se tait, nous lisons quand même le lieu`,
+        nous !== null && distanceMetres(nous, attendu) < 2,
+        nous ? `${nous.lat}, ${nous.lon}` : 'null');
+    }
+  }
+
+  /*
+   * And when we genuinely cannot read it, show the string as it is.
+   *
+   * That is the lesson of this batch, and it is worth more than the fixes
+   * above: staying silent makes the disagreement invisible. One line in the
+   * panel, carrying the file's own characters, is enough for a screenshot to
+   * name the form we are missing, without anyone having to send us their video.
+   */
+  const octets = new Uint8Array(readFileSync(join(FIXTURES, 'lieu-illisible.mp4')));
+  check('une chaîne que nous ne savons pas décoder ne rend aucune position',
+    lirePositionVideo(octets) === null);
+  const ligne = infosVideo(octets).details.find((d) => d.cle === 'LieuBrut');
+  check('mais le volet la montre TELLE QU\'ELLE EST ÉCRITE',
+    ligne?.value === '43.9081,4.8639,26', ligne ? ligne.value : '(aucune ligne)');
+  check('et une chaîne bien lue ne la répète pas',
+    infosVideo(new Uint8Array(readFileSync(join(FIXTURES, 'avec-lieu.mp4'))))
+      .details.every((d) => d.cle !== 'LieuBrut'));
 });
 
 /*

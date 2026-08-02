@@ -483,6 +483,11 @@ for (const [fichier, attendu] of [
   // and did not appear here, because it is stored in the text packet the
   // standard places as a top-level box, where we were not looking.
   ['lieu-hors-piste.mp4', /Location/],
+  // And the case where we cannot read the string. Staying silent then is what
+  // cost five round trips: the tool knew where the field was, could see its
+  // text, and displayed nothing. It now shows the string as written, so a
+  // screenshot is enough to name the form we are missing.
+  ['lieu-illisible.mp4', /43\.9081,4\.8639,26/],
 ]) {
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
   await page.setInputFiles('#picker', join(FIXTURES, fichier));
