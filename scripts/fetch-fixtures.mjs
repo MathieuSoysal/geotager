@@ -27,7 +27,7 @@
  * réservé aux tests.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const DIR = process.env.FIXTURES ?? 'test/fixtures';
@@ -182,7 +182,36 @@ const PREPARES = [
     role: 'QuickTime dont le paquet de texte descriptif nomme la ville, sans aucune coordonnée',
     args: ['-XMP:City=Avignon', '-XMP:Country=France'],
   },
+  {
+    nom: 'lieu-illisible.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 dont le rangement de lieu porte une chaîne qu\'AUCUN des deux lecteurs ne sait décoder — le témoin du volet qui montre au lieu de se taire',
+    args: ['-n', '-UserData:GPSCoordinates=+43.9081+004.864/'],
+    remplacer: '43.9081,4.8639,26',
+  },
 ];
+
+/**
+ * Remplace la charge du rangement de lieu par une chaîne de MÊME LONGUEUR.
+ *
+ * ExifTool écrit la chaîne telle qu'on la lui donne tant qu'elle lui paraît
+ * valide ; pour les formes qu'il refuse d'écrire, il faut poser les octets
+ * soi-même. À longueur constante, rien ne se déplace : le conteneur reste celui
+ * d'une vraie vidéo, et seule la chaîne change.
+ */
+function remplacerLaChaineDeLieu(fichier, texte) {
+  const b = new Uint8Array(readFileSync(fichier));
+  let i = -1;
+  for (let k = 0; k + 4 <= b.length; k++) {
+    if (b[k] === 0xa9 && b[k + 1] === 0x78 && b[k + 2] === 0x79 && b[k + 3] === 0x7a) { i = k; break; }
+  }
+  if (i < 0) throw new Error('aucun rangement « ©xyz » à remplacer');
+  const longueur = (b[i + 4] << 8) | b[i + 5];
+  if (longueur !== texte.length) {
+    throw new Error(`${longueur} octets à remplir, ${texte.length} fournis`);
+  }
+  for (let k = 0; k < longueur; k++) b[i + 8 + k] = texte.charCodeAt(k);
+  writeFileSync(fichier, b);
+}
 
 mkdirSync(DIR, { recursive: true });
 
@@ -229,6 +258,7 @@ for (const p of PREPARES) {
   try {
     copyFileSync(source, dest);
     execFileSync('exiftool', [...p.args, '-overwrite_original', dest], { stdio: 'pipe' });
+    if (p.remplacer) remplacerLaChaineDeLieu(dest, p.remplacer);
     console.log(`  préparé   ${p.nom} — ${p.role}`);
   } catch (e) {
     manquants++;

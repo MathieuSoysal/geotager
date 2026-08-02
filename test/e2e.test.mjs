@@ -484,6 +484,11 @@ for (const [fichier, attendu] of [
   // n'apparaissait pas ici, parce qu'il est rangé dans le paquet de texte que
   // la norme place en boîte de premier niveau — là où nous ne regardions pas.
   ['lieu-hors-piste.mp4', /Location/],
+  // Et le cas où nous ne SAVONS PAS lire la chaîne. Se taire alors est ce qui a
+  // coûté cinq allers-retours : l'outil savait où était le champ, voyait son
+  // texte, et n'affichait rien. Il montre désormais la chaîne telle qu'elle est
+  // écrite — une copie d'écran suffit à nommer la forme qui nous manque.
+  ['lieu-illisible.mp4', /43\.9081,4\.8639,26/],
 ]) {
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
   await page.setInputFiles('#picker', join(FIXTURES, fichier));

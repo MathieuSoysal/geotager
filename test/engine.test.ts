@@ -1184,7 +1184,7 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 const VIDEOS = [
   'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
   'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
-  'fragmente.mp4', 'appareil.mp4', 'lieu-hors-piste.mp4',
+  'fragmente.mp4', 'appareil.mp4', 'lieu-hors-piste.mp4', 'lieu-illisible.mp4',
 ];
 
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
@@ -1212,6 +1212,109 @@ scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () 
     ecrireIso6709(attendu, 22) === '+43.949300+004.805500/');
   check('l\'altitude déjà écrite est conservée telle quelle',
     ecrireIso6709(attendu, 26, '+026.000') === '+43.9493+004.8055+026.000/');
+  // Le nom du système de repère occupe la place sans porter de coordonnée : il
+  // est rendu tel quel, et ce sont les décimales qui cèdent du terrain.
+  check('le nom du système de repère est conservé tel quel',
+    ecrireIso6709(attendu, 28, '', '/CRSWGS_84/') === '+43.9493+004.8055/CRSWGS_84/',
+    String(ecrireIso6709(attendu, 28, '', '/CRSWGS_84/')));
+});
+
+/**
+ * Une vidéo dérivée du corpus, dont on choisit la chaîne de position OCTET PAR
+ * OCTET.
+ *
+ * ExifTool écrit la chaîne telle qu'on la lui donne tant qu'elle lui paraît
+ * valide — c'est ainsi que naissent la plupart des formes ci-dessous. Pour les
+ * autres, celles qu'il refuse d'ÉCRIRE mais sait LIRE, on remplace la charge
+ * du rangement à longueur constante : aucun octet ne se déplace, le conteneur
+ * reste celui d'une vraie vidéo, et seule la chaîne change.
+ */
+function videoDeChaine(nom: string, ecrite: string, remplacement?: string): string {
+  const dest = join(tmp, `iso6709-${nom}.mp4`);
+  writeFileSync(dest, readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  execFileSync(
+    'exiftool',
+    ['-n', `-UserData:GPSCoordinates=${ecrite}`, '-overwrite_original', dest],
+    { stdio: 'pipe' },
+  );
+  if (remplacement !== undefined) {
+    const b = new Uint8Array(readFileSync(dest));
+    const udta = toutesLesBoites(b, 'udta', boites(b, 0, b.length));
+    const xyz = udta.flatMap((u) => enfants(b, u)).find((x) => x.type === '©xyz');
+    if (!xyz) throw new Error(`${nom} : ExifTool n'a rien écrit`);
+    const debut = xyz.debut + xyz.entete;
+    const longueur = (b[debut] << 8) | b[debut + 1];
+    if (longueur !== remplacement.length) {
+      throw new Error(`${nom} : ${longueur} octets à remplir, ${remplacement.length} fournis`);
+    }
+    for (let i = 0; i < longueur; i++) b[debut + 4 + i] = remplacement.charCodeAt(i);
+    writeFileSync(dest, b);
+  }
+  return dest;
+}
+
+/*
+ * Le défaut qui a coûté cinq allers-retours, et la règle qui en sort.
+ *
+ * Deux formes d'écriture parfaitement courantes — la chaîne terminée par un
+ * octet nul, à la mode du langage C, et celle qui nomme son système de repère —
+ * étaient TROUVÉES par le moteur et refusées par son décodeur. Le rangement
+ * était là, son texte était sous nos yeux, et l'écran n'affichait rien : ni
+ * pastille, ni ligne de position. Les outils du téléphone, eux, les lisaient.
+ *
+ * Le contrôle qui manquait est celui-ci : sur chaque forme, ce que NOUS lisons
+ * doit valoir ce que lit l'oracle. Une divergence dans ce sens-là — lui lit, pas
+ * nous — est exactement le symptôme signalé, et aucun test ne la voyait.
+ */
+scenario('Ce que l\'oracle lit dans une chaîne de position, nous le lisons aussi', () => {
+  const attendu = { lat: 43.90811, lon: 4.86387 };
+  // [nom, ce qu'ExifTool écrit, ce qu'on met à la place — même longueur]
+  const FORMES: Array<[string, string, string?]> = [
+    ['la forme simple', '+43.908110+004.863870/'],
+    ['terminée par un octet nul', '+43.90811+004.863870/', '+43.90811+004.86387/\u0000'],
+    ['avec une altitude', '+43.908110+004.863870+026.000/'],
+    ['entourée de blancs', '+43.908110+004.863870/', ' +43.90811+004.86387/ '],
+    ['nommant son système de repère', '+43.908110000+004.863870000/', '+43.9081+004.8639/CRSWGS_84/'],
+    ['sans barre oblique finale', '+43.9081+004.864/', '+43.9081+004.8639'],
+    ['en degrés entiers', '+43+004/'],
+    ['en degrés et minutes', '+4354.4866+00451.8322/'],
+    ['en longitude à un seul chiffre', '+43.9081+004.864/', '+43.90811+4.86387'],
+  ];
+
+  for (const [libelle, ecrite, remplacement] of FORMES) {
+    const fichier = videoDeChaine(libelle.replace(/\W+/g, '-'), ecrite, remplacement);
+    const nous = lirePositionVideo(new Uint8Array(readFileSync(fichier)));
+    const oracle = exifPosition(fichier);
+    // Une forme sur laquelle l'oracle se tait ne prouve rien de lui ; elle
+    // prouve seulement que nous, nous ne nous taisons pas.
+    if (oracle) {
+      check(`${libelle} : nous lisons ce que l'oracle lit`,
+        nous !== null && distanceMetres(nous, oracle) < 0.5,
+        nous ? `${nous.lat}, ${nous.lon} contre ${oracle.lat}, ${oracle.lon}` : 'null');
+    } else {
+      check(`${libelle} : l'oracle se tait, nous lisons quand même le lieu`,
+        nous !== null && distanceMetres(nous, attendu) < 2,
+        nous ? `${nous.lat}, ${nous.lon}` : 'null');
+    }
+  }
+
+  /*
+   * Et quand nous ne savons VRAIMENT pas lire, on montre la chaîne telle quelle.
+   *
+   * C'est la leçon du lot, et elle vaut plus que les corrections ci-dessus : se
+   * taire rend le désaccord invisible. Une ligne dans le volet, portant les
+   * caractères mêmes du fichier, suffit à ce qu'une copie d'écran nomme la
+   * forme qui nous manque — sans que personne ait à envoyer sa vidéo.
+   */
+  const octets = new Uint8Array(readFileSync(join(FIXTURES, 'lieu-illisible.mp4')));
+  check('une chaîne que nous ne savons pas décoder ne rend aucune position',
+    lirePositionVideo(octets) === null);
+  const ligne = infosVideo(octets).details.find((d) => d.cle === 'LieuBrut');
+  check('mais le volet la montre TELLE QU\'ELLE EST ÉCRITE',
+    ligne?.value === '43.9081,4.8639,26', ligne ? ligne.value : '(aucune ligne)');
+  check('et une chaîne bien lue ne la répète pas',
+    infosVideo(new Uint8Array(readFileSync(join(FIXTURES, 'avec-lieu.mp4'))))
+      .details.every((d) => d.cle !== 'LieuBrut'));
 });
 
 /*

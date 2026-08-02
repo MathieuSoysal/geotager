@@ -54,14 +54,48 @@ import { lireEntierBE, readU16, readU32, writeU32 } from './octets.ts';
  * secondes. Le nombre de chiffres AVANT la virgule est le seul indice — d'où
  * la lecture par groupes de deux, et non un `Number()` naïf qui rendrait
  * « 4356.958 degrés » et donc une position invalide, ou pire, valide et fausse.
+ *
+ * Ce qui SUIT les coordonnées, en revanche, n'est pas une coordonnée : la barre
+ * oblique finale, et le nom facultatif du système de repère — `CRSWGS_84` —
+ * que la norme autorise et que certains appareils écrivent. On le garde tel
+ * quel pour le réécrire sans y toucher, comme l'altitude, mais on ne le lit
+ * pas. L'exiger absent rendait le lieu INVISIBLE sur ces fichiers-là.
+ *
+ * Et la largeur canonique — deux chiffres de degrés en latitude, trois en
+ * longitude — n'est pas exigée non plus. Des outils écrivent `+4.86387` là où
+ * la norme demande `+004.86387`, et les lecteurs du téléphone les lisent : les
+ * refuser aurait fait taire l'outil sur un fichier que tout le monde comprend.
  */
 const ISO6709 =
-  /^([+-])(\d{2,7}(?:\.\d+)?)([+-])(\d{3,8}(?:\.\d+)?)((?:[+-]\d+(?:\.\d+)?)?)\/?$/;
+  /^([+-])(\d{1,7}(?:\.\d+)?)([+-])(\d{1,8}(?:\.\d+)?)((?:[+-]\d+(?:\.\d+)?)?)((?:\/[A-Za-z][\w.+-]*)?\/?)$/;
+
+/**
+ * Retire ce qui n'est pas de la chaîne : les blancs, et surtout les octets de
+ * commande.
+ *
+ * Quantité d'outils terminent la chaîne par un octet nul, à la mode du langage
+ * C, et comptent ce zéro dans la longueur qu'ils déclarent. `trim()` ne retire
+ * que les blancs : le zéro restait, l'expression régulière échouait, et le
+ * fichier paraissait n'avoir aucun lieu alors que tous les autres lecteurs le
+ * montraient.
+ */
+const nettoyerChaine = (s: string) =>
+  s.replace(/^[\s\u0000-\u001f\u007f]+|[\s\u0000-\u001f\u007f]+$/g, '');
 
 function sexagesimal(chiffres: string, largeurDegres: number): number | null {
   const point = chiffres.indexOf('.');
   const entiers = point < 0 ? chiffres.length : point;
   const supplement = entiers - largeurDegres;
+  /*
+   * Moins de chiffres que la largeur canonique : ce sont des degrés, et rien
+   * d'autre. Deux chiffres de minutes ne tiendraient pas dans ce qui manque, et
+   * il n'y a donc AUCUNE ambiguïté à lever — ce qui est tout le sujet de cette
+   * fonction. `+4.86387` vaut 4,86387 degrés, comme le lisent les autres outils.
+   */
+  if (supplement < 0) {
+    const v = Number(chiffres);
+    return Number.isFinite(v) ? v : null;
+  }
   // 0 : degrés seuls. 2 : degrés et minutes. 4 : degrés, minutes et secondes.
   if (supplement !== 0 && supplement !== 2 && supplement !== 4) return null;
   const degres = Number(chiffres.slice(0, largeurDegres));
@@ -76,7 +110,7 @@ function sexagesimal(chiffres: string, largeurDegres: number): number | null {
 
 /** Décode une chaîne de position de vidéo. Rend null plutôt que de deviner. */
 export function lireIso6709(s: string): LatLon | null {
-  const m = ISO6709.exec(s.trim());
+  const m = ISO6709.exec(nettoyerChaine(s));
   if (!m) return null;
   const lat = sexagesimal(m[2], 2);
   const lon = sexagesimal(m[4], 3);
@@ -87,10 +121,27 @@ export function lireIso6709(s: string): LatLon | null {
   });
 }
 
-/** L'altitude éventuelle, telle quelle, pour la réécrire sans y toucher. */
-function altitudeDe(s: string): string {
-  return ISO6709.exec(s.trim())?.[5] ?? '';
+/**
+ * Ce que la chaîne porte À CÔTÉ des coordonnées, et qu'il faut rendre intact.
+ *
+ * L'altitude d'abord — la réécrire serait inventer une hauteur que personne n'a
+ * mesurée. La QUEUE ensuite : la barre oblique finale, le nom du système de
+ * repère s'il y en a un, et les octets de commande que l'outil d'origine a
+ * laissés. Tout cela compte dans la longueur déclarée, donc tout cela doit se
+ * retrouver à l'identique dans ce qu'on réécrit, sinon un octet se déplace.
+ */
+function formeDe(s: string): { altitude: string; queue: string } {
+  const propre = nettoyerChaine(s);
+  const m = ISO6709.exec(propre);
+  if (!m) return { altitude: '', queue: '/' };
+  // Ce que `nettoyerChaine` a retiré à la fin appartient à la queue : c'est
+  // compté dans la longueur du rangement, et le rendre change sa taille.
+  const rogne = s.slice(s.indexOf(propre) + propre.length);
+  return { altitude: m[5], queue: m[6] + rogne };
 }
+
+/** Le nombre de décimales qui place les deux coordonnées au mètre près. */
+const DECIMALES_AU_METRE = 12;
 
 /**
  * Écrit une position sur une longueur IMPOSÉE.
@@ -101,12 +152,22 @@ function altitudeDe(s: string): string {
  * donc n'importe quelle longueur à partir de douze — et toute chaîne écrite
  * par un appareil réel est plus longue que cela.
  *
+ * `queue` remplace cette barre oblique quand le fichier en écrivait davantage —
+ * un nom de système de repère, un octet nul de fin. Elle est rendue TELLE
+ * QUELLE : nous ne comprenons pas toujours ce qu'elle dit, ce n'est pas une
+ * raison pour l'effacer.
+ *
  * Rend null quand la longueur demandée ne peut pas être tenue exactement.
  * Approcher serait le seul endroit du module où l'on écrirait un lieu que
  * personne n'a demandé.
  */
-export function ecrireIso6709(p: LatLon, longueur: number, altitude = ''): string | null {
-  const decimales = longueur - 10 - altitude.length;
+export function ecrireIso6709(
+  p: LatLon,
+  longueur: number,
+  altitude = '',
+  queue = '/',
+): string | null {
+  const decimales = longueur - 9 - queue.length - altitude.length;
   // Neuf décimales valent moins d'un dixième de millimètre : au-delà, la
   // précision affichée serait une invention pure.
   if (decimales < 2 || decimales > 18) return null;
@@ -116,7 +177,7 @@ export function ecrireIso6709(p: LatLon, longueur: number, altitude = ''): strin
   const signe = (v: number) => (v < 0 ? '-' : '+');
   const bloc = (v: number, entiers: number, d: number) =>
     signe(v) + Math.abs(v).toFixed(d).padStart(entiers + 1 + d, '0');
-  const s = `${bloc(p.lat, 2, a)}${bloc(p.lon, 3, b)}${altitude}/`;
+  const s = `${bloc(p.lat, 2, a)}${bloc(p.lon, 3, b)}${altitude}${queue}`;
   return s.length === longueur ? s : null;
 }
 
@@ -518,6 +579,27 @@ export function infosVideo(b: Uint8Array): InfosVideo {
   const auteur = premier(cles.get('com.apple.quicktime.author'), atomes.get('©ART'));
   if (auteur) details.push({ cle: 'Artist', value: auteur });
 
+  /*
+   * Le lieu qu'on a TROUVÉ sans savoir le lire.
+   *
+   * C'est la ligne la plus importante de cette fonction, et elle vient d'un
+   * défaut qui a coûté cinq allers-retours : deux formes d'écriture courantes
+   * échappaient au lecteur, et l'outil n'affichait alors RIEN — ni pastille, ni
+   * ligne de position —, alors qu'il savait parfaitement où était le champ et
+   * ce qu'il contenait. Les outils du téléphone, eux, le montraient.
+   *
+   * Se taire quand on ne comprend pas est le pire choix : il rend le désaccord
+   * invisible. On montre donc la chaîne TELLE QU'ELLE EST ÉCRITE, et une simple
+   * copie d'écran suffit désormais à nommer la forme qui nous manque.
+   *
+   * Une seule ligne, et seulement dans ce cas : quand la position se décode, la
+   * ligne de position existe déjà et répéter la chaîne serait du bruit.
+   */
+  const illisible = porteursDeLieu(b)
+    .map((porteur) => nettoyerChaine(porteur.texte))
+    .find((brut) => brut !== '' && lireIso6709(brut) === null);
+  if (illisible) details.push({ cle: 'LieuBrut', value: illisible });
+
   return { takenAt, camera, details };
 }
 
@@ -686,7 +768,7 @@ const REFUS_ECRITURE = () =>
  * tolérance d'un mètre du contrôle final : une écriture ne doit pas passer de
  * justesse, elle doit passer largement.
  */
-const LONGUEUR_NEUVE = 22;
+const LONGUEUR_NEUVE = 10 + DECIMALES_AU_METRE;
 
 /**
  * Écart au-delà duquel une réécriture sur place n'est plus acceptable.
@@ -733,7 +815,8 @@ function corrigerSurPlace(b: Uint8Array, porteurs: Porteur[], p: LatLon): Pose |
     // coordonnées : elle n'en a pas la place, et la vider raccourcirait la
     // boîte. On refuse la correction plutôt que de laisser le nom en place.
     if (porteur.longueurTexte === 0) return null;
-    const s = ecrireIso6709(p, porteur.longueurTexte, altitudeDe(porteur.texte));
+    const { altitude, queue } = formeDe(porteur.texte);
+    const s = ecrireIso6709(p, porteur.longueurTexte, altitude, queue);
     if (s === null) return null;
     // On RELIT ce qu'on vient d'écrire. La longueur d'origine impose le nombre
     // de décimales, et une chaîne trop courte ne peut pas porter le lieu
@@ -1266,9 +1349,12 @@ function assezLong(p: Porteur): boolean {
   // longue autant que trop courte, au-delà de dix-huit décimales —, et n'en
   // vérifier qu'une revenait à annoncer une correction que l'écriture
   // refuserait ensuite. C'est la famille de défauts de Q-051.
-  const utile = p.longueurTexte - altitudeDe(p.texte).length;
-  return utile >= LONGUEUR_NEUVE
-    && ecrireIso6709({ lat: 0, lon: 0 }, p.longueurTexte, altitudeDe(p.texte)) !== null;
+  const { altitude, queue } = formeDe(p.texte);
+  // L'altitude et la queue occupent la place sans porter de coordonnée : ce qui
+  // compte est le nombre de décimales qui RESTE aux deux nombres.
+  const decimales = p.longueurTexte - 9 - queue.length - altitude.length;
+  return decimales >= DECIMALES_AU_METRE
+    && ecrireIso6709({ lat: 0, lon: 0 }, p.longueurTexte, altitude, queue) !== null;
 }
 
 /** Ce que l'outil sait faire de CETTE vidéo, avec la raison qui va avec. */

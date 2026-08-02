@@ -2332,3 +2332,65 @@ tous les six** sur le code d'avant : après un ajout la pastille et la ligne de 
 après un effacement elles disparaissent.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-056 — Le lieu était trouvé, illisible, et l'outil se taisait
+
+**Contexte :** « Peux-tu montrer le géotag dans "Voir les autres informations" ? » — la question,
+prise au mot, a mis le doigt sur deux formes d'écriture parfaitement courantes que nous TROUVIONS
+sans savoir les décoder.
+
+Mesuré sur un vrai MP4 du corpus, en ne changeant que la chaîne du rangement `©xyz`, ExifTool servant
+d'oracle :
+
+| Chaîne dans le fichier | ExifTool | Nous, avant |
+|---|---|---|
+| `+43.908110+004.863870/` | 43.90811 4.86387 | 43.90811 4.86387 |
+| la même, **suivie d'un octet nul** | 43.90811 4.86387 | **rien** |
+| `+43.9081+004.8639/CRSWGS_84/` | 43.9081 4.8639 | **rien** |
+| `+43.90811+4.86387` | 43.90811 4.86387 | **rien** |
+
+Dans les trois cas d'échec, le rangement était localisé et son texte était sous nos yeux : seul le
+décodage refusait. La position devenait nulle, donc **ni pastille, ni ligne de lieu**.
+
+Aucune des trois formes n'est exotique :
+
+- **L'octet nul final** est ce qu'écrivent quantité d'outils, qui terminent la chaîne à la mode du
+  langage C et comptent ce zéro dans la longueur déclarée. `trim()` retire les blancs, pas les
+  octets de commande, et l'expression régulière exigeait la fin de chaîne après la barre oblique.
+- **`CRSWGS_84`** est le suffixe que la norme ISO 6709 prévoit pour nommer le système de repère. Il
+  est facultatif, il est légal, et certains appareils l'écrivent.
+- **La longitude à un seul chiffre** viole la largeur canonique de la norme — `+004.86387` — mais
+  les lecteurs du téléphone la lisent. Moins de chiffres que la largeur canonique ne peut désigner
+  que des degrés : deux chiffres de minutes n'y tiendraient pas, donc il n'y a aucune ambiguïté à
+  lever, et refuser revenait à se taire sur un fichier que tout le monde comprend.
+
+**Retenu :** on nettoie avant d'analyser (blancs ET octets de commande), on accepte le nom du
+système de repère, et on lit une largeur inférieure à la canonique comme des degrés. Ce qui suit les
+coordonnées — altitude, nom de repère, octet nul — est rendu TEL QUEL à la réécriture : il compte
+dans la longueur déclarée, donc l'effacer déplacerait des octets.
+
+**Et surtout : quand on ne sait pas lire, on montre.** Le volet porte désormais une ligne « Lieu tel
+qu'il est écrit » avec les caractères mêmes du fichier, dès qu'un rangement de lieu porte un texte
+que nous ne décodons pas — et seulement dans ce cas, la ligne de position existant déjà sinon.
+
+**C'est ce silence, et non les trois défauts, qui a coûté cinq allers-retours.** Nous SAVIONS qu'il
+y avait un lieu ; l'interface n'en disait rien. Le reste du moteur ne fonctionne pas ainsi : un
+fichier qu'on ne sait pas modifier le DIT, avec sa phrase, avant l'action. Désormais une copie
+d'écran suffit à nommer la forme qui nous manque, sans que personne ait à envoyer sa vidéo.
+
+**Les contrôles.** Neuf formes d'écriture, chacune dans un vrai MP4 du corpus dont seule la chaîne
+change — ExifTool écrit celles qu'il accepte, les autres remplacent la charge à longueur constante,
+donc aucun octet ne se déplace. Pour chacune, **ce que nous lisons doit valoir ce que lit l'oracle**.
+C'est le contrôle qui manquait : une divergence dans ce sens-là — lui lit, pas nous — est exactement
+le symptôme signalé, et rien ne la regardait. Cinq assertions échouent sur le code d'avant.
+
+Un témoin est ajouté au corpus, `lieu-illisible.mp4`, dont la chaîne n'est décodée par aucun des deux
+lecteurs : le banc et le parcours navigateur vérifient tous deux que le volet la montre au lieu de se
+taire.
+
+**Ce qui reste vrai :** nous restons plus tolérants que l'oracle sur une chaîne entourée de blancs,
+qu'il refuse et que nous lisons. Lire davantage n'expose personne — c'est se taire qui trompe.
+
+**Bloque :** non.
