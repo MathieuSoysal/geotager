@@ -156,6 +156,7 @@ export const en: Dictionnaire = {
     Software: 'Software',
     Artist: 'Author',
     Copyright: 'Copyright',
+    LieuBrut: 'Location as written',
   },
 
   motifs: {

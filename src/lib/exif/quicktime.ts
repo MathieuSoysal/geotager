@@ -49,14 +49,47 @@ import { lireEntierBE, readU16, readU32, writeU32 } from './octets.ts';
  * digits before the point is the only clue, hence reading in groups of two
  * rather than a naive `Number()`, which would yield "4356.958 degrees" and so a
  * position that is invalid, or worse, valid and wrong.
+ *
+ * What follows the coordinates is not a coordinate: the trailing slash, and the
+ * optional coordinate reference system name (`CRSWGS_84`) the standard allows
+ * and some devices write. It is kept verbatim so it can be rewritten untouched,
+ * like the altitude, but it is not parsed. Requiring it to be absent made the
+ * location invisible on those files.
+ *
+ * The canonical width, two degree digits for latitude and three for longitude,
+ * is not required either. Tools write `+4.86387` where the standard asks for
+ * `+004.86387`, and phone readers read them: refusing would have silenced the
+ * tool on a file everyone else understands.
  */
 const ISO6709 =
-  /^([+-])(\d{2,7}(?:\.\d+)?)([+-])(\d{3,8}(?:\.\d+)?)((?:[+-]\d+(?:\.\d+)?)?)\/?$/;
+  /^([+-])(\d{1,7}(?:\.\d+)?)([+-])(\d{1,8}(?:\.\d+)?)((?:[+-]\d+(?:\.\d+)?)?)((?:\/[A-Za-z][\w.+-]*)?\/?)$/;
+
+/**
+ * Strips what is not part of the string: whitespace, and above all control
+ * bytes.
+ *
+ * Plenty of tools terminate the string with a NUL byte, C style, and count that
+ * zero in the length they declare. `trim()` only removes whitespace: the zero
+ * survived, the regular expression failed, and the file appeared to have no
+ * location while every other reader showed one.
+ */
+const nettoyerChaine = (s: string) =>
+  s.replace(/^[\s\u0000-\u001f\u007f]+|[\s\u0000-\u001f\u007f]+$/g, '');
 
 function sexagesimal(chiffres: string, largeurDegres: number): number | null {
   const point = chiffres.indexOf('.');
   const entiers = point < 0 ? chiffres.length : point;
   const supplement = entiers - largeurDegres;
+  /*
+   * Fewer digits than the canonical width means degrees, and nothing else. Two
+   * minute digits would not fit in what is missing, so there is no ambiguity to
+   * resolve, which is the whole subject of this function. `+4.86387` is 4.86387
+   * degrees, as other tools read it.
+   */
+  if (supplement < 0) {
+    const v = Number(chiffres);
+    return Number.isFinite(v) ? v : null;
+  }
   // 0: degrees only. 2: degrees and minutes. 4: degrees, minutes and seconds.
   if (supplement !== 0 && supplement !== 2 && supplement !== 4) return null;
   const degres = Number(chiffres.slice(0, largeurDegres));
@@ -71,7 +104,7 @@ function sexagesimal(chiffres: string, largeurDegres: number): number | null {
 
 /** Decodes a video position string. Returns null rather than guess. */
 export function lireIso6709(s: string): LatLon | null {
-  const m = ISO6709.exec(s.trim());
+  const m = ISO6709.exec(nettoyerChaine(s));
   if (!m) return null;
   const lat = sexagesimal(m[2], 2);
   const lon = sexagesimal(m[4], 3);
@@ -82,10 +115,27 @@ export function lireIso6709(s: string): LatLon | null {
   });
 }
 
-/** The altitude if there is one, verbatim, to rewrite it untouched. */
-function altitudeDe(s: string): string {
-  return ISO6709.exec(s.trim())?.[5] ?? '';
+/**
+ * What the string carries beside the coordinates, and must be returned intact.
+ *
+ * The altitude first: rewriting it would invent a height nobody measured. Then
+ * the tail: the trailing slash, the coordinate reference system name if there
+ * is one, and any control bytes the original tool left. All of it counts
+ * towards the declared length, so all of it must come back identical, or a byte
+ * moves.
+ */
+function formeDe(s: string): { altitude: string; queue: string } {
+  const propre = nettoyerChaine(s);
+  const m = ISO6709.exec(propre);
+  if (!m) return { altitude: '', queue: '/' };
+  // What `nettoyerChaine` stripped from the end belongs to the tail: it counts
+  // in the slot's length, and returning it changes its size.
+  const rogne = s.slice(s.indexOf(propre) + propre.length);
+  return { altitude: m[5], queue: m[6] + rogne };
 }
+
+/** The number of decimals that places both coordinates to the metre. */
+const DECIMALES_AU_METRE = 12;
 
 /**
  * Writes a position at an imposed length.
@@ -95,12 +145,21 @@ function altitudeDe(s: string): string {
  * longitude; the trailing slash. Choosing `a + b` therefore gives any length
  * from twelve upwards, and every string a real device writes is longer.
  *
+ * `queue` replaces that trailing slash when the file wrote more: a coordinate
+ * reference system name, a terminating NUL byte. It is returned verbatim; we do
+ * not always understand what it says, which is no reason to erase it.
+ *
  * Returns null when the requested length cannot be met exactly. Approximating
  * would be the one place in this module where a location nobody asked for gets
  * written.
  */
-export function ecrireIso6709(p: LatLon, longueur: number, altitude = ''): string | null {
-  const decimales = longueur - 10 - altitude.length;
+export function ecrireIso6709(
+  p: LatLon,
+  longueur: number,
+  altitude = '',
+  queue = '/',
+): string | null {
+  const decimales = longueur - 9 - queue.length - altitude.length;
   // Nine decimals is less than a tenth of a millimetre: beyond that, the
   // precision shown would be pure invention.
   if (decimales < 2 || decimales > 18) return null;
@@ -110,7 +169,7 @@ export function ecrireIso6709(p: LatLon, longueur: number, altitude = ''): strin
   const signe = (v: number) => (v < 0 ? '-' : '+');
   const bloc = (v: number, entiers: number, d: number) =>
     signe(v) + Math.abs(v).toFixed(d).padStart(entiers + 1 + d, '0');
-  const s = `${bloc(p.lat, 2, a)}${bloc(p.lon, 3, b)}${altitude}/`;
+  const s = `${bloc(p.lat, 2, a)}${bloc(p.lon, 3, b)}${altitude}${queue}`;
   return s.length === longueur ? s : null;
 }
 
@@ -504,6 +563,27 @@ export function infosVideo(b: Uint8Array): InfosVideo {
   const auteur = premier(cles.get('com.apple.quicktime.author'), atomes.get('©ART'));
   if (auteur) details.push({ cle: 'Artist', value: auteur });
 
+  /*
+   * A location we found without being able to read it.
+   *
+   * This is the most important line in the function, and it comes from a bug
+   * that cost five round trips: two common spellings escaped the reader, and
+   * the tool then displayed nothing at all, no badge and no location line, even
+   * though it knew exactly where the field was and what it contained. Phone
+   * tools showed it.
+   *
+   * Staying silent when we do not understand is the worst choice: it makes the
+   * disagreement invisible. The string is therefore shown exactly as written,
+   * and a screenshot is now enough to name the spelling we are missing.
+   *
+   * One line, and only in this case: when the position decodes, the location
+   * line already exists and repeating the string would be noise.
+   */
+  const illisible = porteursDeLieu(b)
+    .map((porteur) => nettoyerChaine(porteur.texte))
+    .find((brut) => brut !== '' && lireIso6709(brut) === null);
+  if (illisible) details.push({ cle: 'LieuBrut', value: illisible });
+
   return { takenAt, camera, details };
 }
 
@@ -661,7 +741,7 @@ const REFUS_ECRITURE = () =>
  * tolerance of the final check: a write should not pass narrowly, it should
  * pass comfortably.
  */
-const LONGUEUR_NEUVE = 22;
+const LONGUEUR_NEUVE = 10 + DECIMALES_AU_METRE;
 
 /**
  * The distance beyond which an in-place rewrite is no longer acceptable.
@@ -707,7 +787,8 @@ function corrigerSurPlace(b: Uint8Array, porteurs: Porteur[], p: LatLon): Pose |
     // no room, and emptying it would shorten the box. The correction is refused
     // rather than leave the name in place.
     if (porteur.longueurTexte === 0) return null;
-    const s = ecrireIso6709(p, porteur.longueurTexte, altitudeDe(porteur.texte));
+    const { altitude, queue } = formeDe(porteur.texte);
+    const s = ecrireIso6709(p, porteur.longueurTexte, altitude, queue);
     if (s === null) return null;
     // We read back what we just wrote. The original length imposes the number
     // of decimals, and too short a string cannot carry the requested location:
@@ -1216,9 +1297,12 @@ function assezLong(p: Porteur): boolean {
   // limits here. It has two, since a string can be too long as readily as too
   // short, and checking only one meant announcing a correction the write would
   // then refuse.
-  const utile = p.longueurTexte - altitudeDe(p.texte).length;
-  return utile >= LONGUEUR_NEUVE
-    && ecrireIso6709({ lat: 0, lon: 0 }, p.longueurTexte, altitudeDe(p.texte)) !== null;
+  const { altitude, queue } = formeDe(p.texte);
+  // Altitude and tail take up room without carrying a coordinate: what matters
+  // is the number of decimals left to the two numbers.
+  const decimales = p.longueurTexte - 9 - queue.length - altitude.length;
+  return decimales >= DECIMALES_AU_METRE
+    && ecrireIso6709({ lat: 0, lon: 0 }, p.longueurTexte, altitude, queue) !== null;
 }
 
 /** What the tool can do with this video, with the reason that goes with it. */

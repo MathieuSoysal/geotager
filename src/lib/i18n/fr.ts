@@ -154,6 +154,7 @@ export const fr: Dictionnaire = {
     Software: 'Logiciel',
     Artist: 'Auteur',
     Copyright: 'Copyright',
+    LieuBrut: 'Lieu tel qu’il est écrit',
   },
 
   motifs: {
