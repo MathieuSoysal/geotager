@@ -37,6 +37,7 @@ import {
   enfants,
   finDe,
   texte,
+  texteLisible,
   toutesLesBoites,
 } from './bmff.ts';
 import { lireEntierBE, readU16, readU32, writeU32 } from './octets.ts';
@@ -119,6 +120,102 @@ export function lireIso6709(s: string): LatLon | null {
     lat: m[1] === '-' ? -lat : lat,
     lon: m[3] === '-' ? -lon : lon,
   });
+}
+
+/**
+ * Un lieu écrit POUR ÊTRE LU PAR QUELQU'UN : `43°54′29.2″N 4°51′49.9″E`.
+ *
+ * La norme ISO 6709 n'a rien à voir avec cette forme-là, et pourtant elle se
+ * trouve dans le champ de lieu de vraies vidéos : des applications y déposent
+ * ce qu'elles affichent à l'écran plutôt que la suite de chiffres réglementaire.
+ * ExifTool lui-même n'en tire rien — il annonce le champ et rend « NaN ». Nous
+ * la lisons, parce que rien n'y est ambigu : le signe des degrés est donné par
+ * la lettre d'hémisphère, et les symboles disent quelle est l'unité de chaque
+ * nombre. C'est précisément ce que la lecture par largeur devait deviner.
+ *
+ * Le symbole de degré est EXIGÉ. C'est lui qui distingue un lieu d'un titre ou
+ * d'un commentaire où traîneraient deux nombres : sans cette exigence, la
+ * fonction inventerait des positions à partir de texte quelconque, ce qui est
+ * la seule faute qu'un outil de confidentialité ne peut pas se permettre.
+ */
+const NOMBRES_DMS =
+  '(\\d+(?:[.,]\\d+)?)\\s*°' + // les degrés, et leur symbole : le seul obligatoire
+  "\\s*(?:(\\d+(?:[.,]\\d+)?)\\s*[′']\\s*)?" + // les minutes, s'il y en a
+  '\\s*(?:(\\d+(?:[.,]\\d+)?)\\s*(?:″|\'\'|")\\s*)?'; // les secondes, de même
+
+/*
+ * Deux dispositions, essayées dans cet ordre, et jamais mélangées.
+ *
+ * La lettre suit les nombres — `43°54′29.2″N` — ou les précède — `N 43°54′29.2″`.
+ * Une seule expression qui accepterait les deux prendrait, sur la seconde
+ * disposition, le « E » de la longitude pour la lettre de la latitude, et
+ * laisserait la longitude sans hémisphère. Deux lectures franches valent mieux
+ * qu'une lecture qui se trompe d'axe.
+ */
+const DMS_LETTRE_APRES = new RegExp(`${NOMBRES_DMS}\\s*([NSEWnsew])`, 'g');
+const DMS_LETTRE_AVANT = new RegExp(`([NSEWnsew])\\s*${NOMBRES_DMS}`, 'g');
+
+export function lireDms(s: string): LatLon | null {
+  const propre = nettoyerChaine(s);
+  const nombre = (x: string | undefined) => (x === undefined ? 0 : Number(x.replace(',', '.')));
+
+  /*
+   * Deux symboles de degré, exactement : c'est la structure d'un lieu.
+   *
+   * Ce comptage est fait AVANT toute lecture, et il est ce qui empêche les deux
+   * dispositions ci-dessous de se contredire. Sur une chaîne à trois
+   * coordonnées, la première lecture échouait et la seconde en retenait deux
+   * autres — rendant une position que personne n'avait écrite. Une chaîne dont
+   * la structure n'est pas celle d'un lieu doit être refusée sur sa structure,
+   * pas sur le fait qu'une lecture veuille bien en tirer quelque chose.
+   */
+  if ((propre.match(/°/g) ?? []).length !== 2) return null;
+
+  const assembler = (parts: Array<[string, string, string?, string?]>): LatLon | null => {
+    // Exactement deux composantes : une de moins ne situe rien, une de plus est
+    // une chaîne dont nous ne comprenons pas la structure.
+    if (parts.length !== 2) return null;
+    let lat: number | null = null;
+    let lon: number | null = null;
+    for (const [lettre, d, m, sec] of parts) {
+      const minutes = nombre(m);
+      const secondes = nombre(sec);
+      if (minutes >= 60 || secondes >= 60) return null;
+      const valeur = nombre(d) + minutes / 60 + secondes / 3600;
+      const axe = lettre.toUpperCase();
+      const signe = axe === 'S' || axe === 'W' ? -1 : 1;
+      // Un même axe donné deux fois : on refuse plutôt que de choisir.
+      if (axe === 'N' || axe === 'S') {
+        if (lat !== null) return null;
+        lat = signe * valeur;
+      } else {
+        if (lon !== null) return null;
+        lon = signe * valeur;
+      }
+    }
+    if (lat === null || lon === null) return null;
+    return validerPosition({ lat, lon });
+  };
+
+  const apres = [...propre.matchAll(DMS_LETTRE_APRES)].map(
+    (m) => [m[4], m[1], m[2], m[3]] as [string, string, string?, string?],
+  );
+  const avant = [...propre.matchAll(DMS_LETTRE_AVANT)].map(
+    (m) => [m[1], m[2], m[3], m[4]] as [string, string, string?, string?],
+  );
+  return assembler(apres) ?? assembler(avant);
+}
+
+/**
+ * Le lieu que porte un texte, quelle que soit la façon dont il est écrit.
+ *
+ * Un seul point de passage pour les deux formes : c'est ce qui garantit que
+ * l'affichage, le sondage et le balayage résiduel lisent tous la MÊME chose.
+ * Q-054 est né d'une seconde lecture écrite à part, qui divergeait de la
+ * première ; la leçon a été retenue une fois et n'est pas à réapprendre.
+ */
+export function lireLieuTexte(s: string): LatLon | null {
+  return lireIso6709(s) ?? lireDms(s);
 }
 
 /**
@@ -243,7 +340,7 @@ function porteursUdta(b: Uint8Array, udta: Boite | null): Porteur[] {
       boite: x,
       debutTexte: c.debut,
       longueurTexte: c.longueur,
-      texte: texte(b, c.debut, c.longueur),
+      texte: texteLisible(b, c.debut, c.longueur),
       nomDeLieu: null,
     });
   }
@@ -364,7 +461,7 @@ function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
         boite: entree,
         debutTexte: v.debut,
         longueurTexte: v.longueur,
-        texte: texte(b, v.debut, v.longueur),
+        texte: texteLisible(b, v.debut, v.longueur),
         nomDeLieu: null,
       });
     }
@@ -379,7 +476,7 @@ function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
         boite: entree,
         debutTexte: v.debut,
         longueurTexte: v.longueur,
-        texte: texte(b, v.debut, v.longueur),
+        texte: texteLisible(b, v.debut, v.longueur),
         nomDeLieu: null,
       });
     } else if (nom === CLE_APPLE_NOM) {
@@ -496,7 +593,7 @@ function textesDUdta(b: Uint8Array, racine: Boite[]): Map<string, string> {
   for (const x of enfants(b, udta)) {
     const c = chaineDAtome(b, x) ?? valeurDeLEntree(b, x);
     if (!c) continue;
-    const valeur = texte(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
+    const valeur = texteLisible(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
     // Le premier trouvé gagne : celui du film prime sur celui d'une piste.
     if (affichable(valeur) && !out.has(x.type)) out.set(x.type, valeur);
   }
@@ -515,7 +612,7 @@ export function infosVideo(b: Uint8Array): InfosVideo {
 
   const cles = new Map(entreesDesKeys(b, racine).map((e) => [
     e.nom,
-    texte(b, e.valeur.debut, e.valeur.longueur).trim(),
+    texteLisible(b, e.valeur.debut, e.valeur.longueur).trim(),
   ]));
   const atomes = textesDUdta(b, racine);
   const premier = (...candidats: (string | undefined)[]) =>
@@ -597,7 +694,7 @@ export function infosVideo(b: Uint8Array): InfosVideo {
    */
   const illisible = porteursDeLieu(b)
     .map((porteur) => nettoyerChaine(porteur.texte))
-    .find((brut) => brut !== '' && lireIso6709(brut) === null);
+    .find((brut) => brut !== '' && lireLieuTexte(brut) === null);
   if (illisible) details.push({ cle: 'LieuBrut', value: illisible });
 
   return { takenAt, camera, details };
@@ -649,7 +746,7 @@ export function lieuEnMouvement(b: Uint8Array): boolean {
 function positionDe(p: Porteur): LatLon | null {
   return p.binaire
     ? validerPosition({ lat: p.binaire.lat, lon: p.binaire.lon })
-    : lireIso6709(p.texte);
+    : lireLieuTexte(p.texte);
 }
 
 /**
@@ -1242,7 +1339,7 @@ export function copieDuLieuAilleursVideo(b: Uint8Array): boolean {
   for (const p of porteursDeLieu(b)) {
     if (p.nomDeLieu && p.nomDeLieu.longueur > 0) return true;
     if (p.binaire && (p.binaire.lat !== 0 || p.binaire.lon !== 0)) return true;
-    if (p.texte && lireIso6709(p.texte)) return true;
+    if (p.texte && lireLieuTexte(p.texte)) return true;
   }
   for (const paquet of paquetsDeTexte(b)) {
     if (porteUnLieu(lireTexte(b, paquet))) return true;

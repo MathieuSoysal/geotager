@@ -496,6 +496,13 @@ for (const [fichier, attendu] of [
   // texte, et n'affichait rien. Il montre désormais la chaîne telle qu'elle est
   // écrite — une copie d'écran suffit à nommer la forme qui nous manque.
   ['lieu-illisible.mp4', /43\.9081,4\.8639,26/],
+  // Le signalement, tel quel : le champ de lieu contient ce qu'une application
+  // affiche à l'écran — degrés, minutes, secondes et leurs symboles — et non la
+  // suite de chiffres de la norme. Il doit produire une VRAIE ligne de lieu.
+  ['lieu-en-lettres.mp4', /Location/],
+  // Et la racine du défaut : la charge était lue un octet par caractère, donc
+  // tout accent arrivait déformé à l'écran.
+  ['appareil.mp4', /Modèle Témoin/],
 ]) {
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
   await page.setInputFiles('#picker', join(FIXTURES, fichier));

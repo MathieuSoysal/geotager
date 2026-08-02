@@ -32,8 +32,45 @@ export interface Boite {
   declaree: number;
 }
 
+/**
+ * Les octets lus UN PAR UN, pour ce qui n'est pas du texte destiné à un humain.
+ *
+ * Le nom d'une boîte fait quatre octets, et c'est une identité, pas une phrase :
+ * `©xyz` commence par 0xA9 et ne se compare correctement que caractère par
+ * caractère. Cette fonction est faite pour cela, et pour rien d'autre.
+ */
 export const texte = (b: Uint8Array, o: number, n: number) =>
   String.fromCharCode(...b.subarray(o, o + n));
+
+/**
+ * Le texte d'une charge, décodé pour être LU.
+ *
+ * Lire un octet par caractère est juste pour un nom de boîte et FAUX pour tout
+ * le reste : `°` s'écrit sur deux octets en UTF-8, et le lire ainsi donne « Â° ».
+ * Le défaut ne se voyait sur aucun fichier d'essai, tous écrits en ASCII, et il
+ * rendait illisible tout ce qu'un appareil écrit avec un accent ou un symbole —
+ * un nom d'appareil, un auteur, et une position écrite en degrés et minutes.
+ *
+ * Trois encodages, dans l'ordre où on peut les reconnaître à coup sûr :
+ * l'indicateur d'ordre des octets annonce l'UTF-16 sans ambiguïté ; l'UTF-8 se
+ * valide de lui-même, une suite d'octets mal formée étant refusée plutôt que
+ * devinée ; et à défaut on retombe sur un octet par caractère, qui est ce
+ * qu'écrivent les fichiers anciens.
+ */
+export function texteLisible(b: Uint8Array, o: number, n: number): string {
+  const octets = b.subarray(o, o + n);
+  if (n >= 2 && octets[0] === 0xfe && octets[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(octets.subarray(2));
+  }
+  if (n >= 2 && octets[0] === 0xff && octets[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(octets.subarray(2));
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(octets);
+  } catch {
+    return texte(b, o, n);
+  }
+}
 
 /** Premier octet de la charge utile d'une boîte. */
 export const charge = (x: Boite) => x.debut + x.entete;

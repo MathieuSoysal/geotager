@@ -2394,3 +2394,62 @@ taire.
 qu'il refuse et que nous lisons. Lire davantage n'expose personne — c'est se taire qui trompe.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-057 — Un lieu écrit pour être lu, et une charge lue un octet par caractère
+
+**Contexte :** septième signalement. Le volet montrait bien la ligne « Lieu tel qu'il est écrit »
+ajoutée en Q-056 — c'est elle qui a permis de nommer le cas sans que le fichier change de mains — et
+la chaîne qu'elle portait était `43°54′29.2″N 4°51′49.9″E`. Pas la suite de chiffres de la norme :
+ce qu'une application AFFICHE À L'ÉCRAN, déposé tel quel dans le champ de lieu.
+
+**Deux défauts se cumulaient, et le premier masquait le second.**
+
+1. **La charge était lue un octet par caractère.** `texte()` fait `String.fromCharCode` sur les
+   octets — ce qui est juste pour un nom de boîte de quatre octets, qui est une identité, et FAUX
+   pour tout texte destiné à un humain. Mesuré sur le fichier témoin :
+
+   ```
+   ancien décodage : "43Â°54â²29.2â³N 4Â°51â²49.9â³E"
+   nouveau         : "43°54′29.2″N 4°51′49.9″E"
+   ```
+
+   Aucune souplesse du lecteur n'aurait rattrapé cela : la chaîne arrivait déformée avant lui.
+
+2. **Le lecteur ne connaissait que la forme numérique.** Une fois la chaîne rendue intacte, il
+   fallait encore savoir lire les degrés, minutes et secondes.
+
+**Le défaut de décodage dépassait le lieu.** Un nom d'appareil, un auteur, un logiciel : tout ce que
+le volet affiche passait par là. Le corpus était entièrement en ASCII, donc rien ne l'a jamais
+signalé — le fichier `appareil.mp4` porte désormais des accents à dessein, et l'assertion qui le lit
+échoue sur le code d'avant.
+
+**Retenu :** un décodeur séparé, `texteLisible`. L'indicateur d'ordre des octets annonce l'UTF-16
+sans ambiguïté ; l'UTF-8 se valide de lui-même, une suite mal formée étant refusée plutôt que
+devinée ; à défaut on retombe sur un octet par caractère, qui est ce qu'écrivent les fichiers
+anciens. `texte()` reste, pour les noms de boîtes, avec la raison écrite au-dessus.
+
+Et `lireDms`, appelée derrière la lecture numérique par un point de passage unique,
+`lireLieuTexte` — l'affichage, le sondage et le balayage résiduel lisent ainsi la MÊME chose, ce que
+Q-054 avait déjà coûté une fois.
+
+**Le symbole de degré est exigé, et il doit y en avoir exactement deux.** C'est ce qui distingue un
+lieu d'un titre où traîneraient deux nombres. Le comptage se fait AVANT toute lecture, et il n'est
+pas décoratif : sans lui, sur `43°54′29.2″N 4°51′49.9″E 5°12′00.0″W`, la lecture « lettre après les
+nombres » échouait et celle « lettre avant » en retenait deux AUTRES — rendant une position que
+personne n'avait écrite. Le test le prouve, et il échouait avant ce comptage.
+
+**Ce que l'oracle ne pouvait pas trancher.** ExifTool annonce le champ et rend « NaN » sur les sept
+formes mesurées : il ne lit pas cette écriture-là. Il sert donc autrement — c'est LUI qui donne la
+valeur de référence, lue dans un fichier portant les mêmes coordonnées sous forme numérique, et
+notre lecture des lettres doit retomber dessus. Après correction, c'est encore lui qui relit le
+fichier produit, puisque nous y écrivons la forme qu'il sait lire.
+
+**La leçon de Q-056 a payé au tour suivant, et c'est le seul point qui vaille.** Six tours ont été
+perdus à chercher à l'aveugle parce que l'outil se taisait. Le septième a été résolu en une question,
+sans que l'utilisateur ait à envoyer sa vidéo : la ligne « lieu tel qu'il est écrit » a nommé la
+forme manquante. Montrer ce qu'on ne comprend pas n'est pas un aveu de faiblesse — c'est ce qui rend
+un défaut nommable.
+
+**Bloque :** non.
