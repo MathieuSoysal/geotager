@@ -157,25 +157,6 @@ export function enfants(b: Uint8Array, parent: Boite): Boite[] {
 }
 
 /**
- * Descend un chemin de types, par exemple `moov/udta`.
- *
- * Rend la première boîte de chaque cran — un fichier bien formé n'a qu'un
- * `moov` et qu'un `udta`. Rend `null` dès qu'un cran manque, plutôt que de
- * chercher plus loin : une boîte trouvée au mauvais endroit ne veut rien dire.
- */
-export function chemin(b: Uint8Array, route: string, racine?: Boite[]): Boite | null {
-  let niveau = racine ?? boites(b, 0, b.length);
-  let trouvee: Boite | null = null;
-  for (const cran of route.split('/')) {
-    const suivante = niveau.find((x) => x.type === cran);
-    if (!suivante) return null;
-    trouvee = suivante;
-    niveau = enfants(b, suivante);
-  }
-  return trouvee;
-}
-
-/**
  * Les boîtes qui en contiennent d'autres.
  *
  * Entrer dans `mdat` — les images et le son, l'essentiel du poids — reviendrait
@@ -202,18 +183,29 @@ export function contientDesBoites(type: string): boolean {
 
 /** Toutes les boîtes d'un type donné, à n'importe quelle profondeur. */
 
-export function toutesLesBoites(
+export function toutesLesBoites(b: Uint8Array, type: string, racine?: Boite[]): Boite[] {
+  return parType(b, [type], racine).get(type) ?? [];
+}
+
+/**
+ * Plusieurs types en UNE descente.
+ *
+ * Chercher trois types demandait trois parcours complets de l'arbre, sur un
+ * fichier qu'on parcourt déjà plusieurs fois pour le sonder. La descente est
+ * la partie coûteuse ; le type recherché ne l'est pas.
+ */
+export function parType(
   b: Uint8Array,
-  type: string,
+  types: string[],
   racine?: Boite[],
-): Boite[] {
-  const out: Boite[] = [];
+): Map<string, Boite[]> {
+  const out = new Map<string, Boite[]>(types.map((t) => [t, []]));
   const descendre = (niveau: Boite[], profondeur: number) => {
     // Une profondeur bornée : un fichier abîmé peut décrire une imbrication
     // qui ne finit pas, et le parcours doit s'arrêter avant la pile.
     if (profondeur > 12) return;
     for (const x of niveau) {
-      if (x.type === type) out.push(x);
+      out.get(x.type)?.push(x);
       if (CONTENEUSES.has(x.type)) descendre(enfants(b, x), profondeur + 1);
     }
   };

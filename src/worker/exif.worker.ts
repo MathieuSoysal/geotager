@@ -27,9 +27,8 @@ import {
   infosVideo,
   effacerPositionVideo,
   lirePositionVideo,
-  porteursConcordent,
   sonderVideo,
-  structureIntacte,
+  videoCoherente,
 } from '../lib/exif/quicktime.ts';
 import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
@@ -273,15 +272,8 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   let camera: string | null = null;
   const details: Array<{ cle: string; value: string }> = [];
 
-  /*
-   * Une vidéo dit ce qu'elle est, mais pas au même endroit qu'une photo.
-   *
-   * Le volet « autres informations » ne tenait qu'au second lecteur, et il
-   * n'ouvre ni MOV ni MP4 : quatre de ses cinq sources étaient donc mortes ici.
-   * Une vidéo sans lieu n'avait aucune ligne à montrer, et le volet
-   * disparaissait — alors que le fichier porte sa durée, ses dimensions, sa
-   * date et souvent son appareil.
-   */
+  // Une vidéo dit ce qu'elle est, mais pas au même endroit qu'une photo : voir
+  // `infosVideo`, qui explique pourquoi le volet restait vide.
   if (format === 'video') {
     const infos = infosVideo(bytes);
     takenAt = infos.takenAt;
@@ -290,10 +282,10 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   }
 
   try {
-    // Le second lecteur n'ouvre ni MOV ni MP4 : l'appeler sur une vidéo, c'est
-    // lui faire balayer plusieurs mégaoctets pour rien. Pire, s'il apprenait un
-    // jour à les lire, deux lecteurs répondraient sans qu'aucune règle ne dise
-    // lequel fait foi — alors que sur une vidéo, c'est le nôtre qui écrit.
+    // L'appeler sur une vidéo lui ferait balayer plusieurs mégaoctets pour
+    // rien. Pire, s'il apprenait un jour à les lire, deux lecteurs répondraient
+    // sans qu'aucune règle ne dise lequel fait foi — alors que sur une vidéo,
+    // c'est le nôtre qui écrit.
     const tags = (format === 'video'
       ? undefined
       : await exifr.parse(buffer, OPTIONS_COMPLETES)) as
@@ -438,30 +430,30 @@ const accord = (a: LatLon | null, b: LatLon | null): boolean =>
  * qui tire `self`, `exifr` et le protocole de messages. C'est très exactement
  * ainsi qu'un contrôle qui refusait TOUTES les vidéos a été livré au vert.
  */
-async function verifierVideo(
+function verifierVideo(
   produit: Uint8Array,
   attendu: LatLon | null,
-): Promise<{ verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean }> {
-  const parNous = (() => {
+): { verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean } {
+  const sansLever = <T>(f: () => T, repli: T): T => {
     try {
-      return lirePositionVideo(produit);
+      return f();
     } catch {
-      return null;
+      return repli;
     }
-  })();
-
-  const croise = (() => {
-    try {
-      return structureIntacte(produit) && porteursConcordent(produit);
-    } catch {
-      return false;
-    }
-  })();
-  if (attendu === null) {
-    return { verified: parNous, drift: parNous === null ? 0 : Infinity, croise, croiseComplet: false };
-  }
-  if (!parNous) return { verified: null, drift: Infinity, croise, croiseComplet: false };
-  return { verified: parNous, drift: distanceMetres(parNous, attendu), croise, croiseComplet: false };
+  };
+  const parNous = sansLever(() => lirePositionVideo(produit), null);
+  return {
+    verified: parNous,
+    // Un écart infini dit « ce n'est pas ce qui était demandé » dans les deux
+    // sens : on attendait un lieu et il n'y en a pas, ou l'inverse.
+    drift: attendu === null
+      ? (parNous === null ? 0 : Infinity)
+      : (parNous === null ? Infinity : distanceMetres(parNous, attendu)),
+    croise: sansLever(() => videoCoherente(produit), false),
+    // Le second lecteur n'ouvre ni MOV ni MP4 : le croisement ne peut pas être
+    // complet, et le prétendre serait mentir sur la force du contrôle.
+    croiseComplet: false,
+  };
 }
 
 async function verifier(

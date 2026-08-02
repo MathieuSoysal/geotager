@@ -38,7 +38,6 @@ import {
   ecrireIso6709,
   ecrirePositionVideo,
   effacerPositionVideo,
-  lireDms,
   lireIso6709,
   lieuEnMouvement,
   lirePositionVideo,
@@ -62,6 +61,7 @@ import {
   versPixels,
 } from '../src/lib/exif/coords.ts';
 import type { Format } from '../src/lib/exif/types.ts';
+import { lireDms } from '../src/lib/exif/coords.ts';
 
 // Même valeur par défaut que scripts/fetch-fixtures.mjs : sans cela, le banc
 // cherchait le corpus à la racine du dépôt et échouait par une exception non

@@ -8,11 +8,82 @@ export interface LatLon {
   lon: number;
 }
 
-const DMS =
-  /(\d+(?:[.,]\d+)?)\s*[°d]\s*(?:(\d+(?:[.,]\d+)?)\s*['′m]\s*)?(?:(\d+(?:[.,]\d+)?)\s*["″s]?\s*)?\s*([NSEOW])/giu;
+const NOMBRES_DMS =
+  "(\\d+(?:[.,]\\d+)?)\\s*[°d]\\s*(?:(\\d+(?:[.,]\\d+)?)\\s*['′m]\\s*)?" +
+  "(?:(\\d+(?:[.,]\\d+)?)\\s*(?:''|[\"″s])?\\s*)?";
+
+/*
+ * Deux dispositions, essayées dans cet ordre, et jamais mélangées.
+ *
+ * La lettre suit les nombres — `43°54′29.2″N` — ou les précède — `N 43°54′29.2″`.
+ * Une seule expression qui rendrait la lettre facultative des deux côtés
+ * prendrait, sur la seconde disposition, le « E » de la longitude pour la
+ * lettre de la latitude, et laisserait la longitude sans hémisphère. Deux
+ * lectures franches valent mieux qu'une lecture qui se trompe d'axe.
+ */
+const DMS_LETTRE_APRES = new RegExp(`${NOMBRES_DMS}\\s*([NSEOW])`, 'giu');
+const DMS_LETTRE_AVANT = new RegExp(`([NSEOW])\\s*${NOMBRES_DMS}`, 'giu');
 
 function num(s: string | undefined): number {
   return s ? Number(s.replace(',', '.')) : 0;
+}
+
+/** Une composante lue : sa valeur signée, et l'axe que sa lettre désigne. */
+interface Composante {
+  v: number;
+  ref: string;
+}
+
+/**
+ * Les composantes d'une écriture en degrés, dans la disposition qui s'applique.
+ *
+ * Rend une liste vide quand aucune ne s'applique. Les minutes et les secondes
+ * au-delà de soixante disqualifient la lecture : c'est ce qui distingue une
+ * position d'une suite de nombres qui lui ressemble.
+ */
+function composantesDms(texte: string): Composante[] {
+  const lire = (motif: RegExp, ordre: [number, number, number, number]): Composante[] => {
+    motif.lastIndex = 0;
+    const out: Composante[] = [];
+    for (const m of texte.matchAll(motif)) {
+      const [iL, iD, iM, iS] = ordre;
+      const minutes = num(m[iM]);
+      const secondes = num(m[iS]);
+      if (minutes >= 60 || secondes >= 60) return [];
+      const v = num(m[iD]) + minutes / 60 + secondes / 3600;
+      const ref = (m[iL] ?? '').toUpperCase();
+      // « O » pour Ouest en français, « W » en anglais.
+      out.push({ v: ref === 'S' || ref === 'W' || ref === 'O' ? -v : v, ref });
+    }
+    return out;
+  };
+  const apres = lire(DMS_LETTRE_APRES, [4, 1, 2, 3]);
+  return apres.length >= 2 ? apres : lire(DMS_LETTRE_AVANT, [1, 2, 3, 4]);
+}
+
+/**
+ * Une position écrite en degrés, minutes et secondes — et rien d'autre.
+ *
+ * `parseCoordinates` accepte aussi la paire de nombres nue, ce qui est juste
+ * pour une saisie où quelqu'un COLLE délibérément deux nombres. Ce n'est pas
+ * juste pour un champ de fichier : un titre où traînent deux nombres n'est pas
+ * un lieu, et en tirer une position est la seule faute qu'un outil de
+ * confidentialité ne peut pas se permettre. D'où cette porte séparée, qui EXIGE
+ * les symboles, et le comptage qui va avec.
+ */
+export function lireDms(entree: string): LatLon | null {
+  const texte = entree.trim();
+  // Deux marques de degré, exactement : c'est la structure d'un lieu. Une
+  // chaîne à trois coordonnées doit être refusée sur sa STRUCTURE, et non sur
+  // le fait qu'une lecture veuille bien en tirer deux nombres quelconques.
+  if ((texte.match(/[°d]/giu) ?? []).length !== 2) return null;
+  const parts = composantesDms(texte);
+  if (parts.length !== 2) return null;
+  const lat = parts.filter((x) => x.ref === 'N' || x.ref === 'S');
+  const lon = parts.filter((x) => x.ref === 'E' || x.ref === 'W' || x.ref === 'O');
+  // Un axe donné deux fois, ou pas du tout : on refuse plutôt que de choisir.
+  if (lat.length !== 1 || lon.length !== 1) return null;
+  return validerPosition({ lat: lat[0].v, lon: lon[0].v });
 }
 
 /**
@@ -24,19 +95,13 @@ export function parseCoordinates(input: string): LatLon | null {
   if (!texte) return null;
 
   // 1) Forme DMS, éventuellement avec hémisphères.
-  DMS.lastIndex = 0;
-  const dms = [...texte.matchAll(DMS)];
-  if (dms.length >= 2) {
-    const valeurs = dms.slice(0, 2).map((m) => {
-      const v = num(m[1]) + num(m[2]) / 60 + num(m[3]) / 3600;
-      const ref = m[4].toUpperCase();
-      // « O » pour Ouest en français, « W » en anglais.
-      return { v: ref === 'S' || ref === 'W' || ref === 'O' ? -v : v, ref };
-    });
-    const lat = valeurs.find((x) => x.ref === 'N' || x.ref === 'S');
-    const lon = valeurs.find((x) => x.ref === 'E' || x.ref === 'W' || x.ref === 'O');
+  const parts = composantesDms(texte);
+  if (parts.length >= 2) {
+    const deux = parts.slice(0, 2);
+    const lat = deux.find((x) => x.ref === 'N' || x.ref === 'S');
+    const lon = deux.find((x) => x.ref === 'E' || x.ref === 'W' || x.ref === 'O');
     if (lat && lon) return validerPosition({ lat: lat.v, lon: lon.v });
-    return validerPosition({ lat: valeurs[0].v, lon: valeurs[1].v });
+    return validerPosition({ lat: deux[0].v, lon: deux[1].v });
   }
 
   // 2) Forme décimale. On isole deux nombres signés, en tolérant la virgule
