@@ -27,9 +27,8 @@ import {
   infosVideo,
   effacerPositionVideo,
   lirePositionVideo,
-  porteursConcordent,
   sonderVideo,
-  structureIntacte,
+  videoCoherente,
 } from '../lib/exif/quicktime.ts';
 import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
@@ -266,14 +265,8 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   let camera: string | null = null;
   const details: Array<{ cle: string; value: string }> = [];
 
-  /*
-   * A video says what it is, but not in the same place as a photo.
-   *
-   * The details panel depended entirely on the second reader, and it opens
-   * neither MOV nor MP4: four of its five sources were dead here. A video with
-   * no location had no line to show and the panel disappeared, even though the
-   * file carries its duration, its dimensions, its date and often its device.
-   */
+  // A video says what it is, but not in the same place as a photo: see
+  // `infosVideo`, which explains why the panel stayed empty.
   if (format === 'video') {
     const infos = infosVideo(bytes);
     takenAt = infos.takenAt;
@@ -282,10 +275,9 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   }
 
   try {
-    // The second reader opens neither MOV nor MP4: calling it on a video would
-    // have it sweep several megabytes for nothing. Worse, if it ever learned to
-    // read them, two readers would answer with no rule saying which prevails,
-    // when on a video ours is the one that writes.
+    // Calling it on a video would have it sweep several megabytes for nothing.
+    // Worse, if it ever learned to read them, two readers would answer with no
+    // rule saying which prevails, when on a video ours is the one that writes.
     const tags = (format === 'video'
       ? undefined
       : await exifr.parse(buffer, OPTIONS_COMPLETES)) as
@@ -430,30 +422,30 @@ const accord = (a: LatLon | null, b: LatLon | null): boolean =>
  * in `self`, `exifr` and the message protocol. That is exactly how a check that
  * refused every video shipped green.
  */
-async function verifierVideo(
+function verifierVideo(
   produit: Uint8Array,
   attendu: LatLon | null,
-): Promise<{ verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean }> {
-  const parNous = (() => {
+): { verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean } {
+  const sansLever = <T>(f: () => T, repli: T): T => {
     try {
-      return lirePositionVideo(produit);
+      return f();
     } catch {
-      return null;
+      return repli;
     }
-  })();
-
-  const croise = (() => {
-    try {
-      return structureIntacte(produit) && porteursConcordent(produit);
-    } catch {
-      return false;
-    }
-  })();
-  if (attendu === null) {
-    return { verified: parNous, drift: parNous === null ? 0 : Infinity, croise, croiseComplet: false };
-  }
-  if (!parNous) return { verified: null, drift: Infinity, croise, croiseComplet: false };
-  return { verified: parNous, drift: distanceMetres(parNous, attendu), croise, croiseComplet: false };
+  };
+  const parNous = sansLever(() => lirePositionVideo(produit), null);
+  return {
+    verified: parNous,
+    // An infinite discrepancy says "this is not what was asked for" in both
+    // directions: a location was expected and there is none, or the reverse.
+    drift: attendu === null
+      ? (parNous === null ? 0 : Infinity)
+      : (parNous === null ? Infinity : distanceMetres(parNous, attendu)),
+    croise: sansLever(() => videoCoherente(produit), false),
+    // The second reader opens neither MOV nor MP4: the cross-check cannot be
+    // complete, and claiming it were would misstate the strength of the check.
+    croiseComplet: false,
+  };
 }
 
 async function verifier(

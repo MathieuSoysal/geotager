@@ -23,15 +23,15 @@
  */
 
 import { ExifError } from './erreurs.ts';
-import { type LatLon, distanceMetres, validerPosition } from './coords.ts';
+import { type LatLon, distanceMetres, lireDms, validerPosition } from './coords.ts';
 import { type Plage, type Pose } from './conteneurs.ts';
 import { lireLieuXmp, porteUnLieu, purgerLeLieu } from './xmp.ts';
 import {
   type Boite,
   boites,
   charge,
-  chemin,
   contientDesBoites,
+  parType,
   enfants,
   finDe,
   texte,
@@ -117,89 +117,6 @@ export function lireIso6709(s: string): LatLon | null {
 }
 
 /**
- * A location written to be read by a person: `43°54′29.2″N 4°51′49.9″E`.
- *
- * ISO 6709 has nothing to do with that form, and yet it turns up in the
- * location field of real videos: applications deposit what they show on screen
- * rather than the regulation digits. ExifTool itself makes nothing of it; it
- * announces the field and returns "NaN". We read it, because nothing in it is
- * ambiguous: the sign of the degrees is given by the hemisphere letter, and the
- * symbols say which unit each number is in.
- *
- * The degree symbol is required. It is what separates a location from a title
- * or a comment with two numbers loose in it: without it, this function would
- * invent positions out of arbitrary text, the one mistake a privacy tool cannot
- * make.
- */
-const NOMBRES_DMS =
-  '(\\d+(?:[.,]\\d+)?)\\s*°' + // les degrés, et leur symbole : le seul obligatoire
-  "\\s*(?:(\\d+(?:[.,]\\d+)?)\\s*[′']\\s*)?" + // les minutes, s'il y en a
-  '\\s*(?:(\\d+(?:[.,]\\d+)?)\\s*(?:″|\'\'|")\\s*)?'; // les secondes, de même
-
-/*
- * Two layouts, tried in this order and never mixed.
- *
- * The letter follows the numbers (`43°54′29.2″N`) or precedes them
- * (`N 43°54′29.2″`). A single expression accepting both would, on the second
- * layout, take the longitude's "E" for the latitude's letter and leave the
- * longitude without a hemisphere. Two straightforward reads beat one that picks
- * the wrong axis.
- */
-const DMS_LETTRE_APRES = new RegExp(`${NOMBRES_DMS}\\s*([NSEWnsew])`, 'g');
-const DMS_LETTRE_AVANT = new RegExp(`([NSEWnsew])\\s*${NOMBRES_DMS}`, 'g');
-
-export function lireDms(s: string): LatLon | null {
-  const propre = nettoyerChaine(s);
-  const nombre = (x: string | undefined) => (x === undefined ? 0 : Number(x.replace(',', '.')));
-
-  /*
-   * Exactly two degree symbols: that is the structure of a location.
-   *
-   * The count happens before any parsing, and it is what stops the two layouts
-   * below from contradicting each other. On a string with three coordinates the
-   * first read failed and the second picked up two others, yielding a position
-   * nobody had written. A string whose structure is not a location's must be
-   * rejected on its structure, not on whether some read can pull something out
-   * of it.
-   */
-  if ((propre.match(/°/g) ?? []).length !== 2) return null;
-
-  const assembler = (parts: Array<[string, string, string?, string?]>): LatLon | null => {
-    // Exactly two components: one fewer locates nothing, one more is a string
-    // whose structure we do not understand.
-    if (parts.length !== 2) return null;
-    let lat: number | null = null;
-    let lon: number | null = null;
-    for (const [lettre, d, m, sec] of parts) {
-      const minutes = nombre(m);
-      const secondes = nombre(sec);
-      if (minutes >= 60 || secondes >= 60) return null;
-      const valeur = nombre(d) + minutes / 60 + secondes / 3600;
-      const axe = lettre.toUpperCase();
-      const signe = axe === 'S' || axe === 'W' ? -1 : 1;
-      // The same axis given twice: refuse rather than choose.
-      if (axe === 'N' || axe === 'S') {
-        if (lat !== null) return null;
-        lat = signe * valeur;
-      } else {
-        if (lon !== null) return null;
-        lon = signe * valeur;
-      }
-    }
-    if (lat === null || lon === null) return null;
-    return validerPosition({ lat, lon });
-  };
-
-  const apres = [...propre.matchAll(DMS_LETTRE_APRES)].map(
-    (m) => [m[4], m[1], m[2], m[3]] as [string, string, string?, string?],
-  );
-  const avant = [...propre.matchAll(DMS_LETTRE_AVANT)].map(
-    (m) => [m[1], m[2], m[3], m[4]] as [string, string, string?, string?],
-  );
-  return assembler(apres) ?? assembler(avant);
-}
-
-/**
  * The location a text carries, however it is written.
  *
  * One entry point for both forms, which is what guarantees display, probing and
@@ -207,7 +124,7 @@ export function lireDms(s: string): LatLon | null {
  * separately once diverged from the first; the lesson was learned once.
  */
 export function lireLieuTexte(s: string): LatLon | null {
-  return lireIso6709(s) ?? lireDms(s);
+  return lireIso6709(s) ?? lireDms(nettoyerChaine(s));
 }
 
 /**
@@ -289,26 +206,30 @@ export interface Porteur {
   nomDeLieu: { debut: number; longueur: number } | null;
 }
 
-/** The four-letter names the text slots use for the location. */
+/** 16.16 fixed point, as both `tkhd` and `loci` write it. */
+const virguleFixe = (b: Uint8Array, o: number) => (readU32(b, o, 'BE') | 0) / 65536;
+
+/** Where a payload lives: its first byte, and its length. */
+interface Charge {
+  debut: number;
+  longueur: number;
+}
+
+/** The two atom names the text slots use for the location. */
 const TYPES_XYZ = ['©xyz', '@xyz'];
 
 const CLE_APPLE = 'com.apple.quicktime.location.ISO6709';
 const CLE_APPLE_NOM = 'com.apple.quicktime.location.name';
 
 /**
- * `moov/udta/©xyz` and its Samsung cousin `@xyz`.
- *
- * Layout: the eight-byte header, the string length in two bytes, a two-byte
- * language code, then the string.
- */
-/**
  * The string of a `udta` text atom, and where it sits.
  *
- * This layout serves the location as it serves the rest: `©mak`, `©mod` and
- * `©ART` share it with `©xyz`. It is therefore read in one place, since what
- * distinguishes these atoms is their name, never their shape.
+ * Layout: the eight-byte header, the string length in two bytes, a two-byte
+ * language code, then the string. It serves the location as it serves the rest:
+ * `©mak`, `©mod` and `©ART` share it with `©xyz`. It is therefore read in one
+ * place, since what distinguishes these atoms is their name, never their shape.
  */
-function chaineDAtome(b: Uint8Array, x: Boite): { debut: number; longueur: number } | null {
+function chaineDAtome(b: Uint8Array, x: Boite): Charge | null {
   const debut = charge(x);
   if (debut + 4 > finDe(x)) return null;
   const longueur = readU16(b, debut, 'BE');
@@ -316,79 +237,69 @@ function chaineDAtome(b: Uint8Array, x: Boite): { debut: number; longueur: numbe
   return { debut: debut + 4, longueur };
 }
 
-function porteursUdta(b: Uint8Array, udta: Boite | null): Porteur[] {
-  if (!udta) return [];
+/** A slot carrying its position as text, the common case. */
+function porteurTexte(b: Uint8Array, sorte: Porteur['sorte'], boite: Boite, c: Charge): Porteur {
+  return {
+    sorte,
+    boite,
+    debutTexte: c.debut,
+    longueurTexte: c.longueur,
+    texte: texteLisible(b, c.debut, c.longueur),
+    nomDeLieu: null,
+  };
+}
+
+/**
+ * The slots inside a `udta`: the `©xyz` text atom, its Samsung cousin `@xyz`,
+ * and 3GPP's `loci`.
+ *
+ * A single walk of the children, dispatched on type. Two separate loops re-read
+ * the same headers twice, on a `udta` already visited several times per file.
+ *
+ * `loci` is the only one that writes the place name in words next to the
+ * coordinates: a file with no coordinates left that still names the town is not
+ * erased. Its layout: version and flags (4), language (2), the NUL-terminated
+ * name, the role (1), then longitude, latitude and altitude as 16.16 fixed
+ * point, four bytes each.
+ */
+function porteursUdta(b: Uint8Array, udta: Boite): Porteur[] {
   const out: Porteur[] = [];
   for (const x of enfants(b, udta)) {
-    if (!TYPES_XYZ.includes(x.type)) continue;
-    const c = chaineDAtome(b, x);
-    if (!c) continue;
-    out.push({
-      sorte: 'xyz-udta',
-      boite: x,
-      debutTexte: c.debut,
-      longueurTexte: c.longueur,
-      texte: texteLisible(b, c.debut, c.longueur),
-      nomDeLieu: null,
-    });
+    if (TYPES_XYZ.includes(x.type)) {
+      const c = chaineDAtome(b, x);
+      if (c) out.push(porteurTexte(b, 'xyz-udta', x, c));
+    } else if (x.type === 'loci') {
+      const fin = finDe(x);
+      let o = charge(x) + 6;
+      const debutNom = o;
+      while (o < fin && b[o] !== 0) o++;
+      if (o >= fin) continue;
+      const longueurNom = o - debutNom;
+      o += 1 + 1; // le zéro final, puis le rôle
+      if (o + 8 > fin) continue;
+      out.push({
+        sorte: 'loci',
+        boite: x,
+        debutTexte: o,
+        longueurTexte: 8,
+        texte: '',
+        binaire: { lon: virguleFixe(b, o), lat: virguleFixe(b, o + 4) },
+        nomDeLieu: longueurNom > 0 ? { debut: debutNom, longueur: longueurNom } : null,
+      });
+    }
   }
   return out;
 }
 
 /**
- * `moov/udta/loci`, the 3GPP slot, and the only one that writes the place name
- * in words next to the coordinates.
+ * The payload of an item-list entry.
  *
- * Layout: version and flags (4), language (2), the NUL-terminated place name,
- * the role (1), then longitude, latitude and altitude as 16.16 fixed point,
- * four bytes each.
- *
- * This is the "Avignon" case: a file with no coordinates left that still names
- * the town is not erased.
+ * Two lists exist: `moov/udta/meta/ilst`, which Google Photos writes, and
+ * Apple's `moov/meta`, whose entries are numbered and whose names live in a
+ * separate `keys` box. In both cases the value is in a `data` box: four bytes
+ * of type, four of language, then the payload.
  */
-function porteurLoci(b: Uint8Array, udta: Boite | null): Porteur[] {
-  if (!udta) return [];
-  const out: Porteur[] = [];
-  for (const x of enfants(b, udta)) {
-    if (x.type !== 'loci') continue;
-    const fin = finDe(x);
-    let o = charge(x) + 6;
-    const debutNom = o;
-    while (o < fin && b[o] !== 0) o++;
-    if (o >= fin) continue;
-    const longueurNom = o - debutNom;
-    o += 1 + 1; // le zéro final, puis le rôle
-    if (o + 8 > fin) continue;
-    const fixe = (p: number) => (readU32(b, p, 'BE') | 0) / 65536;
-    out.push({
-      sorte: 'loci',
-      boite: x,
-      debutTexte: o,
-      longueurTexte: 8,
-      texte: '',
-      binaire: { lon: fixe(o), lat: fixe(o + 4) },
-      nomDeLieu: longueurNom > 0 ? { debut: debutNom, longueur: longueurNom } : null,
-    });
-  }
-  return out;
-}
-
-/**
- * The item lists: `moov/udta/meta/ilst`, written by Google Photos, and Apple's
- * `moov/meta`, whose entries are numbered and whose names live in a separate
- * `keys` box.
- *
- * In both cases the value is in a `data` box: four bytes of type, four of
- * language, then the payload.
- */
-/**
- * The payload of a list entry: it lives in a `data` box, preceded by four bytes
- * of type and four of language.
- */
-function valeurDeLEntree(
-  b: Uint8Array,
-  entree: Boite,
-): { debut: number; longueur: number } | null {
+function valeurDeLEntree(b: Uint8Array, entree: Boite): Charge | null {
   const data = enfants(b, entree).find((d) => d.type === 'data');
   if (!data) return null;
   const debut = charge(data) + 8;
@@ -406,12 +317,12 @@ function valeurDeLEntree(
  */
 function entreesDesKeys(
   b: Uint8Array,
-  racine: Boite[],
-): Array<{ nom: string; entree: Boite; valeur: { debut: number; longueur: number } }> {
-  const out: Array<{ nom: string; entree: Boite; valeur: { debut: number; longueur: number } }> = [];
+  metas: Boite[],
+): Array<{ nom: string; entree: Boite; valeur: Charge }> {
+  const out: Array<{ nom: string; entree: Boite; valeur: Charge }> = [];
   // Every `meta` in the file, not just `moov/meta`. A name/value pair is a pair
   // wherever it is attached.
-  for (const meta of toutesLesBoites(b, 'meta', racine)) {
+  for (const meta of metas) {
     const filles = enfants(b, meta);
     const keys = filles.find((x) => x.type === 'keys');
     const ilst = filles.find((x) => x.type === 'ilst');
@@ -431,41 +342,24 @@ function entreesDesKeys(
   return out;
 }
 
-function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
+function porteursIlst(b: Uint8Array, trouves: Map<string, Boite[]>): Porteur[] {
   const out: Porteur[] = [];
-  const valeurDe = (entree: Boite) => valeurDeLEntree(b, entree);
-
   // Four-letter key, what Google Photos writes. In every `ilst`: the one under
   // `moov/udta/meta` is the most common, but a file may hang its own off
   // `moov/meta`, and the location reads just as well there.
-  for (const ilst of toutesLesBoites(b, 'ilst', racine)) {
+  for (const ilst of trouves.get('ilst') ?? []) {
     for (const entree of enfants(b, ilst)) {
       if (!TYPES_XYZ.includes(entree.type)) continue;
-      const v = valeurDe(entree);
-      if (!v) continue;
-      out.push({
-        sorte: 'xyz-ilst',
-        boite: entree,
-        debutTexte: v.debut,
-        longueurTexte: v.longueur,
-        texte: texteLisible(b, v.debut, v.longueur),
-        nomDeLieu: null,
-      });
+      const v = valeurDeLEntree(b, entree);
+      if (v) out.push(porteurTexte(b, 'xyz-ilst', entree, v));
     }
   }
 
   // Apple: `keys` names, `ilst` numbers. The pairing lives in `entreesDesKeys`,
   // which also serves reading the file's information.
-  for (const { nom, entree, valeur: v } of entreesDesKeys(b, racine)) {
+  for (const { nom, entree, valeur: v } of entreesDesKeys(b, trouves.get('meta') ?? [])) {
     if (nom === CLE_APPLE) {
-      out.push({
-        sorte: 'keys',
-        boite: entree,
-        debutTexte: v.debut,
-        longueurTexte: v.longueur,
-        texte: texteLisible(b, v.debut, v.longueur),
-        nomDeLieu: null,
-      });
+      out.push(porteurTexte(b, 'keys', entree, v));
     } else if (nom === CLE_APPLE_NOM) {
       // No coordinates here, only the place name in words. It has nothing to
       // contribute on read, but it must disappear on erase.
@@ -497,15 +391,14 @@ function listerKeys(b: Uint8Array, keys: Boite): string[] {
 }
 
 /** Every copy of the location this file carries, whoever wrote it. */
-export function porteursDeLieu(b: Uint8Array): Porteur[] {
-  const racine = boites(b, 0, b.length);
+export function porteursDeLieu(b: Uint8Array, racine = boites(b, 0, b.length)): Porteur[] {
   // Every `udta`, not just `moov/udta`: a track can have its own, and a file
-  // can carry several. A slot counts wherever it is.
-  const udtas = toutesLesBoites(b, 'udta', racine);
+  // can carry several. A slot counts wherever it is. All three types are
+  // gathered in one descent.
+  const trouves = parType(b, ['udta', 'ilst', 'meta'], racine);
   return [
-    ...udtas.flatMap((u) => porteursUdta(b, u)),
-    ...udtas.flatMap((u) => porteurLoci(b, u)),
-    ...porteursIlst(b, racine),
+    ...(trouves.get('udta') ?? []).flatMap((u) => porteursUdta(b, u)),
+    ...porteursIlst(b, trouves),
   ];
 }
 
@@ -533,9 +426,6 @@ export interface InfosVideo {
 
 /** Seconds between the start of the QuickTime calendar and Unix's. */
 const EPOQUE_QUICKTIME = Date.UTC(1904, 0, 1) / 1000;
-
-/** 16.16 fixed point, as both `tkhd` and `loci` write it. */
-const virguleFixe = (b: Uint8Array, o: number) => (readU32(b, o, 'BE') | 0) / 65536;
 
 /** `h:mm:ss` or `m:ss`. Digits, not words: the worker has no dictionary. */
 function duree(secondes: number): string {
@@ -570,16 +460,16 @@ function affichable(s: string): boolean {
  * language, string) and the `data` box form that iTunes-derived tools use.
  * `©day` is written sometimes in one, sometimes in the other.
  */
-function textesDUdta(b: Uint8Array, racine: Boite[]): Map<string, string> {
+function textesDUdta(b: Uint8Array, udtas: Boite[]): Map<string, string> {
   const out = new Map<string, string>();
-  for (const udta of toutesLesBoites(b, 'udta', racine)) {
-  for (const x of enfants(b, udta)) {
-    const c = chaineDAtome(b, x) ?? valeurDeLEntree(b, x);
-    if (!c) continue;
-    const valeur = texteLisible(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
-    // First found wins: the movie's beats a track's.
-    if (affichable(valeur) && !out.has(x.type)) out.set(x.type, valeur);
-  }
+  for (const udta of udtas) {
+    for (const x of enfants(b, udta)) {
+      const c = chaineDAtome(b, x) ?? valeurDeLEntree(b, x);
+      if (!c) continue;
+      const valeur = texteLisible(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
+      // First found wins: the movie's beats a track's.
+      if (affichable(valeur) && !out.has(x.type)) out.set(x.type, valeur);
+    }
   }
   return out;
 }
@@ -593,11 +483,12 @@ export function infosVideo(b: Uint8Array): InfosVideo {
   const moov = racine.find((x) => x.type === 'moov');
   if (!moov) return { takenAt, camera, details };
 
-  const cles = new Map(entreesDesKeys(b, racine).map((e) => [
+  const trouves = parType(b, ['udta', 'ilst', 'meta'], racine);
+  const cles = new Map(entreesDesKeys(b, trouves.get('meta') ?? []).map((e) => [
     e.nom,
     texteLisible(b, e.valeur.debut, e.valeur.longueur).trim(),
   ]));
-  const atomes = textesDUdta(b, racine);
+  const atomes = textesDUdta(b, trouves.get('udta') ?? []);
   const premier = (...candidats: (string | undefined)[]) =>
     candidats.find((v) => v && v.trim()) ?? null;
 
@@ -674,7 +565,7 @@ export function infosVideo(b: Uint8Array): InfosVideo {
    * One line, and only in this case: when the position decodes, the location
    * line already exists and repeating the string would be noise.
    */
-  const illisible = porteursDeLieu(b)
+  const illisible = porteursDeLieu(b, racine)
     .map((porteur) => nettoyerChaine(porteur.texte))
     .find((brut) => brut !== '' && lireLieuTexte(brut) === null);
   if (illisible) details.push({ cle: 'LieuBrut', value: illisible });
@@ -704,17 +595,12 @@ const CHARGES_OPAQUES = ['GPMF'];
  * alike, because correcting the visible copy while leaving the track intact
  * would produce a file that displays one location and reveals another.
  */
-export function lieuEnMouvement(b: Uint8Array): boolean {
-  const racine = boites(b, 0, b.length);
-  for (const stsd of toutesLesBoites(b, 'stsd', racine)) {
-    for (const description of enfants(b, stsd)) {
-      if (PISTES_DE_LIEU.includes(description.type)) return true;
-    }
-  }
-  for (const udta of toutesLesBoites(b, 'udta', racine)) {
-    if (enfants(b, udta).some((x) => CHARGES_OPAQUES.includes(x.type))) return true;
-  }
-  return false;
+export function lieuEnMouvement(b: Uint8Array, racine = boites(b, 0, b.length)): boolean {
+  const trouves = parType(b, ['stsd', 'udta'], racine);
+  const porte = (parents: Boite[], types: string[]) =>
+    parents.some((x) => enfants(b, x).some((f) => types.includes(f.type)));
+  return porte(trouves.get('stsd') ?? [], PISTES_DE_LIEU)
+    || porte(trouves.get('udta') ?? [], CHARGES_OPAQUES);
 }
 
 // Reading
@@ -733,8 +619,8 @@ function positionDe(p: Porteur): LatLon | null {
  * cannot rewrite it, but ignoring it left the tool saying "no location" on a
  * file every other reader shows a location for.
  */
-export function lirePositionVideo(b: Uint8Array): LatLon | null {
-  for (const p of porteursDeLieu(b)) {
+export function lirePositionVideo(b: Uint8Array, porteurs = porteursDeLieu(b)): LatLon | null {
+  for (const p of porteurs) {
     const position = positionDe(p);
     if (position) return position;
   }
@@ -750,11 +636,6 @@ export function lirePositionVideo(b: Uint8Array): LatLon | null {
 
 // The file's absolute offsets
 
-interface TableDeDecalages {
-  /** File position of each entry, and its width. */
-  entrees: { pos: number; largeur: number; valeur: number }[];
-}
-
 /**
  * Every entry that addresses a byte of the file by its absolute rank.
  *
@@ -763,10 +644,17 @@ interface TableDeDecalages {
  * carries an absolute offset, which is what makes adding possible, and what
  * would make it dangerous if they were forgotten.
  */
-function tableDeDecalages(b: Uint8Array, racine: Boite[]): TableDeDecalages {
-  const entrees: TableDeDecalages['entrees'] = [];
+interface Decalage {
+  pos: number;
+  largeur: number;
+  valeur: number;
+}
+
+function tableDeDecalages(b: Uint8Array, racine: Boite[]): Decalage[] {
+  const entrees: Decalage[] = [];
+  const trouves = parType(b, ['stco', 'co64'], racine);
   for (const largeur of [4, 8] as const) {
-    for (const table of toutesLesBoites(b, largeur === 4 ? 'stco' : 'co64', racine)) {
+    for (const table of trouves.get(largeur === 4 ? 'stco' : 'co64') ?? []) {
       const debut = charge(table);
       if (debut + 8 > finDe(table)) continue;
       const compte = readU32(b, debut + 4, 'BE');
@@ -780,7 +668,7 @@ function tableDeDecalages(b: Uint8Array, racine: Boite[]): TableDeDecalages {
       }
     }
   }
-  return { entrees };
+  return entrees;
 }
 
 /**
@@ -795,8 +683,7 @@ function tableDeDecalages(b: Uint8Array, racine: Boite[]): TableDeDecalages {
  *
  * A file with no entries at all passes: there is nothing to correct.
  */
-export function accepteAjoutVideo(b: Uint8Array): boolean {
-  const racine = boites(b, 0, b.length);
+export function accepteAjoutVideo(b: Uint8Array, racine = boites(b, 0, b.length)): boolean {
   const moov = racine.find((x) => x.type === 'moov');
   if (!moov) return false;
   if (racine.some((x) => x.type === 'moof' || x.type === 'sidx' || x.type === 'mfra')) {
@@ -811,7 +698,7 @@ export function accepteAjoutVideo(b: Uint8Array): boolean {
   // is rare enough on a `moov` that no witness file exists, so we refuse.
   const aResizer = [moov, ...enfants(b, moov).filter((x) => x.type === 'udta')];
   if (aResizer.some((x) => x.entete !== 8)) return false;
-  const { entrees } = tableDeDecalages(b, racine);
+  const entrees = tableDeDecalages(b, racine);
   return entrees.every((e) => e.valeur > 0 && e.valeur < b.length);
 }
 
@@ -892,7 +779,7 @@ function corrigerSurPlace(b: Uint8Array, porteurs: Porteur[], p: LatLon): Pose |
     if (!relu || distanceMetres(relu, p) > ECART_TOLERE_METRES) return null;
     remplacements.push({
       debut: porteur.debutTexte,
-      octets: Uint8Array.from(s, (c) => c.charCodeAt(0)),
+      octets: ascii(s),
     });
   }
 
@@ -921,7 +808,7 @@ function ajouterLeLieu(b: Uint8Array, p: LatLon, aNeutraliser: Porteur[] = []): 
 
   const s = ecrireIso6709(p, LONGUEUR_NEUVE);
   if (s === null) throw REFUS_ECRITURE();
-  const chaine = Uint8Array.from(s, (c) => c.charCodeAt(0));
+  const chaine = ascii(s);
 
   // The `©xyz` box: header, string length, language code, string. 0x15c7 is the
   // "undetermined" language code, the one real devices write.
@@ -940,7 +827,7 @@ function ajouterLeLieu(b: Uint8Array, p: LatLon, aNeutraliser: Porteur[] = []): 
   const insertions: Insertion[] = [
     udta
       ? { a: finDe(udta), octets: xyz, dans: [udta, moov] }
-      : { a: finDe(moov), octets: nouvelleUdta(xyz), dans: [moov] },
+      : { a: finDe(moov), octets: boite('udta', xyz), dans: [moov] },
   ];
 
   // The second copy, the one Apple software reads. See `metaApple` for what
@@ -977,7 +864,7 @@ function ajouterLeLieu(b: Uint8Array, p: LatLon, aNeutraliser: Porteur[] = []): 
 
   // And the absolute offsets, one by one. Each advances by whatever was
   // inserted before the byte it addresses, and no more.
-  for (const e of tableDeDecalages(b, racine).entrees) {
+  for (const e of tableDeDecalages(b, racine)) {
     const v = deplacer(e.valeur);
     if (v === e.valeur) continue;
     const pos = deplacer(e.pos);
@@ -1034,18 +921,19 @@ function inserer(
   return { out, deplacer };
 }
 
+/** The bytes of a string, one per character. The inverse of `texte`. */
+const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
+
 /** Any box: an eight-byte header, then the payload. */
 function boite(type: string, ...morceaux: Uint8Array[]): Uint8Array {
   const charge = morceaux.reduce((n, m) => n + m.length, 0);
   const out = new Uint8Array(8 + charge);
   writeU32(out, 0, out.length, 'BE');
-  out.set(Uint8Array.from(type, (c) => c.charCodeAt(0)), 4);
+  out.set(ascii(type), 4);
   let o = 8;
   for (const m of morceaux) { out.set(m, o); o += m.length; }
   return out;
 }
-
-const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
 
 /**
  * The second copy of the location, the one Apple software reads.
@@ -1114,15 +1002,6 @@ function metaApple(
    * itself writes when asked to set this key.
    */
   return boite('meta', hdlr, keys, ilst);
-}
-
-/** A brand new `udta`, wrapping only the box we just wrote. */
-function nouvelleUdta(contenu: Uint8Array): Uint8Array {
-  const out = new Uint8Array(8 + contenu.length);
-  writeU32(out, 0, out.length, 'BE');
-  out.set([0x75, 0x64, 0x74, 0x61], 4); // « udta »
-  out.set(contenu, 8);
-  return out;
 }
 
 /** Writes a position into a video, correcting or creating. */
@@ -1215,16 +1094,13 @@ const texteHexa = (b: Uint8Array, o: number, n: number) =>
   Array.from(b.subarray(o, o + n), (v) => v.toString(16).padStart(2, '0')).join('');
 
 const lireTexte = (b: Uint8Array, x: Boite) =>
-  new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(charge(x), finDe(x)));
+  texteLisible(b, charge(x), finDe(x) - charge(x));
 
 /**
- * Removes the location from a video, or returns the original.
+ * Removes the location properties from descriptive text packets, in place.
  *
  * Order matters: the refusal comes before a byte is touched. A half-finished
  * erase is worse than none, because the user would believe the file is clean.
- */
-/**
- * Removes the location properties from descriptive text packets, in place.
  *
  * A packet is not neutralised wholesale: it also carries the title, the author
  * and the edit history. `xmp.ts` blanks only the location, at constant length,
@@ -1233,9 +1109,10 @@ const lireTexte = (b: Uint8Array, x: Boite) =>
  * Called on erase and on correction alike. On correction the all-or-nothing
  * rule requires it: the numbers there have variable length, so rewriting them
  * would move bytes, and leaving them would have the same file state two
- * different locations.
+ * different locations. The copy we cannot keep up to date is removed rather
+ * than left to contradict the ones we can.
  */
-function purgerLesPaquets(out: Uint8Array, changed: Plage[]): void {
+function purgerLesPaquets(out: Uint8Array, changed: Plage[] | null): boolean {
   for (const paquet of paquetsDeTexte(out)) {
     const avant = lireTexte(out, paquet);
     if (!porteUnLieu(avant)) continue;
@@ -1246,14 +1123,18 @@ function purgerLesPaquets(out: Uint8Array, changed: Plage[]): void {
     // that follows.
     const octets = apres === null ? null : new TextEncoder().encode(apres);
     if (!octets || octets.length !== finDe(paquet) - charge(paquet)) {
+      if (changed === null) return false;
       throw new ExifError(
         'COPIE_DU_LIEU_SUBSISTE',
         "Une copie du lieu subsiste dans cette vidéo, sous une forme que nous ne savons pas retirer. Nous préférons vous rendre l'original intact.",
       );
     }
-    out.set(octets, charge(paquet));
-    changed.push([charge(paquet), finDe(paquet)]);
+    if (changed !== null) {
+      out.set(octets, charge(paquet));
+      changed.push([charge(paquet), finDe(paquet)]);
+    }
   }
+  return true;
 }
 
 export function effacerPositionVideo(b: Uint8Array): Pose {
@@ -1355,25 +1236,17 @@ export function porteursConcordent(b: Uint8Array): boolean {
   return lus.every((x) => distanceMetres(x, lus[0]) < 1);
 }
 
-// What we can do with this file
-
 /**
- * True if the text packet, should it name a location, can be cleaned.
+ * The post-write check, in one word.
  *
- * Asked before the action, and by the same code that will answer during it,
- * which is what stops the interface offering an erase the engine will refuse.
+ * The two halves stay separate because the test harness needs to know which one
+ * gives way; the caller has only one question to ask.
  */
-function texteNettoyable(b: Uint8Array): boolean {
-  for (const paquet of paquetsDeTexte(b)) {
-    const avant = lireTexte(b, paquet);
-    if (!porteUnLieu(avant)) continue;
-    const apres = purgerLeLieu(avant);
-    if (apres === null) return false;
-    const octets = new TextEncoder().encode(apres);
-    if (octets.length !== finDe(paquet) - charge(paquet)) return false;
-  }
-  return true;
+export function videoCoherente(b: Uint8Array): boolean {
+  return structureIntacte(b) && porteursConcordent(b);
 }
+
+// What we can do with this file
 
 /**
  * A slot long enough to carry any location to the metre.
@@ -1414,13 +1287,14 @@ export interface SondeVideo {
 }
 
 export function sonderVideo(b: Uint8Array): SondeVideo {
-  const enMouvement = lieuEnMouvement(b);
-  const porteurs = porteursDeLieu(b);
+  const racine = boites(b, 0, b.length);
+  const enMouvement = lieuEnMouvement(b, racine);
+  const porteurs = porteursDeLieu(b, racine);
   // The same read as the one displayed, not a second that diverges from it:
   // the probe used to recompute the location from the ordinary slots alone, so
   // a video whose location lives in the text packet announced itself as having
   // none while the reader could read it.
-  const position = lirePositionVideo(b);
+  const position = lirePositionVideo(b, porteurs);
 
   if (enMouvement) {
     // The location is also written throughout the video, in the data this
@@ -1432,7 +1306,7 @@ export function sonderVideo(b: Uint8Array): SondeVideo {
     };
   }
 
-  const peutGrandir = accepteAjoutVideo(b);
+  const peutGrandir = accepteAjoutVideo(b, racine);
   const surPlace = porteurs.length > 0 && porteurs.every(assezLong);
   return {
     position,
@@ -1441,7 +1315,7 @@ export function sonderVideo(b: Uint8Array): SondeVideo {
       lire: true,
       corriger: peutGrandir || surPlace,
       ajouter: peutGrandir,
-      effacer: texteNettoyable(b),
+      effacer: purgerLesPaquets(b, null),
       // Removing everything from a video would mean rebuilding it, which this
       // module cannot do, for the same reason as a HEIC.
       effacerTout: false,

@@ -150,25 +150,6 @@ export function enfants(b: Uint8Array, parent: Boite): Boite[] {
 }
 
 /**
- * Follows a path of types, for example `moov/udta`.
- *
- * Returns the first box at each level, since a well-formed file has one `moov`
- * and one `udta`. Returns `null` as soon as a level is missing, rather than
- * searching further: a box found in the wrong place means nothing.
- */
-export function chemin(b: Uint8Array, route: string, racine?: Boite[]): Boite | null {
-  let niveau = racine ?? boites(b, 0, b.length);
-  let trouvee: Boite | null = null;
-  for (const cran of route.split('/')) {
-    const suivante = niveau.find((x) => x.type === cran);
-    if (!suivante) return null;
-    trouvee = suivante;
-    niveau = enfants(b, suivante);
-  }
-  return trouvee;
-}
-
-/**
  * Boxes that contain other boxes.
  *
  * Descending into `mdat`, the images and sound and most of the file's weight,
@@ -193,18 +174,29 @@ export function contientDesBoites(type: string): boolean {
 
 /** Every box of a given type, at any depth. */
 
-export function toutesLesBoites(
+export function toutesLesBoites(b: Uint8Array, type: string, racine?: Boite[]): Boite[] {
+  return parType(b, [type], racine).get(type) ?? [];
+}
+
+/**
+ * Several types in a single descent.
+ *
+ * Looking for three types meant three full tree walks, on a file already
+ * walked several times to probe it. The descent is the expensive part; the
+ * type being looked for is not.
+ */
+export function parType(
   b: Uint8Array,
-  type: string,
+  types: string[],
   racine?: Boite[],
-): Boite[] {
-  const out: Boite[] = [];
+): Map<string, Boite[]> {
+  const out = new Map<string, Boite[]>(types.map((t) => [t, []]));
   const descendre = (niveau: Boite[], profondeur: number) => {
     // Bounded depth: a damaged file can describe nesting that never ends, and
     // the walk must stop before the stack does.
     if (profondeur > 12) return;
     for (const x of niveau) {
-      if (x.type === type) out.push(x);
+      out.get(x.type)?.push(x);
       if (CONTENEUSES.has(x.type)) descendre(enfants(b, x), profondeur + 1);
     }
   };
