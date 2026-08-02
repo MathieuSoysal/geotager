@@ -480,6 +480,13 @@ for (const [fichier, attendu] of [
   ['DSCN0010.jpg', /Camera/],
   ['piste-de-lieu.mp4', /Length/],
   ['sans-lieu.mp4', /Size/],
+  // Le cas le plus simple qui soit, et il n'était vérifié nulle part : une
+  // vidéo DÉJÀ géolocalisée, ouverte telle quelle. Les contrôles du volet
+  // portaient sur la durée, la taille, et sur les rangements exotiques ; celui
+  // que tout le monde rencontre manquait. Les deux rangements les plus répandus
+  // — l'atome texte d'un MP4, les clés nommées d'un QuickTime — sont ici.
+  ['avec-lieu.mp4', /Location/],
+  ['avec-lieu.mov', /Location/],
   // La plainte, telle quelle : le lieu est lisible par un outil mobile et
   // n'apparaissait pas ici, parce qu'il est rangé dans le paquet de texte que
   // la norme place en boîte de premier niveau — là où nous ne regardions pas.
