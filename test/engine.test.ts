@@ -38,7 +38,6 @@ import {
   ecrireIso6709,
   ecrirePositionVideo,
   effacerPositionVideo,
-  lireDms,
   lireIso6709,
   lieuEnMouvement,
   lirePositionVideo,
@@ -62,6 +61,7 @@ import {
   versPixels,
 } from '../src/lib/exif/coords.ts';
 import type { Format } from '../src/lib/exif/types.ts';
+import { lireDms } from '../src/lib/exif/coords.ts';
 
 // Same default as scripts/fetch-fixtures.mjs: without it the bench looked for
 // the corpus at the root of the repository and failed on an uncaught exception,

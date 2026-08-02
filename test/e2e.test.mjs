@@ -80,6 +80,30 @@ const check = (nom, ok, detail = '') => {
   }
 };
 
+/*
+ * The two gestures every journey repeats: open a file, and pick up what the
+ * tool produces.
+ *
+ * They were spelled out in every block, the same `goto`, the same wait, the
+ * same `saveAs`. Gathering them removes no assertion: it removes the repetition
+ * around them, and the next step of the journey will be added in one place.
+ */
+const charger = async (fichier, attendre = '#etat-actif:not([hidden])') => {
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+  await page.setInputFiles('#picker', fichier.includes('/') ? fichier : join(FIXTURES, fichier));
+  await page.waitForSelector(attendre, { timeout: 60_000 });
+};
+
+const telecharger = async (bouton) => {
+  const [dl] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60_000 }),
+    page.click(bouton),
+  ]);
+  const chemin = join('/tmp', dl.suggestedFilename());
+  await dl.saveAs(chemin);
+  return chemin;
+};
+
 const serveur = createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   // A path ending in "/" means the folder index, which is what the host does,
@@ -433,15 +457,10 @@ for (const [fichier, coords, motif] of [
   ['sans-lieu.mp4', '43.90811, 4.86387', /43[.,]908/],
   ['Canon_40D.jpg', '43.90811, 4.86387', /43[.,]908/],
 ]) {
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-  await page.setInputFiles('#picker', join(FIXTURES, fichier));
-  await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+  await charger(fichier);
   await page.fill('#coords', coords);
   await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
-  await Promise.all([
-    page.waitForEvent('download', { timeout: 60_000 }),
-    page.click('#telecharger'),
-  ]);
+  await telecharger('#telecharger');
   // The screen has to catch up with the file: the reprobe is asynchronous.
   await page.waitForFunction(() => {
     const p = document.getElementById('pill-position');
@@ -455,13 +474,8 @@ for (const [fichier, coords, motif] of [
 }
 
 for (const fichier of ['DSCN0010.jpg', 'avec-lieu.mp4']) {
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-  await page.setInputFiles('#picker', join(FIXTURES, fichier));
-  await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
-  await Promise.all([
-    page.waitForEvent('download', { timeout: 60_000 }),
-    page.click('#effacer'),
-  ]);
+  await charger(fichier, '#pill-position:not([hidden])');
+  await telecharger('#effacer');
   await page.waitForFunction(() => {
     const p = document.getElementById('pill-position');
     return p && p.hidden;
@@ -503,9 +517,7 @@ for (const [fichier, attendu] of [
   // every accent reached the screen mangled.
   ['appareil.mp4', /Modèle Témoin/],
 ]) {
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-  await page.setInputFiles('#picker', join(FIXTURES, fichier));
-  await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+  await charger(fichier);
   await page.waitForFunction(() => {
     const d = document.getElementById('autres');
     return d && !d.hidden;
@@ -521,9 +533,7 @@ for (const [fichier, attendu] of [
 }
 
 console.log('\nUne vidéo dont le lieu bouge : lue, et pas touchée');
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-await page.setInputFiles('#picker', join(FIXTURES, 'piste-de-lieu.mp4'));
-await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+await charger('piste-de-lieu.mp4', '#pill-position:not([hidden])');
 const phraseVideo = (await page.locator('#alerte-format').textContent()).trim();
 check('la raison est annoncée avant toute action', phraseVideo.length > 0, phraseVideo.slice(0, 80));
 check('elle reste sans jargon de format',
@@ -549,9 +559,7 @@ for (const bouton of ['#effacer', '#effacer-tout']) {
  * the file, half the path is executed by nobody.
  */
 console.log('\nUne vidéo sans lieu : ajout mené jusqu\'au fichier récupéré');
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-await page.setInputFiles('#picker', join(FIXTURES, 'sans-lieu.mp4'));
-await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+await charger('sans-lieu.mp4');
 check('le bouton est inactif tant qu\'aucun lieu n\'est saisi',
   (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'true');
 
@@ -568,13 +576,8 @@ await page.setInputFiles('#picker', join(FIXTURES, 'sans-lieu.mp4'));
 await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
 await page.fill('#coords', '43.90811, 4.86387');
 await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
-const [videoDl] = await Promise.all([
-  page.waitForEvent('download', { timeout: 60_000 }),
-  page.click('#telecharger'),
-]);
+const videoProduite = await telecharger('#telecharger');
 const typeAnnonce = await page.evaluate(() => window.__typeProduit);
-const videoProduite = join('/tmp', videoDl.suggestedFilename());
-await videoDl.saveAs(videoProduite);
 check('un fichier est bien produit', statSync(videoProduite).size > 0);
 
 /*
@@ -590,9 +593,7 @@ check('le fichier produit s\'annonce comme une vidéo',
   typeAnnonce === 'video/mp4', typeAnnonce || '(aucun type)');
 
 // And it goes back through the picker, which filters on that type.
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-await page.setInputFiles('#picker', videoProduite);
-await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+await charger(videoProduite, '#pill-position:not([hidden])');
 check('rechargé dans l\'outil, il montre le lieu écrit',
   /43\.908/.test((await page.locator('#pill-position').textContent()).trim()));
 
@@ -615,9 +616,7 @@ check('la vidéo reste lisible après le passage par le navigateur',
     === execFileSync('exiftool', ['-s3', '-ImageSize', join(FIXTURES, 'sans-lieu.mp4')], { encoding: 'utf8' }).trim());
 
 console.log('\nUne vidéo ordinaire : effacement mené jusqu\'au fichier récupéré');
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-await page.setInputFiles('#picker', join(FIXTURES, 'avec-lieu.mp4'));
-await page.waitForSelector('#pill-position:not([hidden])', { timeout: 60_000 });
+await charger('avec-lieu.mp4', '#pill-position:not([hidden])');
 check('le lieu de la vidéo est affiché',
   /43\.94/.test((await page.locator('#pill-position').textContent()).trim()));
 check('et le champ accepte une saisie',
@@ -625,12 +624,7 @@ check('et le champ accepte une saisie',
 check('l\'effacement est offert',
   (await page.locator('#effacer').getAttribute('aria-disabled')) !== 'true');
 
-const [videoVide] = await Promise.all([
-  page.waitForEvent('download', { timeout: 60_000 }),
-  page.click('#effacer'),
-]);
-const videoNettoyee = join('/tmp', videoVide.suggestedFilename());
-await videoVide.saveAs(videoNettoyee);
+const videoNettoyee = await telecharger('#effacer');
 const residuVideo = execFileSync('exiftool', ['-a', '-ee', '-gps*', videoNettoyee], { encoding: 'utf8' }).trim();
 check('l\'oracle ne trouve plus aucun lieu dans la vidéo', residuVideo === '', residuVideo.slice(0, 120));
 check('et le fichier garde exactement sa taille',
