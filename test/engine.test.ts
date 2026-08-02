@@ -38,6 +38,7 @@ import {
   ecrireIso6709,
   ecrirePositionVideo,
   effacerPositionVideo,
+  lireDms,
   lireIso6709,
   lieuEnMouvement,
   lirePositionVideo,
@@ -1163,6 +1164,7 @@ const VIDEOS = [
   'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
   'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
   'fragmente.mp4', 'appareil.mp4', 'lieu-hors-piste.mp4', 'lieu-illisible.mp4',
+  'lieu-en-lettres.mp4',
 ];
 
 scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
@@ -1291,6 +1293,116 @@ scenario('Ce que l\'oracle lit dans une chaîne de position, nous le lisons auss
   check('et une chaîne bien lue ne la répète pas',
     infosVideo(new Uint8Array(readFileSync(join(FIXTURES, 'avec-lieu.mp4'))))
       .details.every((d) => d.cle !== 'LieuBrut'));
+});
+
+/*
+ * A location written to be read, and the defect that made it invisible.
+ *
+ * The report concerned a video whose location field holds
+ * `43°54′29.2″N 4°51′49.9″E`, which is what an application shows on screen
+ * rather than the run of digits the standard describes. Two defects compounded,
+ * and the first masked the second:
+ *
+ *   1. The payload was read one byte per character. The degree sign takes two
+ *      bytes in UTF-8, so the string reached the reader mangled, and no amount
+ *      of leniency downstream could have saved it.
+ *   2. The reader only knew the numeric form.
+ *
+ * The oracle does not settle this case: ExifTool reports the field and yields
+ * NaN. So we bring it in differently. It supplies the reference value, read
+ * from a file carrying the same coordinates in the numeric form. Our reading of
+ * the letters has to land on it.
+ */
+scenario('Un lieu écrit en degrés, minutes et secondes', () => {
+  // The reference comes from the oracle, on the form it can read.
+  const reference = exifPosition(join(FIXTURES, 'avec-lieu.mp4'));
+  check('l\'oracle donne la position de référence', reference !== null);
+
+  // The tolerance follows the resolution of the form rather than the reverse:
+  // four decimal degrees cut an eleven-metre grid, so demanding a metre on that
+  // form would be demanding a precision it does not have.
+  const FORMES: Array<[string, string, number]> = [
+    ['symboles typographiques', '43°54′29.2″N 4°51′49.9″E', 1],
+    ['guillemets ordinaires', '43°54\'29.2"N, 4°51\'49.9"E', 1],
+    ['espacée', '43° 54′ 29.2″ N 4° 51′ 49.9″ E', 1],
+    ['hémisphère en tête', 'N 43°54\'29.2" E 4°51\'49.9"', 1],
+    ['degrés et minutes décimales', '43°54.4866\'N 4°51.8322\'E', 1],
+    ['degrés décimaux', '43.9081°N 4.8639°E', 6],
+  ];
+  const attendu = { lat: 43.90811, lon: 4.86387 };
+  for (const [libelle, forme, tolerance] of FORMES) {
+    const lu = lireDms(forme);
+    check(`${libelle} : « ${forme} » est lue`,
+      lu !== null && distanceMetres(lu, attendu) < tolerance,
+      lu ? `${lu.lat}, ${lu.lon}` : 'null');
+  }
+
+  // South and west: one letter changes, and the sign with it. A reader ignoring
+  // it would show the antipode without looking wrong.
+  const austral = lireDms('43°54′29.2″S 4°51′49.9″W');
+  check('le sud et l\'ouest donnent des nombres négatifs',
+    austral !== null && austral.lat < 0 && austral.lon < 0, JSON.stringify(austral));
+
+  /*
+   * And what must stay refused. The degree sign is what distinguishes a location
+   * from a title with two numbers loose in it: without that requirement the
+   * reader would invent positions out of arbitrary text, which is the one
+   * mistake a privacy tool cannot make.
+   */
+  for (const absurde of [
+    'Avignon, France', '43.9081, 4.8639', '43°54′29.2″N', '', 'tourné à 43 degrés',
+    '43°54′29.2″N 4°51′49.9″E 5°12′00.0″W', '43°99′29.2″N 4°51′49.9″E',
+  ]) {
+    check(`« ${absurde} » est refusé plutôt que deviné`, lireDms(absurde) === null,
+      JSON.stringify(lireDms(absurde)));
+  }
+
+  /*
+   * The witness file, and the full pass over it.
+   *
+   * This is where the first of the two defects is proved: the string lives in
+   * UTF-8 inside a real MP4, and nothing that follows works if it is read one
+   * byte per character.
+   */
+  const chemin = join(FIXTURES, 'lieu-en-lettres.mp4');
+  const src = new Uint8Array(readFileSync(chemin));
+  const lu = lirePositionVideo(src);
+  check('le fichier témoin livre sa position',
+    lu !== null && distanceMetres(lu, attendu) < 1, lu ? `${lu.lat}, ${lu.lon}` : 'null');
+  check('et le volet montre un lieu, non une chaîne brute',
+    infosVideo(src).details.every((d) => d.cle !== 'LieuBrut'),
+    JSON.stringify(infosVideo(src).details));
+  check('la sonde le donne pour lisible et effaçable',
+    sonderVideo(src).position !== null && sonderVideo(src).capacites.effacer);
+
+  // Erasing really does remove it, and that is the direction that counts most:
+  // a location we cannot read is a location we do not think to remove.
+  const vide = effacerPositionVideo(src);
+  check('l\'effacement le retire', lirePositionVideo(vide.bytes) === null);
+  check('et il ne reste aucune copie ailleurs', !copieDuLieuAilleursVideo(vide.bytes));
+  check('la description du fichier tient debout après effacement', structureIntacte(vide.bytes));
+
+  // The fix: the lettered string gives way to the numeric form, at constant
+  // length, and it is the oracle that rereads, since that one it can read.
+  const corrige = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const sortie = join(tmp, 'lieu-en-lettres-corrige.mp4');
+  writeFileSync(sortie, corrige.bytes);
+  const relu = exifPosition(sortie);
+  check('après correction, l\'oracle lit le lieu demandé',
+    relu !== null && distanceMetres(relu, AVIGNON) < 1,
+    relu ? `${relu.lat}, ${relu.lon}` : 'null');
+  check('et la description tient toujours debout', structureIntacte(corrige.bytes));
+
+  /*
+   * The decoding defect, taken at its root rather than by its consequences.
+   *
+   * The corpus device name carries accents on purpose. Read one byte per
+   * character it comes out as "ModÃ¨le". Everything else in the corpus being
+   * ASCII, nothing else would ever have flagged it.
+   */
+  const accents = infosVideo(new Uint8Array(readFileSync(join(FIXTURES, 'appareil.mp4'))));
+  check('un nom d\'appareil accentué s\'affiche tel qu\'il est écrit',
+    accents.camera === 'Geotager Modèle Témoin', String(accents.camera));
 });
 
 /*
@@ -1774,7 +1886,7 @@ scenario('Une vidéo dit sa durée, ses dimensions et sa date', () => {
   // The device, on the only file that names it.
   const { i: avecAppareil } = lignes('appareil.mp4');
   check('appareil.mp4 : l\'appareil est lu',
-    avecAppareil.camera === 'Geotager Modele Temoin', String(avecAppareil.camera));
+    avecAppareil.camera === 'Geotager Modèle Témoin', String(avecAppareil.camera));
   const { i: sansAppareil } = lignes('piste-de-lieu.mp4');
   check('piste-de-lieu.mp4 : aucun appareil n\'est inventé', sansAppareil.camera === null);
 

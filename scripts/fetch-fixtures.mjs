@@ -171,9 +171,12 @@ const PREPARES = [
     args: ['-n', '-XMP:GPSLatitude=43.90811', '-XMP:GPSLongitude=4.86387'],
   },
   {
+    // The model carries accents deliberately: they are written in UTF-8, so on
+    // two bytes, and a reader taking one byte per character shows "ModÃ¨le".
+    // With the whole corpus in ASCII, nothing would have flagged it.
     nom: 'appareil.mp4', depuis: 'sans-lieu.mp4', requis: true,
-    role: 'MP4 qui nomme son appareil — sans lui, la ligne « Appareil » du volet ne serait éprouvée par rien',
-    args: ['-n', '-UserData:Make=Geotager', '-UserData:Model=Modele Temoin'],
+    role: 'MP4 qui nomme son appareil, accents compris — sans lui, la ligne « Appareil » du volet ne serait éprouvée par rien',
+    args: ['-n', '-UserData:Make=Geotager', '-UserData:Model=Modèle Témoin'],
   },
   {
     nom: 'texte-de-lieu.mov', depuis: 'tete-nue.mov', requis: true,
@@ -185,6 +188,17 @@ const PREPARES = [
     role: 'MP4 dont le rangement de lieu porte une chaîne qu\'AUCUN des deux lecteurs ne sait décoder — le témoin du volet qui montre au lieu de se taire',
     args: ['-n', '-UserData:GPSCoordinates=+43.9081+004.864/'],
     remplacer: '43.9081,4.8639,26',
+  },
+  {
+    // The location written to be read, with its degree, minute and second
+    // symbols. Applications deposit in this field what they show on screen
+    // rather than the standard's digits. ExifTool makes nothing of it, since it
+    // announces the field and returns "NaN", which is exactly why this file has
+    // to exist: no public corpus will provide it.
+    nom: 'lieu-en-lettres.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 dont le lieu est écrit en degrés, minutes et secondes, avec les symboles — la forme que le signalement a fait apparaître',
+    args: ['-n', '-UserData:GPSCoordinates=+43.908110+004.863870+77777777777/'],
+    remplacer: '43°54′29.2″N 4°51′49.9″E',
   },
 ];
 
@@ -203,11 +217,15 @@ function remplacerLaChaineDeLieu(fichier, texte) {
     if (b[k] === 0xa9 && b[k + 1] === 0x78 && b[k + 2] === 0x79 && b[k + 3] === 0x7a) { i = k; break; }
   }
   if (i < 0) throw new Error('aucun rangement « ©xyz » à remplacer');
+  // In bytes, not characters: a degree symbol weighs two, a minute symbol
+  // three. It is the slot's declared length that has to be filled exactly, or
+  // the file changes size.
+  const octets = new TextEncoder().encode(texte);
   const longueur = (b[i + 4] << 8) | b[i + 5];
-  if (longueur !== texte.length) {
-    throw new Error(`${longueur} octets à remplir, ${texte.length} fournis`);
+  if (longueur !== octets.length) {
+    throw new Error(`${longueur} octets à remplir, ${octets.length} fournis`);
   }
-  for (let k = 0; k < longueur; k++) b[i + 8 + k] = texte.charCodeAt(k);
+  b.set(octets, i + 8);
   writeFileSync(fichier, b);
 }
 

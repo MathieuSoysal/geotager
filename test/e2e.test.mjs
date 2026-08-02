@@ -495,6 +495,13 @@ for (const [fichier, attendu] of [
   // text, and displayed nothing. It now shows the string as written, so a
   // screenshot is enough to name the form we are missing.
   ['lieu-illisible.mp4', /43\.9081,4\.8639,26/],
+  // The report, exactly as filed: the location field holds what an application
+  // shows on screen, degrees, minutes, seconds and their symbols, rather than
+  // the standard's run of digits. It must produce a real location line.
+  ['lieu-en-lettres.mp4', /Location/],
+  // And the root of the defect: the payload was read one byte per character, so
+  // every accent reached the screen mangled.
+  ['appareil.mp4', /Modèle Témoin/],
 ]) {
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
   await page.setInputFiles('#picker', join(FIXTURES, fichier));
