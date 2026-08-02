@@ -479,6 +479,13 @@ for (const [fichier, attendu] of [
   ['DSCN0010.jpg', /Camera/],
   ['piste-de-lieu.mp4', /Length/],
   ['sans-lieu.mp4', /Size/],
+  // The simplest case there is, and it was verified nowhere: a video that
+  // already carries a location, opened as is. The panel checks covered
+  // duration, size, and the exotic boxes; the one everybody meets was missing.
+  // The two most widespread boxes, an MP4's text atom and a QuickTime's named
+  // keys, are here.
+  ['avec-lieu.mp4', /Location/],
+  ['avec-lieu.mov', /Location/],
   // The complaint, exactly as filed: the location is readable by a mobile tool
   // and did not appear here, because it is stored in the text packet the
   // standard places as a top-level box, where we were not looking.
