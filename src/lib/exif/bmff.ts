@@ -30,8 +30,44 @@ export interface Boite {
   declaree: number;
 }
 
+/**
+ * Bytes read one at a time, for what is not human-readable text.
+ *
+ * A box name is four bytes, and it is an identity rather than a sentence:
+ * `©xyz` starts with 0xA9 and only compares correctly character by character.
+ * This function exists for that, and nothing else.
+ */
 export const texte = (b: Uint8Array, o: number, n: number) =>
   String.fromCharCode(...b.subarray(o, o + n));
+
+/**
+ * The text of a payload, decoded for reading.
+ *
+ * One byte per character is right for a box name and wrong for everything
+ * else: `°` is two bytes in UTF-8, and reading it that way yields "Â°". The
+ * bug was invisible on every test file, all written in ASCII, and it garbled
+ * anything a device writes with an accent or a symbol: a device name, an
+ * author, and a location written in degrees and minutes.
+ *
+ * Three encodings, in the order they can be recognised with certainty: a byte
+ * order mark announces UTF-16 unambiguously; UTF-8 validates itself, a
+ * malformed sequence being rejected rather than guessed; and failing both, one
+ * byte per character, which is what older files write.
+ */
+export function texteLisible(b: Uint8Array, o: number, n: number): string {
+  const octets = b.subarray(o, o + n);
+  if (n >= 2 && octets[0] === 0xfe && octets[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(octets.subarray(2));
+  }
+  if (n >= 2 && octets[0] === 0xff && octets[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(octets.subarray(2));
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(octets);
+  } catch {
+    return texte(b, o, n);
+  }
+}
 
 /** First byte of a box payload. */
 export const charge = (x: Boite) => x.debut + x.entete;

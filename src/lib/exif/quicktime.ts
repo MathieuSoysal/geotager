@@ -35,6 +35,7 @@ import {
   enfants,
   finDe,
   texte,
+  texteLisible,
   toutesLesBoites,
 } from './bmff.ts';
 import { lireEntierBE, readU16, readU32, writeU32 } from './octets.ts';
@@ -113,6 +114,100 @@ export function lireIso6709(s: string): LatLon | null {
     lat: m[1] === '-' ? -lat : lat,
     lon: m[3] === '-' ? -lon : lon,
   });
+}
+
+/**
+ * A location written to be read by a person: `43°54′29.2″N 4°51′49.9″E`.
+ *
+ * ISO 6709 has nothing to do with that form, and yet it turns up in the
+ * location field of real videos: applications deposit what they show on screen
+ * rather than the regulation digits. ExifTool itself makes nothing of it; it
+ * announces the field and returns "NaN". We read it, because nothing in it is
+ * ambiguous: the sign of the degrees is given by the hemisphere letter, and the
+ * symbols say which unit each number is in.
+ *
+ * The degree symbol is required. It is what separates a location from a title
+ * or a comment with two numbers loose in it: without it, this function would
+ * invent positions out of arbitrary text, the one mistake a privacy tool cannot
+ * make.
+ */
+const NOMBRES_DMS =
+  '(\\d+(?:[.,]\\d+)?)\\s*°' + // les degrés, et leur symbole : le seul obligatoire
+  "\\s*(?:(\\d+(?:[.,]\\d+)?)\\s*[′']\\s*)?" + // les minutes, s'il y en a
+  '\\s*(?:(\\d+(?:[.,]\\d+)?)\\s*(?:″|\'\'|")\\s*)?'; // les secondes, de même
+
+/*
+ * Two layouts, tried in this order and never mixed.
+ *
+ * The letter follows the numbers (`43°54′29.2″N`) or precedes them
+ * (`N 43°54′29.2″`). A single expression accepting both would, on the second
+ * layout, take the longitude's "E" for the latitude's letter and leave the
+ * longitude without a hemisphere. Two straightforward reads beat one that picks
+ * the wrong axis.
+ */
+const DMS_LETTRE_APRES = new RegExp(`${NOMBRES_DMS}\\s*([NSEWnsew])`, 'g');
+const DMS_LETTRE_AVANT = new RegExp(`([NSEWnsew])\\s*${NOMBRES_DMS}`, 'g');
+
+export function lireDms(s: string): LatLon | null {
+  const propre = nettoyerChaine(s);
+  const nombre = (x: string | undefined) => (x === undefined ? 0 : Number(x.replace(',', '.')));
+
+  /*
+   * Exactly two degree symbols: that is the structure of a location.
+   *
+   * The count happens before any parsing, and it is what stops the two layouts
+   * below from contradicting each other. On a string with three coordinates the
+   * first read failed and the second picked up two others, yielding a position
+   * nobody had written. A string whose structure is not a location's must be
+   * rejected on its structure, not on whether some read can pull something out
+   * of it.
+   */
+  if ((propre.match(/°/g) ?? []).length !== 2) return null;
+
+  const assembler = (parts: Array<[string, string, string?, string?]>): LatLon | null => {
+    // Exactly two components: one fewer locates nothing, one more is a string
+    // whose structure we do not understand.
+    if (parts.length !== 2) return null;
+    let lat: number | null = null;
+    let lon: number | null = null;
+    for (const [lettre, d, m, sec] of parts) {
+      const minutes = nombre(m);
+      const secondes = nombre(sec);
+      if (minutes >= 60 || secondes >= 60) return null;
+      const valeur = nombre(d) + minutes / 60 + secondes / 3600;
+      const axe = lettre.toUpperCase();
+      const signe = axe === 'S' || axe === 'W' ? -1 : 1;
+      // The same axis given twice: refuse rather than choose.
+      if (axe === 'N' || axe === 'S') {
+        if (lat !== null) return null;
+        lat = signe * valeur;
+      } else {
+        if (lon !== null) return null;
+        lon = signe * valeur;
+      }
+    }
+    if (lat === null || lon === null) return null;
+    return validerPosition({ lat, lon });
+  };
+
+  const apres = [...propre.matchAll(DMS_LETTRE_APRES)].map(
+    (m) => [m[4], m[1], m[2], m[3]] as [string, string, string?, string?],
+  );
+  const avant = [...propre.matchAll(DMS_LETTRE_AVANT)].map(
+    (m) => [m[1], m[2], m[3], m[4]] as [string, string, string?, string?],
+  );
+  return assembler(apres) ?? assembler(avant);
+}
+
+/**
+ * The location a text carries, however it is written.
+ *
+ * One entry point for both forms, which is what guarantees display, probing and
+ * the residual sweep all read the same thing. A second reader written
+ * separately once diverged from the first; the lesson was learned once.
+ */
+export function lireLieuTexte(s: string): LatLon | null {
+  return lireIso6709(s) ?? lireDms(s);
 }
 
 /**
@@ -233,7 +328,7 @@ function porteursUdta(b: Uint8Array, udta: Boite | null): Porteur[] {
       boite: x,
       debutTexte: c.debut,
       longueurTexte: c.longueur,
-      texte: texte(b, c.debut, c.longueur),
+      texte: texteLisible(b, c.debut, c.longueur),
       nomDeLieu: null,
     });
   }
@@ -353,7 +448,7 @@ function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
         boite: entree,
         debutTexte: v.debut,
         longueurTexte: v.longueur,
-        texte: texte(b, v.debut, v.longueur),
+        texte: texteLisible(b, v.debut, v.longueur),
         nomDeLieu: null,
       });
     }
@@ -368,7 +463,7 @@ function porteursIlst(b: Uint8Array, racine: Boite[]): Porteur[] {
         boite: entree,
         debutTexte: v.debut,
         longueurTexte: v.longueur,
-        texte: texte(b, v.debut, v.longueur),
+        texte: texteLisible(b, v.debut, v.longueur),
         nomDeLieu: null,
       });
     } else if (nom === CLE_APPLE_NOM) {
@@ -481,7 +576,7 @@ function textesDUdta(b: Uint8Array, racine: Boite[]): Map<string, string> {
   for (const x of enfants(b, udta)) {
     const c = chaineDAtome(b, x) ?? valeurDeLEntree(b, x);
     if (!c) continue;
-    const valeur = texte(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
+    const valeur = texteLisible(b, c.debut, c.longueur).replace(/\0+$/, '').trim();
     // First found wins: the movie's beats a track's.
     if (affichable(valeur) && !out.has(x.type)) out.set(x.type, valeur);
   }
@@ -500,7 +595,7 @@ export function infosVideo(b: Uint8Array): InfosVideo {
 
   const cles = new Map(entreesDesKeys(b, racine).map((e) => [
     e.nom,
-    texte(b, e.valeur.debut, e.valeur.longueur).trim(),
+    texteLisible(b, e.valeur.debut, e.valeur.longueur).trim(),
   ]));
   const atomes = textesDUdta(b, racine);
   const premier = (...candidats: (string | undefined)[]) =>
@@ -581,7 +676,7 @@ export function infosVideo(b: Uint8Array): InfosVideo {
    */
   const illisible = porteursDeLieu(b)
     .map((porteur) => nettoyerChaine(porteur.texte))
-    .find((brut) => brut !== '' && lireIso6709(brut) === null);
+    .find((brut) => brut !== '' && lireLieuTexte(brut) === null);
   if (illisible) details.push({ cle: 'LieuBrut', value: illisible });
 
   return { takenAt, camera, details };
@@ -628,7 +723,7 @@ export function lieuEnMouvement(b: Uint8Array): boolean {
 function positionDe(p: Porteur): LatLon | null {
   return p.binaire
     ? validerPosition({ lat: p.binaire.lat, lon: p.binaire.lon })
-    : lireIso6709(p.texte);
+    : lireLieuTexte(p.texte);
 }
 
 /**
@@ -1198,7 +1293,7 @@ export function copieDuLieuAilleursVideo(b: Uint8Array): boolean {
   for (const p of porteursDeLieu(b)) {
     if (p.nomDeLieu && p.nomDeLieu.longueur > 0) return true;
     if (p.binaire && (p.binaire.lat !== 0 || p.binaire.lon !== 0)) return true;
-    if (p.texte && lireIso6709(p.texte)) return true;
+    if (p.texte && lireLieuTexte(p.texte)) return true;
   }
   for (const paquet of paquetsDeTexte(b)) {
     if (porteUnLieu(lireTexte(b, paquet))) return true;
