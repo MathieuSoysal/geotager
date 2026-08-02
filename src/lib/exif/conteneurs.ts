@@ -22,6 +22,8 @@
 
 import { ExifError } from './erreurs.ts';
 import type { Format, LatLon } from './types.ts';
+import { boites, texte } from './bmff.ts';
+import { readU32 } from './octets.ts';
 import {
   type TiffView,
   type Edit,
@@ -131,9 +133,31 @@ export interface Ecriture {
 
 const BRANDS_HEIC = ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1', 'heim', 'heis', 'mif2'];
 const BRANDS_AVIF = ['avif', 'avis'];
-const BRANDS_VIDEO = ['qt  ', 'mp41', 'mp42', 'isom', 'iso2', 'M4V ', '3gp4', '3gp5'];
+const BRANDS_VIDEO = [
+  'qt  ', 'mp41', 'mp42', 'isom', 'iso2', 'M4V ', '3gp4', '3gp5',
+  // Marques rencontrées sur des fichiers réels que la première liste laissait
+  // passer pour « inconnu » : Android récent écrit « 3gp6 », les appareils
+  // CDMA « 3g2a », et les marques génériques montent jusqu'à « iso6 ».
+  '3gp6', '3g2a', 'mmp4', 'avc1', 'iso4', 'iso5', 'iso6', 'dash',
+];
 
-/** Reconnaît un format à ses seuls octets de tête. */
+/**
+ * Boîtes par lesquelles un fichier QuickTime peut commencer.
+ *
+ * La boîte de type est FACULTATIVE en QuickTime — c'est une invention MP4,
+ * arrivée après. Un vrai `.mov` commence directement par l'une de celles-ci,
+ * et l'exiger le rendait « inconnu ».
+ */
+const TETES_QUICKTIME = ['moov', 'mdat', 'wide', 'pnot', 'skip', 'free'];
+
+/**
+ * Reconnaît un format à ses seuls octets de tête.
+ *
+ * L'ordre n'est pas indifférent : AVIF et HEIC passent AVANT la vidéo, parce
+ * que les deux familles partagent l'emballage et que les marques génériques —
+ * `isom`, `iso2` — peuvent coiffer l'une comme l'autre. Quand la marque ne
+ * trancherait pas, c'est la structure qui tranche, et jamais la devinette.
+ */
 export function detecterFormat(b: Uint8Array): Format {
   const a = (...codes: number[]) => codes.every((c, i) => b[i] === c);
   if (a(0xff, 0xd8, 0xff)) return 'jpeg';
@@ -142,18 +166,45 @@ export function detecterFormat(b: Uint8Array): Format {
   if (a(0x49, 0x49, 0x2a, 0x00) || a(0x4d, 0x4d, 0x00, 0x2a)) return 'tiff';
   if (b.length > 12 && a(0x52, 0x49, 0x46, 0x46) && b[8] === 0x57 && b[9] === 0x45) return 'webp';
   if (b.length > 12) {
-    const texte = (o: number) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
-    if (texte(4) === 'ftyp') {
+    const mot = (o: number) => texte(b, o, 4);
+    if (mot(4) === 'ftyp') {
       // La marque majeure ne suffit pas à deviner : un HEIC de Nokia s'annonce
       // « mif1 » et une séquence AVIF « avis ». On compare des chaînes
       // entières — « avis » ne doit pas être reconnu au milieu d'autre chose.
-      const marque = texte(8);
-      if (BRANDS_AVIF.includes(marque)) return 'avif';
-      if (BRANDS_HEIC.includes(marque)) return 'heic';
-      if (BRANDS_VIDEO.includes(marque)) return 'video';
+      const marques = [mot(8), ...marquesCompatibles(b)];
+      if (marques.some((m) => BRANDS_AVIF.includes(m))) return 'avif';
+      if (marques.some((m) => BRANDS_HEIC.includes(m))) return 'heic';
+      // `isom` et ses voisines sont des marques génériques : elles coiffent
+      // aussi bien une vidéo qu'une image de cette famille. Exiger la boîte qui
+      // décrit des pistes, c'est demander à la STRUCTURE ce que la marque ne
+      // dit pas — une image de cette famille n'en a aucune.
+      if (marques.some((m) => BRANDS_VIDEO.includes(m)) && aUnMoov(b)) return 'video';
     }
+    // Sans boîte de type, il reste la structure. Exiger un `moov` évite de
+    // happer tout fichier qui commencerait par une boîte d'espace libre.
+    if (TETES_QUICKTIME.includes(mot(4)) && aUnMoov(b)) return 'video';
   }
   return 'inconnu';
+}
+
+/**
+ * Marques compatibles déclarées après la marque majeure.
+ *
+ * Un fichier peut s'annoncer sous une marque que nous ne connaissons pas et
+ * lister juste après celle que nous connaissons. Les lire coûte quelques
+ * octets et referme un trou que la seule marque majeure laissait ouvert.
+ */
+function marquesCompatibles(b: Uint8Array): string[] {
+  const taille = readU32(b, 0, 'BE');
+  if (taille < 16 || taille > b.length || taille > 1024) return [];
+  const out: string[] = [];
+  for (let o = 16; o + 4 <= taille; o += 4) out.push(texte(b, o, 4));
+  return out;
+}
+
+/** Vrai si une boîte `moov` figure au premier niveau. */
+function aUnMoov(b: Uint8Array): boolean {
+  return boites(b, 0, b.length).some((x) => x.type === 'moov');
 }
 
 const registre: Conteneur[] = [];

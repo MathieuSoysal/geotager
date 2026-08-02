@@ -18,6 +18,7 @@ import {
 import { parseTiff, readPosition, degreesToDms } from '../src/lib/exif/tiff.ts';
 import {
   conteneurDe,
+  detecterFormat,
   ecrirePosition,
   effacerPosition,
   lirePosition,
@@ -26,6 +27,23 @@ import {
 } from '../src/lib/exif/conteneurs.ts';
 import '../src/lib/exif/formats.ts';
 import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
+import { boites, enfants, toutesLesBoites } from '../src/lib/exif/bmff.ts';
+import { writeU32 } from '../src/lib/exif/octets.ts';
+import {
+  accepteAjoutVideo,
+  infosVideo,
+  porteursConcordent,
+  structureIntacte,
+  copieDuLieuAilleursVideo,
+  ecrireIso6709,
+  ecrirePositionVideo,
+  effacerPositionVideo,
+  lireIso6709,
+  lieuEnMouvement,
+  lirePositionVideo,
+  porteursDeLieu,
+  sonderVideo,
+} from '../src/lib/exif/quicktime.ts';
 import { createHash } from 'node:crypto';
 import { commandePour } from '../scripts/deploy.mjs';
 import { MATRICE, capacitesDe, cellules } from '../src/lib/exif/capacites.ts';
@@ -43,6 +61,7 @@ import {
   versPixels,
 } from '../src/lib/exif/coords.ts';
 import type { Format } from '../src/lib/exif/types.ts';
+import { lireDms } from '../src/lib/exif/coords.ts';
 
 // Même valeur par défaut que scripts/fetch-fixtures.mjs : sans cela, le banc
 // cherchait le corpus à la racine du dépôt et échouait par une exception non
@@ -84,19 +103,26 @@ function exifPosition(file: string): { lat: number; lon: number } | null {
 /**
  * Inventaire des tags qui doivent survivre à une opération sur la position.
  *
- * On exclut trois familles, et seulement celles-là : les tags [GPS] (c'est ce
+ * On exclut quatre familles, et seulement celles-là : les tags [GPS] (c'est ce
  * qu'on modifie), les tags [Composite] dérivés du GPS (ExifTool les recalcule),
- * et les tags système volatils (chemin, dates d'accès, taille) qui décrivent le
- * fichier sur le disque et non son contenu.
+ * les tags système volatils (chemin, dates d'accès, taille) qui décrivent le
+ * fichier sur le disque et non son contenu, et — pour une vidéo — le lieu
+ * lui-même, qu'ExifTool range sous [UserData], [Keys] ou [ItemList] et JAMAIS
+ * sous [GPS]. Sans cette dernière exclusion, l'inventaire censé prouver que
+ * « tout le reste est préservé » comparerait une position à une position, et
+ * signalerait comme une perte le changement qu'on venait de demander.
  */
 function inventory(file: string): string[] {
   const volatils =
     /^\[(System|File)\]\s+(Directory|FileName|FileSize|FileAccessDate|FileModifyDate|FileInodeChangeDate|FilePermissions)\b/;
+  const lieuVideo =
+    /^\[(UserData|Keys|ItemList|Track\d+)\]\s+(GPS\w*|LocationInformation|Location\w*)\b/;
   return exif(['-a', '-G1', '-s', file])
     .split('\n')
     .filter((l) => l.trim())
     .filter((l) => !/^\[GPS\]/.test(l))
     .filter((l) => !/^\[Composite\]\s+GPS/.test(l))
+    .filter((l) => !lieuVideo.test(l))
     .filter((l) => !volatils.test(l))
     .sort();
 }
@@ -1146,6 +1172,808 @@ scenario('negatif.dng — effacer un lieu ne touche pas au négatif', () => {
 /* chaque opération annoncée, sur un vrai fichier de ce format-là.      */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Les vidéos                                                          */
+/*                                                                     */
+/* Q-006 avait fermé la ligne sur une objection précise : une vidéo     */
+/* range le lieu à plusieurs endroits, parfois EN TOUTES LETTRES, et    */
+/* les pistes horodatées vivent dans les données que le moteur saute.   */
+/* Chacun de ces cas a désormais son fichier, et son scénario.          */
+/* ------------------------------------------------------------------ */
+
+/** Toutes les vidéos du corpus. Chacune éprouve un cas que les autres n'ont pas. */
+const VIDEOS = [
+  'sans-lieu.mp4', 'avec-lieu.mp4', 'piste-de-lieu.mp4',
+  'tete-nue.mov', 'avec-lieu.mov', 'nom-de-lieu.mov', 'texte-de-lieu.mov',
+  'fragmente.mp4', 'appareil.mp4', 'lieu-hors-piste.mp4', 'lieu-illisible.mp4',
+  'lieu-en-lettres.mp4',
+];
+
+scenario('Les coordonnées d\'une vidéo se lisent dans les trois largeurs', () => {
+  // La même position, écrite en degrés, en degrés-minutes, puis en
+  // degrés-minutes-secondes. Le nombre de chiffres AVANT la virgule est le seul
+  // indice : un `Number()` naïf lirait « 4356.958 degrés » et rendrait un lieu
+  // impossible — ou pire, un lieu possible et faux.
+  // Tolérance d'un mètre, et non de dix centimètres : les trois formes ne
+  // découpent pas le degré au même endroit — une seconde d'arc vaut trente
+  // mètres, donc un dixième de seconde en vaut trois. Ce qu'on éprouve ici
+  // n'est pas la précision, c'est que la LARGEUR soit comprise : une lecture
+  // naïve rendrait « 4356,958 degrés », soit un lieu impossible, ou pire, un
+  // lieu possible à des milliers de kilomètres.
+  const attendu = { lat: 43.9493, lon: 4.8055 };
+  for (const forme of ['+43.9493+004.8055/', '+4356.958+00448.330/', '+435657.5+0044819.8/']) {
+    const lu = lireIso6709(forme);
+    check(`« ${forme} » est lu`, lu !== null &&
+      distanceMetres(lu, attendu) < 1, lu ? `${lu.lat}, ${lu.lon}` : 'null');
+  }
+  for (const absurde of ['', 'bidon', '+43.9493/', '+9943.9493+004.8055/', '43.9493 4.8055']) {
+    check(`« ${absurde} » est refusé plutôt que deviné`, lireIso6709(absurde) === null);
+  }
+  // La longueur imposée est le cœur de l'écriture sur place.
+  check('une chaîne s\'écrit à la longueur exacte demandée',
+    ecrireIso6709(attendu, 22) === '+43.949300+004.805500/');
+  check('l\'altitude déjà écrite est conservée telle quelle',
+    ecrireIso6709(attendu, 26, '+026.000') === '+43.9493+004.8055+026.000/');
+  // Le nom du système de repère occupe la place sans porter de coordonnée : il
+  // est rendu tel quel, et ce sont les décimales qui cèdent du terrain.
+  check('le nom du système de repère est conservé tel quel',
+    ecrireIso6709(attendu, 28, '', '/CRSWGS_84/') === '+43.9493+004.8055/CRSWGS_84/',
+    String(ecrireIso6709(attendu, 28, '', '/CRSWGS_84/')));
+});
+
+/**
+ * Une vidéo dérivée du corpus, dont on choisit la chaîne de position OCTET PAR
+ * OCTET.
+ *
+ * ExifTool écrit la chaîne telle qu'on la lui donne tant qu'elle lui paraît
+ * valide — c'est ainsi que naissent la plupart des formes ci-dessous. Pour les
+ * autres, celles qu'il refuse d'ÉCRIRE mais sait LIRE, on remplace la charge
+ * du rangement à longueur constante : aucun octet ne se déplace, le conteneur
+ * reste celui d'une vraie vidéo, et seule la chaîne change.
+ */
+function videoDeChaine(nom: string, ecrite: string, remplacement?: string): string {
+  const dest = join(tmp, `iso6709-${nom}.mp4`);
+  writeFileSync(dest, readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  execFileSync(
+    'exiftool',
+    ['-n', `-UserData:GPSCoordinates=${ecrite}`, '-overwrite_original', dest],
+    { stdio: 'pipe' },
+  );
+  if (remplacement !== undefined) {
+    const b = new Uint8Array(readFileSync(dest));
+    const udta = toutesLesBoites(b, 'udta', boites(b, 0, b.length));
+    const xyz = udta.flatMap((u) => enfants(b, u)).find((x) => x.type === '©xyz');
+    if (!xyz) throw new Error(`${nom} : ExifTool n'a rien écrit`);
+    const debut = xyz.debut + xyz.entete;
+    const longueur = (b[debut] << 8) | b[debut + 1];
+    if (longueur !== remplacement.length) {
+      throw new Error(`${nom} : ${longueur} octets à remplir, ${remplacement.length} fournis`);
+    }
+    for (let i = 0; i < longueur; i++) b[debut + 4 + i] = remplacement.charCodeAt(i);
+    writeFileSync(dest, b);
+  }
+  return dest;
+}
+
+/*
+ * Le défaut qui a coûté cinq allers-retours, et la règle qui en sort.
+ *
+ * Deux formes d'écriture parfaitement courantes — la chaîne terminée par un
+ * octet nul, à la mode du langage C, et celle qui nomme son système de repère —
+ * étaient TROUVÉES par le moteur et refusées par son décodeur. Le rangement
+ * était là, son texte était sous nos yeux, et l'écran n'affichait rien : ni
+ * pastille, ni ligne de position. Les outils du téléphone, eux, les lisaient.
+ *
+ * Le contrôle qui manquait est celui-ci : sur chaque forme, ce que NOUS lisons
+ * doit valoir ce que lit l'oracle. Une divergence dans ce sens-là — lui lit, pas
+ * nous — est exactement le symptôme signalé, et aucun test ne la voyait.
+ */
+scenario('Ce que l\'oracle lit dans une chaîne de position, nous le lisons aussi', () => {
+  const attendu = { lat: 43.90811, lon: 4.86387 };
+  // [nom, ce qu'ExifTool écrit, ce qu'on met à la place — même longueur]
+  const FORMES: Array<[string, string, string?]> = [
+    ['la forme simple', '+43.908110+004.863870/'],
+    ['terminée par un octet nul', '+43.90811+004.863870/', '+43.90811+004.86387/\u0000'],
+    ['avec une altitude', '+43.908110+004.863870+026.000/'],
+    ['entourée de blancs', '+43.908110+004.863870/', ' +43.90811+004.86387/ '],
+    ['nommant son système de repère', '+43.908110000+004.863870000/', '+43.9081+004.8639/CRSWGS_84/'],
+    ['sans barre oblique finale', '+43.9081+004.864/', '+43.9081+004.8639'],
+    ['en degrés entiers', '+43+004/'],
+    ['en degrés et minutes', '+4354.4866+00451.8322/'],
+    ['en longitude à un seul chiffre', '+43.9081+004.864/', '+43.90811+4.86387'],
+  ];
+
+  for (const [libelle, ecrite, remplacement] of FORMES) {
+    const fichier = videoDeChaine(libelle.replace(/\W+/g, '-'), ecrite, remplacement);
+    const nous = lirePositionVideo(new Uint8Array(readFileSync(fichier)));
+    const oracle = exifPosition(fichier);
+    // Une forme sur laquelle l'oracle se tait ne prouve rien de lui ; elle
+    // prouve seulement que nous, nous ne nous taisons pas.
+    if (oracle) {
+      check(`${libelle} : nous lisons ce que l'oracle lit`,
+        nous !== null && distanceMetres(nous, oracle) < 0.5,
+        nous ? `${nous.lat}, ${nous.lon} contre ${oracle.lat}, ${oracle.lon}` : 'null');
+    } else {
+      check(`${libelle} : l'oracle se tait, nous lisons quand même le lieu`,
+        nous !== null && distanceMetres(nous, attendu) < 2,
+        nous ? `${nous.lat}, ${nous.lon}` : 'null');
+    }
+  }
+
+  /*
+   * Et quand nous ne savons VRAIMENT pas lire, on montre la chaîne telle quelle.
+   *
+   * C'est la leçon du lot, et elle vaut plus que les corrections ci-dessus : se
+   * taire rend le désaccord invisible. Une ligne dans le volet, portant les
+   * caractères mêmes du fichier, suffit à ce qu'une copie d'écran nomme la
+   * forme qui nous manque — sans que personne ait à envoyer sa vidéo.
+   */
+  const octets = new Uint8Array(readFileSync(join(FIXTURES, 'lieu-illisible.mp4')));
+  check('une chaîne que nous ne savons pas décoder ne rend aucune position',
+    lirePositionVideo(octets) === null);
+  const ligne = infosVideo(octets).details.find((d) => d.cle === 'LieuBrut');
+  check('mais le volet la montre TELLE QU\'ELLE EST ÉCRITE',
+    ligne?.value === '43.9081,4.8639,26', ligne ? ligne.value : '(aucune ligne)');
+  check('et une chaîne bien lue ne la répète pas',
+    infosVideo(new Uint8Array(readFileSync(join(FIXTURES, 'avec-lieu.mp4'))))
+      .details.every((d) => d.cle !== 'LieuBrut'));
+});
+
+/*
+ * Un lieu écrit POUR ÊTRE LU, et le défaut qui le rendait invisible.
+ *
+ * Le signalement portait sur une vidéo dont le champ de lieu contient
+ * `43°54′29.2″N 4°51′49.9″E` — ce qu'une application affiche à l'écran, et non
+ * la suite de chiffres de la norme. Deux défauts se cumulaient, et le premier
+ * masquait le second :
+ *
+ *   1. La charge était lue UN OCTET PAR CARACTÈRE. Le symbole de degré s'écrit
+ *      sur deux octets en UTF-8, donc la chaîne arrivait déformée au lecteur —
+ *      qui ne pouvait rien en faire, quelle qu'eût été sa souplesse.
+ *   2. Le lecteur ne connaissait que la forme numérique.
+ *
+ * L'oracle ne tranche pas ce cas : ExifTool annonce le champ et rend « NaN ».
+ * On le fait donc intervenir autrement — c'est LUI qui donne la valeur de
+ * référence, lue dans un fichier portant les mêmes coordonnées sous la forme
+ * numérique. Notre lecture des lettres doit retomber dessus.
+ */
+scenario('Un lieu écrit en degrés, minutes et secondes', () => {
+  // La référence vient de l'oracle, sur la forme qu'il sait lire.
+  const reference = exifPosition(join(FIXTURES, 'avec-lieu.mp4'));
+  check('l\'oracle donne la position de référence', reference !== null);
+
+  // La tolérance suit la FINESSE de la forme, et non l'inverse : quatre
+  // décimales de degré découpent une grille de onze mètres, donc exiger le
+  // mètre sur cette forme-là serait exiger une précision qu'elle n'a pas.
+  const FORMES: Array<[string, string, number]> = [
+    ['symboles typographiques', '43°54′29.2″N 4°51′49.9″E', 1],
+    ['guillemets ordinaires', '43°54\'29.2"N, 4°51\'49.9"E', 1],
+    ['espacée', '43° 54′ 29.2″ N 4° 51′ 49.9″ E', 1],
+    ['hémisphère en tête', 'N 43°54\'29.2" E 4°51\'49.9"', 1],
+    ['degrés et minutes décimales', '43°54.4866\'N 4°51.8322\'E', 1],
+    ['degrés décimaux', '43.9081°N 4.8639°E', 6],
+  ];
+  const attendu = { lat: 43.90811, lon: 4.86387 };
+  for (const [libelle, forme, tolerance] of FORMES) {
+    const lu = lireDms(forme);
+    check(`${libelle} : « ${forme} » est lue`,
+      lu !== null && distanceMetres(lu, attendu) < tolerance,
+      lu ? `${lu.lat}, ${lu.lon}` : 'null');
+  }
+
+  // Le sud et l'ouest : une lettre change, et le signe avec elle. Un lecteur
+  // qui l'ignorerait afficherait l'antipode sans avoir l'air de se tromper.
+  const austral = lireDms('43°54′29.2″S 4°51′49.9″W');
+  check('le sud et l\'ouest donnent des nombres négatifs',
+    austral !== null && austral.lat < 0 && austral.lon < 0, JSON.stringify(austral));
+
+  /*
+   * Et ce qui doit RESTER refusé. Le symbole de degré est ce qui distingue un
+   * lieu d'un titre où traîneraient deux nombres : sans cette exigence, la
+   * lecture inventerait des positions à partir de texte quelconque, ce qui est
+   * la seule faute qu'un outil de confidentialité ne peut pas se permettre.
+   */
+  for (const absurde of [
+    'Avignon, France', '43.9081, 4.8639', '43°54′29.2″N', '', 'tourné à 43 degrés',
+    '43°54′29.2″N 4°51′49.9″E 5°12′00.0″W', '43°99′29.2″N 4°51′49.9″E',
+  ]) {
+    check(`« ${absurde} » est refusé plutôt que deviné`, lireDms(absurde) === null,
+      JSON.stringify(lireDms(absurde)));
+  }
+
+  /*
+   * Le fichier témoin, et le parcours complet dessus.
+   *
+   * C'est ici que se prouve le premier des deux défauts : la chaîne vit en
+   * UTF-8 dans un vrai MP4, et rien de ce qui suit ne fonctionne si elle est
+   * lue un octet par caractère.
+   */
+  const chemin = join(FIXTURES, 'lieu-en-lettres.mp4');
+  const src = new Uint8Array(readFileSync(chemin));
+  const lu = lirePositionVideo(src);
+  check('le fichier témoin livre sa position',
+    lu !== null && distanceMetres(lu, attendu) < 1, lu ? `${lu.lat}, ${lu.lon}` : 'null');
+  check('et le volet montre un lieu, non une chaîne brute',
+    infosVideo(src).details.every((d) => d.cle !== 'LieuBrut'),
+    JSON.stringify(infosVideo(src).details));
+  check('la sonde le donne pour lisible et effaçable',
+    sonderVideo(src).position !== null && sonderVideo(src).capacites.effacer);
+
+  // L'effacement le retire vraiment — et c'est le sens qui compte le plus : un
+  // lieu qu'on ne sait pas LIRE est un lieu qu'on ne pense pas à retirer.
+  const vide = effacerPositionVideo(src);
+  check('l\'effacement le retire', lirePositionVideo(vide.bytes) === null);
+  check('et il ne reste aucune copie ailleurs', !copieDuLieuAilleursVideo(vide.bytes));
+  check('la description du fichier tient debout après effacement', structureIntacte(vide.bytes));
+
+  // La correction : la chaîne en lettres cède la place à la forme numérique, à
+  // longueur constante — et c'est l'ORACLE qui relit, puisqu'il sait lire
+  // celle-là.
+  const corrige = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const sortie = join(tmp, 'lieu-en-lettres-corrige.mp4');
+  writeFileSync(sortie, corrige.bytes);
+  const relu = exifPosition(sortie);
+  check('après correction, l\'oracle lit le lieu demandé',
+    relu !== null && distanceMetres(relu, AVIGNON) < 1,
+    relu ? `${relu.lat}, ${relu.lon}` : 'null');
+  check('et la description tient toujours debout', structureIntacte(corrige.bytes));
+
+  /*
+   * Le défaut de décodage, pris à sa racine et non par ses conséquences.
+   *
+   * Le nom d'appareil du corpus porte des accents à dessein. Lu un octet par
+   * caractère, il donne « ModÃ¨le ». Tout le reste du corpus étant en ASCII,
+   * rien d'autre ne l'aurait jamais signalé.
+   */
+  const accents = infosVideo(new Uint8Array(readFileSync(join(FIXTURES, 'appareil.mp4'))));
+  check('un nom d\'appareil accentué s\'affiche tel qu\'il est écrit',
+    accents.camera === 'Geotager Modèle Témoin', String(accents.camera));
+});
+
+/*
+ * Élargir la reconnaissance des marques, c'est risquer de reclasser un fichier
+ * qui marchait. Une image HEIC peut s'annoncer sous une marque générique que la
+ * vidéo revendique aussi — et rien, sinon ceci, ne signalerait qu'elle est
+ * partie du mauvais côté. La liste est écrite en dur, exprès : elle doit
+ * ÉCHOUER si un format change d'avis, pas s'adapter.
+ */
+scenario('Aucun fichier du corpus ne change de format', () => {
+  const ATTENDU: Record<string, Format> = {
+    'DSCN0010.jpg': 'jpeg', 'Canon_40D.jpg': 'jpeg',
+    'iphone.heic': 'heic', 'iphone-sans-lieu.heic': 'heic', 'bloc-en-queue.heif': 'heic',
+    'gps-degenere.heic': 'heic', 'photo.avif': 'avif', 'lieu-purge.avif': 'avif',
+    'sans-lieu.png': 'png', 'avec-lieu.png': 'png',
+    'avec-lieu.webp': 'webp', 'simple.webp': 'webp', 'sans-lieu.webp': 'webp',
+    'gros-boutiste.tif': 'tiff', 'multi-bandes.tif': 'tiff',
+    'negatif.dng': 'tiff', 'negatif.nef': 'tiff', 'negatif.cr2': 'tiff', 'negatif.tif': 'tiff',
+    'piste-de-lieu.mp4': 'video', 'sans-lieu.mp4': 'video', 'avec-lieu.mp4': 'video',
+    'tete-nue.mov': 'video', 'avec-lieu.mov': 'video', 'nom-de-lieu.mov': 'video',
+  };
+  for (const [nom, attendu] of Object.entries(ATTENDU)) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    const vu = detecterFormat(src);
+    check(`${nom} est un « ${attendu} »`, vu === attendu, `vu « ${vu} »`);
+  }
+});
+
+scenario('tete-nue.mov — un QuickTime sans boîte de tête est reconnu', () => {
+  const chemin = join(FIXTURES, 'tete-nue.mov');
+  const src = new Uint8Array(readFileSync(chemin));
+  // La boîte de type est une invention MP4 : un vrai QuickTime commence
+  // directement par la description. Exiger cette boîte rendait ce fichier
+  // « inconnu », donc intraitable, sans que rien ne le signale.
+  check('le fichier ne commence pas par une boîte de type',
+    String.fromCharCode(src[4], src[5], src[6], src[7]) !== 'ftyp');
+  check('il est tout de même reconnu comme une vidéo', detecterFormat(src) === 'video');
+});
+
+scenario('piste-de-lieu.mp4 — le lieu en mouvement ferme les trois écritures', () => {
+  const chemin = join(FIXTURES, 'piste-de-lieu.mp4');
+  const src = new Uint8Array(readFileSync(chemin));
+
+  const mine = lirePositionVideo(src);
+  const theirs = exifPosition(chemin);
+  check('la position écrite par l\'appareil est lue', mine !== null && theirs !== null);
+  if (mine && theirs) {
+    const d = distanceMetres(mine, theirs);
+    check('accord avec ExifTool à moins de 0,1 m', d < 0.1, `écart ${d.toFixed(4)} m`);
+  }
+
+  check('une piste enregistre le lieu en continu', lieuEnMouvement(src));
+
+  // Et le refus est FONDÉ, pas superstitieux : l'oracle, avec l'option que les
+  // deux README recommandent déjà, trouve bien un lieu par échantillon.
+  const horodatees = exif(['-ee', '-a', '-G1', '-s', '-GPSLatitude', chemin])
+    .split('\n').filter((l) => l.trim()).length;
+  check('l\'oracle en trouve plusieurs dizaines', horodatees > 5, `${horodatees} lignes`);
+
+  const s = sonderVideo(src);
+  check('« Lire » reste ouvert', s.capacites.lire);
+  check('« Corriger » se ferme', !s.capacites.corriger);
+  check('« Ajouter » se ferme', !s.capacites.ajouter);
+  check('« Effacer » se ferme', !s.capacites.effacer);
+
+  for (const [nom, agir] of [
+    ['corriger', () => ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon)],
+    ['effacer', () => effacerPositionVideo(src)],
+  ] as const) {
+    let leve = false;
+    try { agir(); } catch { leve = true; }
+    check(`« ${nom} » lève au lieu de rendre un fichier faussement propre`, leve);
+  }
+});
+
+scenario('avec-lieu.mov — le rangement d\'Apple, par clés nommées', () => {
+  const chemin = join(FIXTURES, 'avec-lieu.mov');
+  const src = new Uint8Array(readFileSync(chemin));
+
+  const porteurs = porteursDeLieu(src);
+  check('le lieu est trouvé là où Apple le range',
+    porteurs.length === 1 && porteurs[0].sorte === 'keys',
+    porteurs.map((p) => p.sorte).join(', '));
+
+  const mine = lirePositionVideo(src);
+  const theirs = exifPosition(chemin);
+  check('accord avec ExifTool à moins de 0,1 m',
+    mine !== null && theirs !== null && distanceMetres(mine, theirs) < 0.1);
+
+  const avant = inventory(chemin);
+  const pose = effacerPositionVideo(src);
+  const out = join(tmp, 'video-keys-vide.mov');
+  writeFileSync(out, pose.bytes);
+  check('taille identique à l\'octet près', pose.bytes.length === src.length);
+  check('l\'oracle ne trouve plus de position', exifPosition(out) === null);
+  check('rien d\'autre n\'a disparu', JSON.stringify(inventory(out)) === JSON.stringify(avant));
+});
+
+scenario('nom-de-lieu.mov — les coordonnées ET la ville en toutes lettres', () => {
+  const chemin = join(FIXTURES, 'nom-de-lieu.mov');
+  const src = new Uint8Array(readFileSync(chemin));
+
+  const porteurs = porteursDeLieu(src);
+  check('le rangement qui nomme le lieu est trouvé',
+    porteurs.some((p) => p.sorte === 'loci'));
+  check('et son nom est vu comme tel',
+    porteurs.some((p) => p.nomDeLieu !== null && p.nomDeLieu.longueur > 0));
+
+  // Deux mètres, et c'est la bonne mesure : ce rangement-là note les degrés en
+  // virgule fixe, par pas d'un soixante-cinq-millième — soit un mètre sept en
+  // latitude. C'est précisément pourquoi le moteur refuse d'y écrire sur place.
+  const mine = lirePositionVideo(src);
+  const theirs = exifPosition(chemin);
+  check('la position y est lue, en virgule fixe',
+    mine !== null && theirs !== null && distanceMetres(mine, theirs) < 2,
+    mine && theirs ? `${distanceMetres(mine, theirs).toFixed(3)} m` : 'null');
+
+  // Le cœur de Q-006 : effacer les coordonnées en laissant « Avignon » rendrait
+  // un fichier que l'utilisateur croirait propre.
+  const pose = effacerPositionVideo(src);
+  const out = join(tmp, 'video-nom-vide.mov');
+  writeFileSync(out, pose.bytes);
+  check('taille identique à l\'octet près', pose.bytes.length === src.length);
+  check('l\'oracle ne trouve plus de position', exifPosition(out) === null);
+  const reste = exif(['-a', '-G1', '-s', '-UserData:LocationInformation', out]).trim();
+  check('le nom de la ville est parti avec les coordonnées', reste === '', reste.slice(0, 120));
+  check('le fichier ne contient plus le mot en clair',
+    !Buffer.from(pose.bytes).includes('Avignon'));
+});
+
+scenario('texte-de-lieu.mov — une ville nommée sans aucune coordonnée', () => {
+  const chemin = join(FIXTURES, 'texte-de-lieu.mov');
+  const src = new Uint8Array(readFileSync(chemin));
+
+  check('aucune coordonnée n\'y est écrite', lirePositionVideo(src) === null);
+  // Le balayage résiduel cherche les NOMS et pas seulement les nombres : c'est
+  // très exactement ce que Q-006 reprochait à l'ancienne conception.
+  check('une copie du lieu est pourtant vue', copieDuLieuAilleursVideo(src));
+
+  const pose = effacerPositionVideo(src);
+  const out = join(tmp, 'video-texte-vide.mov');
+  writeFileSync(out, pose.bytes);
+  check('taille identique à l\'octet près', pose.bytes.length === src.length);
+  const ville = exif(['-a', '-G1', '-s', '-XMP:City', '-XMP:Country', out]).trim();
+  check('la ville et le pays sont partis', ville === '', ville.slice(0, 120));
+  const auteur = exif(['-a', '-G1', '-s', '-XMP:Creator', out]).trim();
+  check('mais l\'auteur, lui, est resté', auteur !== '');
+  check('plus aucune copie du lieu', !copieDuLieuAilleursVideo(pose.bytes));
+});
+
+scenario('avec-lieu.mp4 — corriger ne déplace pas un octet', () => {
+  const chemin = join(FIXTURES, 'avec-lieu.mp4');
+  const src = new Uint8Array(readFileSync(chemin));
+  const avant = inventory(chemin);
+
+  const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'video-corrige.mp4');
+  writeFileSync(out, pose.bytes);
+
+  check('taille strictement identique', pose.bytes.length === src.length,
+    `${src.length} -> ${pose.bytes.length}`);
+  check('identique partout hors des plages annoncées',
+    memesOctetsHorsPlages(src, pose.bytes, pose.changed));
+  const relu = exifPosition(out);
+  check('l\'oracle relit le lieu demandé à moins de 0,1 m',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+  check('rien d\'autre n\'a bougé', JSON.stringify(inventory(out)) === JSON.stringify(avant));
+
+  // Une position quelconque, et non celle qui tombe pile : c'est elle qui
+  // éprouve le nombre de décimales que la chaîne peut porter.
+  const dur = { lat: 43.94931234, lon: 4.80551234 };
+  const pose2 = ecrirePositionVideo(src, dur.lat, dur.lon);
+  const out2 = join(tmp, 'video-corrige-2.mp4');
+  writeFileSync(out2, pose2.bytes);
+  const relu2 = exifPosition(out2);
+  check('un lieu qui ne tombe pas juste est écrit au mètre près',
+    relu2 !== null && distanceMetres(relu2, dur) < 1,
+    relu2 ? `${distanceMetres(relu2, dur).toFixed(3)} m` : 'null');
+});
+
+scenario('sans-lieu.mp4 — ajouter un lieu sans toucher aux images', () => {
+  const chemin = join(FIXTURES, 'sans-lieu.mp4');
+  const src = new Uint8Array(readFileSync(chemin));
+
+  check('le fichier ne porte aucun lieu', lirePositionVideo(src) === null);
+  check('et il tolère de grandir', accepteAjoutVideo(src));
+
+  const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'video-ajout.mp4');
+  writeFileSync(out, pose.bytes);
+
+  check('identique partout hors des plages annoncées',
+    memesOctetsHorsPlages(src, pose.bytes, pose.changed));
+  const relu = exifPosition(out);
+  check('l\'oracle relit le lieu ajouté à moins de 0,1 m',
+    relu !== null && distanceMetres(relu, AVIGNON) < 0.1);
+
+  // La preuve qui compte sur un fichier de plusieurs mégaoctets : les images et
+  // le son n'ont pas bougé d'un octet, même si tout ce qui les suit s'est
+  // décalé. On la mesure sur les octets eux-mêmes, pas sur une taille.
+  const mdat = Buffer.from(src).indexOf('mdat');
+  const taille = new DataView(src.buffer, src.byteOffset).getUint32(mdat - 4);
+  check('les données de la vidéo sont intactes, octet pour octet',
+    Buffer.from(src.subarray(mdat - 4, mdat - 4 + taille))
+      .equals(Buffer.from(pose.bytes.subarray(mdat - 4, mdat - 4 + taille))),
+    `${taille} octets`);
+  check('la vidéo reste lisible',
+    exif(['-s3', '-ImageSize', out]).trim() === exif(['-s3', '-ImageSize', chemin]).trim());
+});
+
+/*
+ * La preuve « à l'octet près », rendue à sa force sur la voie qui fait grandir.
+ *
+ * `memesOctetsHorsPlages` compare index par index. Un ajout décale tout ce qui
+ * le suit, donc la plage annoncée couvre nécessairement toute la fin du
+ * fichier — et la preuve, sur cette voie-là, ne prouve presque rien : sur un
+ * fichier de huit mégaoctets, elle exempte les huit mégaoctets.
+ *
+ * Ce qu'il faut établir n'est pas « rien n'a changé de place » — c'est faux par
+ * construction — mais « rien n'a changé de CONTENU » : la fin du fichier
+ * produit doit être la fin du fichier d'origine, décalée d'exactement ce qu'on
+ * a inséré, et pas un octet d'autre.
+ */
+scenario('Un ajout ne fait que décaler, jamais réécrire', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    const s = sonderVideo(src);
+    if (s.position || !s.capacites.ajouter) continue;
+    // Un fichier dont le paquet de texte porte une copie du lieu voit AUSSI ce
+    // paquet purgé pendant l'écriture — légitimement, sinon le fichier dirait
+    // deux lieux. La fin n'est alors plus un simple décalage, et ce contrôle-ci
+    // ne s'applique pas. Il est écarté explicitement plutôt qu'en silence.
+    if (copieDuLieuAilleursVideo(src)) {
+      check(`${nom} : écarté, son paquet de texte porte une copie à purger`, true);
+      continue;
+    }
+
+    const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+    const ajoute = pose.bytes.length - src.length;
+    // Deux rangements sur un MP4 — le simple et celui d'Apple —, un seul sur un
+    // QuickTime. Dans tous les cas, quelques dizaines d'octets et pas davantage.
+    check(`${nom} : le fichier ne grandit que de ses rangements`,
+      ajoute > 0 && ajoute < 512, `${ajoute} o`);
+
+    // Le point d'insertion se lit dans la STRUCTURE, et non au premier octet
+    // qui diffère : les tailles des parents et les rangs des tronçons changent
+    // eux aussi, et ils vivent AVANT le point d'insertion.
+    const moov = boites(src, 0, src.length).find((x) => x.type === 'moov')!;
+    const udta = enfants(src, moov).find((x) => x.type === 'udta');
+    const insertion = udta ? udta.debut + udta.taille : moov.debut + moov.taille;
+
+    // La comparaison qui suit n'a de sens que si aucune table de rangs ne vit
+    // APRÈS le point d'insertion — sinon ses entrées changent, légitimement, et
+    // la fin du fichier n'est plus un simple décalage. Aucun fichier du corpus
+    // n'est dans ce cas ; on l'exige plutôt que de le supposer, pour que ce
+    // contrôle échoue franchement le jour où un fichier l'y mettrait.
+    const tables = toutesLesBoites(src, 'stco').concat(toutesLesBoites(src, 'co64'));
+    check(`${nom} : aucune table de rangs après le point d'insertion`,
+      tables.every((t) => t.debut < insertion));
+
+    const avant = Buffer.from(src.subarray(insertion));
+    const apres = Buffer.from(pose.bytes.subarray(insertion + ajoute));
+    check(`${nom} : tout ce qui suit l'insertion est l'original, décalé`,
+      avant.equals(apres), `${avant.length} o comparés depuis ${insertion}`);
+  }
+});
+
+/*
+ * Le contrôle d'après écriture, éprouvé dans LES DEUX SENS.
+ *
+ * Il remplace, pour les vidéos, le second lecteur écrit par d'autres qui
+ * n'existe pas dans un navigateur. Livré au vert, il refusait pourtant TOUTES
+ * les vidéos réelles : il descendait dans les feuilles, dont la charge est
+ * faite de nombres qui se lisent comme des en-têtes. Aucun test ne l'atteignait,
+ * parce qu'il vivait dans le worker et que les scénarios vidéo appelaient le
+ * moteur en direct, sans passer par l'écriture complète. Voir Q-051.
+ *
+ * D'où les deux moitiés ci-dessous, et la seconde compte autant que la
+ * première : un contrôle qu'on n'a jamais vu ÉCHOUER n'est pas un contrôle.
+ */
+scenario('La description de chaque vidéo se tient debout', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    check(`${nom} : à l'entrée`, structureIntacte(src));
+
+    // Et sur la sortie de chaque opération que la sonde ouvre : c'est là que
+    // vivrait une taille de boîte oubliée.
+    const s = sonderVideo(src);
+    if (s.position ? s.capacites.corriger : s.capacites.ajouter) {
+      const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+      check(`${nom} : après écriture`, structureIntacte(pose.bytes));
+      check(`${nom} : les rangements s'accordent après écriture`,
+        porteursConcordent(pose.bytes));
+    }
+    if (s.capacites.effacer) {
+      check(`${nom} : après effacement`, structureIntacte(effacerPositionVideo(src).bytes));
+    }
+  }
+});
+
+scenario('Et ce contrôle sait échouer', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  const sain = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon).bytes;
+  check('le fichier sain passe', structureIntacte(sain));
+
+  const boiteDeTete = (b: Uint8Array, t: string) =>
+    boites(b, 0, b.length).find((x) => x.type === t)!;
+
+  // Le défaut RÉELLEMENT redouté : une boîte agrandie dont le parent aurait
+  // gardé son ancienne taille. C'est le seul défaut que la preuve à l'octet
+  // près ne verrait pas — elle compare des octets, pas des tailles déclarées.
+  for (const [nom, ecart] of [['gardée trop courte', -34], ['annoncée trop longue', 8]] as const) {
+    const abime = sain.slice();
+    const moov = boiteDeTete(abime, 'moov');
+    writeU32(abime, moov.debut, moov.taille + ecart, 'BE');
+    check(`une description ${nom} est refusée`, !structureIntacte(abime));
+  }
+
+  // Ce que ce contrôle-ci ne voit PAS, et qui est rattrapé ailleurs : si c'est
+  // `udta` qui garde son ancienne taille, la structure reste cohérente — le
+  // rangement du lieu devient simplement le voisin de `udta` au lieu d'être son
+  // enfant. C'est la relecture de la position qui l'attrape, en ne retrouvant
+  // plus rien. Les deux contrôles se complètent, et aucun ne suffit seul.
+  //
+  // On l'éprouve sur un QuickTime, qui ne porte QU'UN rangement : sur un MP4, le
+  // second — celui d'Apple — porterait encore le lieu, et masquerait la
+  // démonstration. Que deux rangements se couvrent l'un l'autre est une bonne
+  // nouvelle ; ce n'est pas une raison de ne plus éprouver le filet.
+  const seul = new Uint8Array(readFileSync(join(FIXTURES, 'tete-nue.mov')));
+  const seulEcrit = ecrirePositionVideo(seul, AVIGNON.lat, AVIGNON.lon).bytes;
+  check('le témoin à un seul rangement en a bien un', porteursDeLieu(seulEcrit).length === 1);
+  const glisse = seulEcrit.slice();
+  const moov = boiteDeTete(glisse, 'moov');
+  const udta = enfants(glisse, moov).find((x) => x.type === 'udta')!;
+  writeU32(glisse, udta.debut, udta.taille - 34, 'BE');
+  check('un lieu sorti de sa boîte échappe à la structure', structureIntacte(glisse));
+  check('mais la relecture de la position ne le retrouve plus',
+    lirePositionVideo(glisse) === null);
+});
+
+/*
+ * L'annonce vaut le comportement, sur les vidéos aussi.
+ *
+ * C'est la propriété que le défaut de Q-051 a prise en défaut sous les yeux
+ * d'un utilisateur : le champ était actif, le bouton aussi, et l'écriture
+ * échouait. Rien ne la vérifiait pour la vidéo — le scénario de la matrice ne
+ * porte que sur UN fichier témoin par format.
+ */
+scenario('Ce que la sonde vidéo ouvre réussit, ce qu\'elle ferme lève', () => {
+  for (const nom of VIDEOS) {
+    const src = new Uint8Array(readFileSync(join(FIXTURES, nom)));
+    const s = sonderVideo(src);
+
+    const essai = (agir: () => Uint8Array) => {
+      try { return { ok: true, bytes: agir() }; } catch { return { ok: false, bytes: null }; }
+    };
+
+    const annonceEcriture = s.position ? s.capacites.corriger : s.capacites.ajouter;
+    const ecriture = essai(() => ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon).bytes);
+    check(`${nom} : l'écriture annoncée ${annonceEcriture ? 'possible' : 'fermée'} se comporte ainsi`,
+      ecriture.ok === annonceEcriture);
+    // Une écriture annoncée doit aussi PASSER le contrôle d'après écriture,
+    // sinon l'application la refusera après coup — le défaut exact de Q-051.
+    if (annonceEcriture && ecriture.bytes) {
+      check(`${nom} : et elle survit au contrôle d'après écriture`,
+        structureIntacte(ecriture.bytes) && porteursConcordent(ecriture.bytes));
+      const relu = lirePositionVideo(ecriture.bytes);
+      check(`${nom} : le lieu relu est celui demandé`,
+        relu !== null && distanceMetres(relu, AVIGNON) < 1);
+    }
+
+    const effacement = essai(() => effacerPositionVideo(src).bytes);
+    check(`${nom} : l'effacement annoncé ${s.capacites.effacer ? 'possible' : 'fermé'} se comporte ainsi`,
+      effacement.ok === s.capacites.effacer);
+    if (s.capacites.effacer && effacement.bytes) {
+      check(`${nom} : et il survit au contrôle d'après écriture`,
+        structureIntacte(effacement.bytes));
+    }
+  }
+});
+
+scenario('fragmente.mp4 — un fichier fragmenté est refusé avant l\'action', () => {
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'fragmente.mp4')));
+  const haut = boites(src, 0, src.length).map((x) => x.type);
+  check('le fichier est bien fragmenté', haut.includes('moof') || haut.includes('mfra'), haut.join(' '));
+  // Ses rangs absolus vivent dans des endroits que ce module ne réécrit pas.
+  // Le refus existait déjà ; il ne reposait sur aucun fichier.
+  check('la création y est refusée', !accepteAjoutVideo(src));
+  check('et la sonde le dit avant l\'action', !sonderVideo(src).capacites.ajouter);
+  let leve = false;
+  try { ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon); } catch { leve = true; }
+  check('l\'écriture lève plutôt que d\'abîmer le fichier', leve);
+});
+
+scenario('Le lieu créé est écrit dans les deux rangements attendus', () => {
+  /*
+   * `moov/udta/©xyz` est ce que lisent Android, FFmpeg, VLC et MediaInfo. Les
+   * logiciels d'Apple ne lisent que la clé nommée. Écrire les deux, c'est la
+   * différence entre « le fichier porte le lieu » et « le lieu se voit ».
+   *
+   * L'oracle est interrogé GROUPE PAR GROUPE, et non sur la position composée :
+   * celle-ci se contenterait d'un seul rangement et ne dirait rien de l'autre.
+   */
+  const src = new Uint8Array(readFileSync(join(FIXTURES, 'sans-lieu.mp4')));
+  const pose = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const out = join(tmp, 'deux-rangements.mp4');
+  writeFileSync(out, pose.bytes);
+
+  const sortes = porteursDeLieu(pose.bytes).map((p) => p.sorte).sort();
+  check('les deux rangements sont là', JSON.stringify(sortes) === '["keys","xyz-udta"]',
+    sortes.join('+'));
+
+  for (const groupe of ['UserData', 'Keys']) {
+    const lu = exif(['-n', '-s3', `-${groupe}:GPSCoordinates`, out]).trim();
+    check(`l'oracle lit le lieu dans « ${groupe} »`, lu.startsWith('43.9'), lu || '(rien)');
+  }
+  check('la structure reste debout', structureIntacte(pose.bytes));
+  check('et le fichier reste identique partout ailleurs',
+    memesOctetsHorsPlages(src, pose.bytes, pose.changed));
+
+  // Et l'effacement les retire TOUS LES DEUX : n'en retirer qu'un rendrait un
+  // fichier que l'utilisateur croirait propre.
+  const vide = effacerPositionVideo(pose.bytes);
+  const outVide = join(tmp, 'deux-rangements-vide.mp4');
+  writeFileSync(outVide, vide.bytes);
+  check('l\'effacement ne laisse aucun rangement porteur',
+    !copieDuLieuAilleursVideo(vide.bytes));
+  const reste = exif(['-a', '-G1', '-s', '-ee', '-gps*', outVide]).trim();
+  check('et l\'oracle ne trouve plus rien', reste === '', reste.slice(0, 120));
+});
+
+/*
+ * Ce qu'une vidéo dit d'elle-même.
+ *
+ * Le volet « autres informations » ne tenait qu'au second lecteur, qui n'ouvre
+ * ni MOV ni MP4 : une vidéo n'avait donc rien à y mettre, et il disparaissait.
+ * Ce scénario est le PREMIER de tout le dépôt à regarder ce volet — ni les
+ * vidéos ni les photos n'en avaient jamais eu.
+ *
+ * Il vérifie les deux sens, et le second compte autant : ce qui doit être là y
+ * est, et ce qui ne doit PAS y être n'y est pas. Un fichier dont la date est
+ * un remplissage ne doit pas afficher de date.
+ */
+scenario('Une vidéo dit sa durée, ses dimensions et sa date', () => {
+  const lignes = (nom: string) => {
+    const i = infosVideo(new Uint8Array(readFileSync(join(FIXTURES, nom))));
+    return { i, m: new Map(i.details.map((d) => [d.cle, d.value])) };
+  };
+
+  for (const nom of VIDEOS) {
+    const { m } = lignes(nom);
+    // Toutes portent des images : la taille est la seule ligne due partout.
+    check(`${nom} : les dimensions sont lues`, /^\d+ × \d+$/.test(m.get('Dimensions') ?? ''),
+      m.get('Dimensions') ?? '(rien)');
+  }
+
+  // La durée et la date, croisées avec l'oracle indépendant.
+  for (const [nom, dureeAttendue, dateAttendue] of [
+    ['piste-de-lieu.mp4', '0:24', '2018-01-24'],
+    ['tete-nue.mov', '0:05', '2005-08-11'],
+  ] as const) {
+    const { i, m } = lignes(nom);
+    check(`${nom} : la durée est lue`, m.get('Duree') === dureeAttendue, m.get('Duree') ?? '(rien)');
+    check(`${nom} : la date est lue`, (i.takenAt ?? '').startsWith(dateAttendue), String(i.takenAt));
+    // L'oracle lit les mêmes champs dans le même fichier.
+    const oracle = exif(['-s3', '-CreateDate', join(FIXTURES, nom)]).trim();
+    check(`${nom} : et l'oracle dit la même date`,
+      oracle.slice(0, 10).replace(/:/g, '-') === dateAttendue, oracle);
+  }
+
+  // Et le sens inverse. Ces deux-là portent une date de remplissage — zéro pour
+  // l'un, la valeur qui retombe pile sur le 1er janvier 1970 pour l'autre. Rien
+  // ne doit s'afficher : une date que personne n'a vécue n'est pas une date.
+  for (const nom of ['sans-lieu.mp4', 'fragmente.mp4']) {
+    const { i } = lignes(nom);
+    check(`${nom} : aucune date n'est inventée`, i.takenAt === null, String(i.takenAt));
+  }
+
+  // L'appareil, sur le seul fichier qui le nomme.
+  const { i: avecAppareil } = lignes('appareil.mp4');
+  check('appareil.mp4 : l\'appareil est lu',
+    avecAppareil.camera === 'Geotager Modèle Témoin', String(avecAppareil.camera));
+  const { i: sansAppareil } = lignes('piste-de-lieu.mp4');
+  check('piste-de-lieu.mp4 : aucun appareil n\'est inventé', sansAppareil.camera === null);
+
+  // Aucune valeur illisible : les anciens fichiers écrivent leur texte dans un
+  // jeu de caractères que rien ne déclare, et l'afficher octet pour octet
+  // donnerait du charabia. On préfère ne rien montrer.
+  for (const nom of VIDEOS) {
+    const { i } = lignes(nom);
+    const sale = i.details.find((d) => /[\u0000-\u001f\u007f-\u009f]/.test(d.value));
+    check(`${nom} : rien d'illisible n'est affiché`, sale === undefined,
+      sale ? `${sale.cle}=${JSON.stringify(sale.value)}` : '');
+  }
+});
+
+scenario('Un lieu rangé ailleurs que là où l\'on regardait', () => {
+  /*
+   * Le lecteur cherchait chaque rangement à un CHEMIN FIXE, et ne prenait que
+   * la première boîte de chaque cran. Un fichier qui range son lieu dans un
+   * second `udta`, dans celui d'une piste, dans un `ilst` accroché ailleurs, ou
+   * dans le paquet de texte que la norme place en boîte de PREMIER NIVEAU
+   * passait à côté de nous — pendant que tous les autres lecteurs l'affichaient.
+   *
+   * Ce fichier-ci est le cas dangereux, et pas seulement un affichage manquant :
+   * le balayage résiduel ne voyait pas ce paquet, donc un effacement pouvait
+   * rendre un fichier annoncé propre qui disait encore où il avait été tourné.
+   */
+  const chemin = join(FIXTURES, 'lieu-hors-piste.mp4');
+  const src = new Uint8Array(readFileSync(chemin));
+
+  // Le paquet est bien là où la norme le met, et non dans `moov/udta`.
+  const haut = boites(src, 0, src.length);
+  check('le paquet de texte est une boîte de premier niveau',
+    haut.some((x) => x.type === 'uuid'), haut.map((x) => x.type).join(' '));
+  check('aucun rangement ordinaire ne porte le lieu', porteursDeLieu(src).length === 0);
+
+  // 1. Il est lu — c'est la plainte, telle quelle.
+  const mine = lirePositionVideo(src);
+  const theirs = exifPosition(chemin);
+  check('le lieu y est pourtant lu', mine !== null && theirs !== null &&
+    distanceMetres(mine, theirs) < 1, mine ? `${mine.lat}, ${mine.lon}` : 'null');
+
+  // 2. Le balayage résiduel le voit — sans quoi l'effacement mentirait.
+  check('et le balayage résiduel le voit', copieDuLieuAilleursVideo(src));
+
+  // 3. L'effacement le retire vraiment, et l'oracle le confirme.
+  const vide = effacerPositionVideo(src);
+  const out = join(tmp, 'hors-piste-vide.mp4');
+  writeFileSync(out, vide.bytes);
+  check('taille identique à l\'octet près', vide.bytes.length === src.length);
+  check('plus rien ne subsiste', !copieDuLieuAilleursVideo(vide.bytes));
+  check('et l\'oracle ne trouve plus de lieu', exifPosition(out) === null);
+
+  // 4. Une correction ne laisse pas les deux versions se contredire.
+  const ecrit = ecrirePositionVideo(src, AVIGNON.lat, AVIGNON.lon);
+  const out2 = join(tmp, 'hors-piste-ecrit.mp4');
+  writeFileSync(out2, ecrit.bytes);
+  const relu = exifPosition(out2);
+  check('après correction, l\'oracle lit le lieu demandé',
+    relu !== null && distanceMetres(relu, AVIGNON) < 1);
+  // L'ancienne copie ne survit pas : deux lieux dans un fichier sont un mensonge.
+  const ancien = exif(['-a', '-G1', '-s', '-XMP:GPSLatitude', out2]).trim();
+  check('et l\'ancienne copie a disparu du paquet de texte', ancien === '', ancien.slice(0, 80));
+});
+
 /** Un fichier réel PORTEUR d'un lieu, par format. Sans lui, aucune preuve. */
 const TEMOINS: Partial<Record<Format, string>> = {
   jpeg: 'DSCN0010.jpg',
@@ -1154,7 +1982,37 @@ const TEMOINS: Partial<Record<Format, string>> = {
   png: 'avec-lieu.png',
   webp: 'avec-lieu.webp',
   tiff: 'avec-lieu.tif',
+  // Le seul des trois fichiers vidéo qui puisse tenir les quatre colonnes : la
+  // GoPro porte une piste de lieu qui ferme l'écriture, et le QuickTime nu
+  // range son lieu à la façon d'Apple mais sert d'abord à éprouver la
+  // reconnaissance du format. Voir le scénario vidéo dédié plus bas.
+  video: 'avec-lieu.mp4',
 };
+
+/**
+ * Les quatre opérations, quelle que soit la famille de format.
+ *
+ * Une vidéo ne porte pas de bloc TIFF : son moteur est un autre module, avec sa
+ * propre entrée. Ce petit aiguillage existe pour que le scénario ci-dessous
+ * reste MOT POUR MOT le même sur les six lignes — c'est lui qui fait de « une
+ * case ne passe à oui qu'une fois son test vert » une propriété mécanique, et
+ * une ligne qui aurait son propre scénario y échapperait.
+ */
+function moteurPour(format: Format, src: Uint8Array) {
+  if (format === 'video') {
+    return {
+      lire: (b: Uint8Array) => lirePositionVideo(b),
+      ecrire: (b: Uint8Array, lat: number, lon: number) => ecrirePositionVideo(b, lat, lon).bytes,
+      effacer: (b: Uint8Array) => effacerPositionVideo(b).bytes,
+    };
+  }
+  const c = conteneurOuEchec(src);
+  return {
+    lire: (b: Uint8Array) => lirePosition(c, b),
+    ecrire: (b: Uint8Array, lat: number, lon: number) => ecrirePosition(c, b, lat, lon).bytes,
+    effacer: (b: Uint8Array) => effacerPosition(c, b).bytes,
+  };
+}
 
 scenario('Chaque case du tableau est adossée à une opération réelle', () => {
   for (const ligne of MATRICE) {
@@ -1174,19 +2032,19 @@ scenario('Chaque case du tableau est adossée à une opération réelle', () => 
 
       const chemin = join(FIXTURES, temoin);
       const src = new Uint8Array(readFileSync(chemin));
-      const conteneur = conteneurOuEchec(src);
+      const moteur = moteurPour(format, src);
 
       check(`${format} : « Lire » dit vrai`,
-        (lirePosition(conteneur, src) !== null) === c.lire, temoin);
+        (moteur.lire(src) !== null) === c.lire, temoin);
 
       const corrige = (() => {
-        try { return ecrirePosition(conteneur, src, AVIGNON.lat, AVIGNON.lon).bytes; }
+        try { return moteur.ecrire(src, AVIGNON.lat, AVIGNON.lon); }
         catch { return null; }
       })();
       check(`${format} : « Corriger » dit vrai`, (corrige !== null) === c.corriger, temoin);
 
       const vide = (() => {
-        try { return effacerPosition(conteneur, src).bytes; }
+        try { return moteur.effacer(src); }
         catch { return null; }
       })();
       check(`${format} : « Effacer » dit vrai`, (vide !== null) === c.effacer, temoin);
@@ -1201,7 +2059,7 @@ scenario('Chaque case du tableau est adossée à une opération réelle', () => 
       // sur la sortie de l'effacement, quel que soit le format.
       if (vide) {
         const ajoute = (() => {
-          try { return ecrirePosition(conteneur, vide, AVIGNON.lat, AVIGNON.lon).bytes; }
+          try { return moteur.ecrire(vide, AVIGNON.lat, AVIGNON.lon); }
           catch { return null; }
         })();
         check(`${format} : « Ajouter » dit vrai`, (ajoute !== null) === c.ajouter, temoin);
@@ -1402,6 +2260,8 @@ scenario('« Ouvrir avec » ne promet que ce que le tableau tient', () => {
     'image/avif': 'avif',
     'image/tiff': 'tiff',
     'image/gif': 'gif',
+    'video/quicktime': 'video',
+    'video/mp4': 'video',
   };
 
   for (const langue of LANGUES) {
@@ -1450,10 +2310,13 @@ scenario('« Ouvrir avec » ne promet que ce que le tableau tient', () => {
     /*
      * Le tableau fait foi, comme partout ailleurs. S'inscrire pour un format
      * auquel on ne sait pas donner de lieu, c'est se proposer pour un travail
-     * qu'on ne sait pas faire à quelqu'un qui ne l'a pas demandé — le
-     * raisonnement déjà écrit pour les vidéos. Un GIF et une vidéo tombent sur
-     * `RIEN` dans `capacitesDe`, donc la case « ajouter » les refuse d'office :
-     * il n'y a rien à tenir à jour ici quand la matrice bouge.
+     * qu'on ne sait pas faire à quelqu'un qui ne l'a pas demandé. Un GIF tombe
+     * sur `RIEN` dans `capacitesDe`, donc la case « ajouter » le refuse
+     * d'office : il n'y a rien à tenir à jour ici quand la matrice bouge.
+     *
+     * Les vidéos servaient d'exemple à ce refus tant que leur ligne était
+     * fermée. Elle ne l'est plus, et c'est ce contrôle-ci qui a exigé leur
+     * inscription : le sens de la règle n'a pas changé, seule sa conclusion.
      */
     for (const type of Object.keys(h?.accept ?? {})) {
       const format = PAR_TYPE[type];
@@ -1484,10 +2347,11 @@ scenario('« Ouvrir avec » ne promet que ce que le tableau tient', () => {
       }
     }
 
-    // Le partage, lui, accepte `image/*` : prendre une vidéo et expliquer qu'on
-    // ne sait pas encore la travailler vaut mieux que la refuser sans un mot.
-    // « Ouvrir avec » n'a pas ce luxe — s'y inscrire, c'est apparaître dans un
-    // menu du système. Les deux listes n'ont donc aucune raison d'être égales.
+    // Le partage, lui, accepte `image/*` : prendre un fichier d'un type qu'on
+    // n'a pas nommé et expliquer qu'on ne sait pas le travailler vaut mieux que
+    // le refuser sans un mot. « Ouvrir avec » n'a pas ce luxe — s'y inscrire,
+    // c'est apparaître dans un menu du système. Les deux listes n'ont donc
+    // aucune raison d'être égales.
     check(`${langue} : le partage reste plus large que l’ouverture`,
       m.share_target.params.files[0].accept.includes('image/*') &&
         !Object.keys(h?.accept ?? {}).includes('image/*'));

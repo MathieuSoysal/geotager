@@ -1,0 +1,214 @@
+/**
+ * Le parcours de boîtes, commun aux images et aux vidéos.
+ *
+ * HEIC, AVIF, MOV et MP4 sont le même emballage : une suite de boîtes qui se
+ * contiennent les unes les autres. Ce qu'elles portent n'a rien à voir — une
+ * photo range un bloc TIFF dans un item, une vidéo range une chaîne de
+ * coordonnées dans `moov` — mais la façon d'y descendre est identique, et elle
+ * a assez de pièges pour ne mériter qu'une seule implémentation.
+ *
+ * Ce module ne connaît donc AUCUN des deux usages. Il ne sait que lire des
+ * en-têtes et descendre d'un cran ; qui cherche quoi est l'affaire de
+ * `isobmff.ts` et de `quicktime.ts`.
+ */
+
+import { lireEntierBE, readU32 } from './octets.ts';
+
+export interface Boite {
+  type: string;
+  debut: number;
+  /** Longueur de l'en-tête, charge utile exclue. */
+  entete: number;
+  /** Longueur totale, en-tête compris. */
+  taille: number;
+  /**
+   * Taille telle qu'elle est ÉCRITE dans le fichier, avant interprétation.
+   *
+   * La valeur 0 signifie « jusqu'à la fin du fichier ». Une fois résolue en
+   * longueur effective, cette nuance disparaît — et elle est décisive pour
+   * l'ajout : ajouter une boîte derrière une boîte qui s'étend jusqu'à la fin
+   * la ferait avaler par elle.
+   */
+  declaree: number;
+}
+
+/**
+ * Les octets lus UN PAR UN, pour ce qui n'est pas du texte destiné à un humain.
+ *
+ * Le nom d'une boîte fait quatre octets, et c'est une identité, pas une phrase :
+ * `©xyz` commence par 0xA9 et ne se compare correctement que caractère par
+ * caractère. Cette fonction est faite pour cela, et pour rien d'autre.
+ */
+export const texte = (b: Uint8Array, o: number, n: number) =>
+  String.fromCharCode(...b.subarray(o, o + n));
+
+/**
+ * Le texte d'une charge, décodé pour être LU.
+ *
+ * Lire un octet par caractère est juste pour un nom de boîte et FAUX pour tout
+ * le reste : `°` s'écrit sur deux octets en UTF-8, et le lire ainsi donne « Â° ».
+ * Le défaut ne se voyait sur aucun fichier d'essai, tous écrits en ASCII, et il
+ * rendait illisible tout ce qu'un appareil écrit avec un accent ou un symbole —
+ * un nom d'appareil, un auteur, et une position écrite en degrés et minutes.
+ *
+ * Trois encodages, dans l'ordre où on peut les reconnaître à coup sûr :
+ * l'indicateur d'ordre des octets annonce l'UTF-16 sans ambiguïté ; l'UTF-8 se
+ * valide de lui-même, une suite d'octets mal formée étant refusée plutôt que
+ * devinée ; et à défaut on retombe sur un octet par caractère, qui est ce
+ * qu'écrivent les fichiers anciens.
+ */
+export function texteLisible(b: Uint8Array, o: number, n: number): string {
+  const octets = b.subarray(o, o + n);
+  if (n >= 2 && octets[0] === 0xfe && octets[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(octets.subarray(2));
+  }
+  if (n >= 2 && octets[0] === 0xff && octets[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(octets.subarray(2));
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(octets);
+  } catch {
+    return texte(b, o, n);
+  }
+}
+
+/** Premier octet de la charge utile d'une boîte. */
+export const charge = (x: Boite) => x.debut + x.entete;
+
+/** Premier octet APRÈS la boîte. */
+export const finDe = (x: Boite) => x.debut + x.taille;
+
+/**
+ * Parcourt une suite de boîtes.
+ *
+ * Trois formes d'en-tête existent et se rencontrent toutes dans la nature :
+ * une taille sur 32 bits, la valeur 1 qui renvoie à une taille sur 64 bits, et
+ * la valeur 0 qui signifie « jusqu'à la fin du fichier » — courante sur les
+ * grosses boîtes de données écrites en flux. Un parcours qui ignore les deux
+ * dernières s'arrête trop tôt et conclut qu'il n'y a pas de position.
+ */
+export function boites(b: Uint8Array, debut: number, fin: number): Boite[] {
+  const out: Boite[] = [];
+  let o = debut;
+  while (o + 8 <= fin) {
+    const declaree = readU32(b, o, 'BE');
+    let taille = declaree;
+    const type = texte(b, o + 4, 4);
+    let entete = 8;
+    if (taille === 1) {
+      if (o + 16 > fin) break;
+      taille = lireEntierBE(b, o + 8, 8);
+      entete = 16;
+    } else if (taille === 0) {
+      taille = fin - o;
+    }
+    if (type === 'uuid') entete += 16;
+    if (taille < entete || o + taille > fin) break;
+    out.push({ type, debut: o, entete, taille, declaree });
+    o += taille;
+  }
+  return out;
+}
+
+/**
+ * Combien d'octets séparent l'en-tête d'une boîte de ses enfants.
+ *
+ * Presque toujours zéro. Trois exceptions, et les trois se rencontrent dans les
+ * fichiers réels : `meta` est une FullBox — quatre octets de version et de
+ * drapeaux d'abord — et `stsd` et `dref` font suivre ces quatre octets d'un
+ * compte sur quatre octets de plus.
+ */
+function preambule(type: string): number {
+  if (type === 'meta') return 4;
+  if (type === 'stsd' || type === 'dref') return 8;
+  return 0;
+}
+
+/**
+ * Enfants directs d'une boîte.
+ *
+ * **L'appelant doit savoir que cette boîte en CONTIENT d'autres.** Cette
+ * fonction lit des octets ; elle n'a aucun moyen de deviner qu'on lui présente
+ * une feuille, et elle ne prétendra jamais le savoir. La charge utile d'un
+ * `tkhd` ou d'un `stsz` est faite de nombres, et des nombres se lisent très
+ * bien comme des en-têtes plausibles : on obtient alors des boîtes qui
+ * n'existent pas. `contientDesBoites` est là pour cette question, et un
+ * parcours d'arbre doit s'en servir avant de descendre.
+ *
+ * `meta` mérite une précaution : c'est une FullBox, mais des outils dérivés de
+ * QuickTime l'écrivent comme une boîte ordinaire — `QuickTime.mov` d'ExifTool
+ * en est un. Plutôt que de deviner, on essaie les deux préambules et on retient
+ * celui qui produit une suite de boîtes qui remplit exactement le parent. Une
+ * lecture décalée de quatre octets produit des tailles absurdes, donc s'arrête
+ * court : c'est ce qui les départage.
+ */
+export function enfants(b: Uint8Array, parent: Boite): Boite[] {
+  const fin = finDe(parent);
+  const candidats = parent.type === 'meta' ? [4, 0] : [preambule(parent.type)];
+  let repli: Boite[] = [];
+  for (const decalage of candidats) {
+    const debut = charge(parent) + decalage;
+    if (debut > fin) continue;
+    const liste = boites(b, debut, fin);
+    if (liste.length && finDe(liste[liste.length - 1]) === fin) return liste;
+    if (liste.length > repli.length) repli = liste;
+  }
+  return repli;
+}
+
+/**
+ * Les boîtes qui en contiennent d'autres.
+ *
+ * Entrer dans `mdat` — les images et le son, l'essentiel du poids — reviendrait
+ * à interpréter des octets de pixels comme des en-têtes : on y trouverait des
+ * boîtes qui n'existent pas, sur des mégaoctets, à chaque appel. Le même
+ * raisonnement vaut pour toutes les feuilles, `tkhd` et `stsz` comprises, dont
+ * la charge est faite de nombres qui se lisent hélas très bien comme des
+ * en-têtes.
+ *
+ * Cette liste est donc la réponse à une seule question, et TOUT parcours
+ * d'arbre doit la poser avant de descendre d'un cran. Elle a été privée
+ * pendant un lot, et le contrôle d'après écriture des vidéos — qui descendait
+ * dans les feuilles — refusait de ce fait toutes les vidéos réelles.
+ */
+const CONTENEUSES = new Set([
+  'moov', 'trak', 'edts', 'mdia', 'minf', 'dinf', 'stbl', 'mvex', 'moof',
+  'traf', 'mfra', 'udta', 'meta', 'ilst', 'stsd', 'gmhd', 'tapt',
+]);
+
+/** Vrai si une boîte de ce type contient d'autres boîtes plutôt que des données. */
+export function contientDesBoites(type: string): boolean {
+  return CONTENEUSES.has(type);
+}
+
+/** Toutes les boîtes d'un type donné, à n'importe quelle profondeur. */
+
+export function toutesLesBoites(b: Uint8Array, type: string, racine?: Boite[]): Boite[] {
+  return parType(b, [type], racine).get(type) ?? [];
+}
+
+/**
+ * Plusieurs types en UNE descente.
+ *
+ * Chercher trois types demandait trois parcours complets de l'arbre, sur un
+ * fichier qu'on parcourt déjà plusieurs fois pour le sonder. La descente est
+ * la partie coûteuse ; le type recherché ne l'est pas.
+ */
+export function parType(
+  b: Uint8Array,
+  types: string[],
+  racine?: Boite[],
+): Map<string, Boite[]> {
+  const out = new Map<string, Boite[]>(types.map((t) => [t, []]));
+  const descendre = (niveau: Boite[], profondeur: number) => {
+    // Une profondeur bornée : un fichier abîmé peut décrire une imbrication
+    // qui ne finit pas, et le parcours doit s'arrêter avant la pile.
+    if (profondeur > 12) return;
+    for (const x of niveau) {
+      out.get(x.type)?.push(x);
+      if (CONTENEUSES.has(x.type)) descendre(enfants(b, x), profondeur + 1);
+    }
+  };
+  descendre(racine ?? boites(b, 0, b.length), 0);
+  return out;
+}

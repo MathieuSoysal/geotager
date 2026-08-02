@@ -22,6 +22,14 @@ import {
   toutEffacer,
 } from '../lib/exif/conteneurs.ts';
 import { type Capacites, type Motif, capacitesDe } from '../lib/exif/capacites.ts';
+import {
+  ecrirePositionVideo,
+  infosVideo,
+  effacerPositionVideo,
+  lirePositionVideo,
+  sonderVideo,
+  videoCoherente,
+} from '../lib/exif/quicktime.ts';
 import { ecrirePositionSurPlace } from '../lib/exif/tiff.ts';
 import { ExifError } from '../lib/exif/erreurs.ts';
 import { distanceMetres, validerPosition } from '../lib/exif/coords.ts';
@@ -103,8 +111,21 @@ function sonder(bytes: Uint8Array): Sonde {
   if (format === 'inconnu') {
     return { ...vide, capacites: statiques, motif: 'inconnu' };
   }
+
+  // Une vidéo ne porte pas de bloc TIFF : son lieu est une chaîne de texte,
+  // rangée à plusieurs endroits à la fois. Elle a donc sa propre sonde, et
+  // c'est LA MÊME que celle du test — l'annonce et le comportement ne peuvent
+  // pas diverger.
   if (format === 'video') {
-    return { ...vide, capacites: statiques, motif: 'video' };
+    const s = sonderVideo(bytes);
+    const capacites: Capacites = {
+      lire: statiques.lire && s.capacites.lire,
+      corriger: statiques.corriger && s.capacites.corriger,
+      ajouter: statiques.ajouter && s.capacites.ajouter,
+      effacer: statiques.effacer && s.capacites.effacer,
+      effacerTout: statiques.effacerTout && s.capacites.effacerTout,
+    };
+    return { ...vide, position: s.position, capacites, motif: motifVideo(s, capacites) };
   }
 
   const conteneur = conteneurDe(bytes);
@@ -174,6 +195,20 @@ function sonder(bytes: Uint8Array): Sonde {
 }
 
 /**
+ * Pourquoi l'outil peut, ou ne peut pas, agir sur CETTE vidéo.
+ *
+ * Le lieu en mouvement passe avant tout le reste : c'est la seule raison qui
+ * ferme les trois opérations d'un coup, et celle que l'utilisateur doit lire
+ * même quand le lieu principal s'affiche très bien.
+ */
+function motifVideo(s: ReturnType<typeof sonderVideo>, c: Capacites): Motif {
+  if (s.lieuEnMouvement) return 'lieu-en-mouvement';
+  if (!c.effacer) return 'copie-ailleurs';
+  if (s.position !== null) return c.corriger ? 'ok' : 'forme-inhabituelle';
+  return c.ajouter ? 'ok' : 'sans-lieu-possible';
+}
+
+/**
  * Projette les capacités sur le contrat que l'interface consomme.
  *
  * « Modifier » veut dire deux choses selon le fichier : remplacer un lieu déjà
@@ -237,8 +272,23 @@ async function lire(id: string, name: string, buffer: ArrayBuffer): Promise<Phot
   let camera: string | null = null;
   const details: Array<{ cle: string; value: string }> = [];
 
+  // Une vidéo dit ce qu'elle est, mais pas au même endroit qu'une photo : voir
+  // `infosVideo`, qui explique pourquoi le volet restait vide.
+  if (format === 'video') {
+    const infos = infosVideo(bytes);
+    takenAt = infos.takenAt;
+    camera = infos.camera;
+    details.push(...infos.details);
+  }
+
   try {
-    const tags = (await exifr.parse(buffer, OPTIONS_COMPLETES)) as
+    // L'appeler sur une vidéo lui ferait balayer plusieurs mégaoctets pour
+    // rien. Pire, s'il apprenait un jour à les lire, deux lecteurs répondraient
+    // sans qu'aucune règle ne dise lequel fait foi — alors que sur une vidéo,
+    // c'est le nôtre qui écrit.
+    const tags = (format === 'video'
+      ? undefined
+      : await exifr.parse(buffer, OPTIONS_COMPLETES)) as
       | Record<string, unknown>
       | undefined;
 
@@ -356,11 +406,63 @@ function blocNu(octets: Uint8Array): Uint8Array | null {
 const accord = (a: LatLon | null, b: LatLon | null): boolean =>
   (a === null && b === null) || (a !== null && b !== null && distanceMetres(a, b) < 1);
 
+/**
+ * Le contrôle croisé d'une vidéo, et ce qu'il ne peut pas être.
+ *
+ * Sur une photo, la garantie tient à un SECOND lecteur, écrit par d'autres, qui
+ * relit ce que nous venons d'écrire. Pour une vidéo, ce second lecteur n'existe
+ * pas dans un navigateur : `exifr` n'ouvre ni MOV ni MP4. Le dire est plus
+ * honnête que de laisser croire à une garantie qui n'a pas lieu.
+ *
+ * Ce qui le remplace n'est pas rien, et vise le défaut réellement redouté ici —
+ * non pas le boutisme, puisque nous écrivons du texte, mais l'ARITHMÉTIQUE DES
+ * TAILLES : une boîte agrandie dont un parent aurait gardé son ancienne taille.
+ *
+ *   1. La structure se reparcourt entière depuis le premier octet, et chaque
+ *      parent doit être exactement rempli par ses enfants.
+ *   2. TOUS les rangements du lieu doivent s'accorder sur la même réponse.
+ *
+ * Le vrai lecteur indépendant — ExifTool — passe en intégration continue, sur
+ * de vrais fichiers, colonne par colonne. Voir Q-050 et Q-051.
+ *
+ * Les deux contrôles vivent dans `quicktime.ts` et non ici : dans ce fichier,
+ * aucun test ne pouvait les atteindre — `engine.test.ts` n'importe pas un module
+ * qui tire `self`, `exifr` et le protocole de messages. C'est très exactement
+ * ainsi qu'un contrôle qui refusait TOUTES les vidéos a été livré au vert.
+ */
+function verifierVideo(
+  produit: Uint8Array,
+  attendu: LatLon | null,
+): { verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean } {
+  const sansLever = <T>(f: () => T, repli: T): T => {
+    try {
+      return f();
+    } catch {
+      return repli;
+    }
+  };
+  const parNous = sansLever(() => lirePositionVideo(produit), null);
+  return {
+    verified: parNous,
+    // Un écart infini dit « ce n'est pas ce qui était demandé » dans les deux
+    // sens : on attendait un lieu et il n'y en a pas, ou l'inverse.
+    drift: attendu === null
+      ? (parNous === null ? 0 : Infinity)
+      : (parNous === null ? Infinity : distanceMetres(parNous, attendu)),
+    croise: sansLever(() => videoCoherente(produit), false),
+    // Le second lecteur n'ouvre ni MOV ni MP4 : le croisement ne peut pas être
+    // complet, et le prétendre serait mentir sur la force du contrôle.
+    croiseComplet: false,
+  };
+}
+
 async function verifier(
   original: Uint8Array,
   produit: Uint8Array,
   attendu: LatLon | null,
 ): Promise<{ verified: LatLon | null; drift: number; croise: boolean; croiseComplet: boolean }> {
+  if (detecterFormat(produit) === 'video') return verifierVideo(produit, attendu);
+
   // A — notre relecture, structure relocalisée depuis le premier octet.
   const parNous = (() => {
     try {
@@ -423,7 +525,10 @@ async function appliquer(
   // Le refus reprend le MOTIF déjà annoncé avant l'action : ce que l'utilisateur
   // a lu et ce qu'il obtient ne peuvent pas se contredire, quelle que soit la
   // langue dans laquelle il l'a lu.
-  if (!permise || !conteneur) {
+  // Une vidéo n'a pas de conteneur au sens du bloc TIFF : c'est normal, et ce
+  // n'est pas un refus.
+  const video = sonde.format === 'video';
+  if (!permise || (!conteneur && !video)) {
     return echec('FORMAT_NON_MODIFIABLE', 'Opération non permise sur ce fichier.', sonde.motif);
   }
 
@@ -431,9 +536,24 @@ async function appliquer(
     let produit: Ecriture;
     let attendu: LatLon | null = null;
 
-    if (operation.kind === 'set') {
+    if (video) {
+      if (operation.kind === 'set') {
+        const pose = ecrirePositionVideo(bytes, operation.position.lat, operation.position.lon);
+        // La voie est P1 quand rien n'a bougé, P2 quand le fichier a grandi.
+        produit = { ...pose, route: pose.bytes.length === bytes.length ? 'P1' : 'P2',
+          precisionEcrite: false };
+        attendu = operation.position;
+      } else if (operation.kind === 'erase') {
+        produit = { ...effacerPositionVideo(bytes), route: 'P1', precisionEcrite: false };
+      } else {
+        throw new ExifError(
+          'EFFACEMENT_TOTAL_IMPOSSIBLE',
+          'Nous ne savons pas encore retirer toutes les informations de ce type de fichier.',
+        );
+      }
+    } else if (operation.kind === 'set') {
       produit = ecrirePosition(
-        conteneur,
+        conteneur!,
         bytes,
         operation.position.lat,
         operation.position.lon,
@@ -441,9 +561,9 @@ async function appliquer(
       );
       attendu = operation.position;
     } else if (operation.kind === 'erase') {
-      produit = effacerPosition(conteneur, bytes);
+      produit = effacerPosition(conteneur!, bytes);
     } else {
-      produit = toutEffacer(conteneur, bytes);
+      produit = toutEffacer(conteneur!, bytes);
     }
 
     // « À l'octet près » n'est pas une figure de style. Une comparaison de

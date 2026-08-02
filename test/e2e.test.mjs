@@ -81,6 +81,31 @@ const check = (nom, ok, detail = '') => {
   }
 };
 
+/*
+ * Les deux gestes que chaque parcours refait : ouvrir un fichier, et récupérer
+ * ce que l'outil produit.
+ *
+ * Ils étaient écrits en toutes lettres à chaque bloc — même `goto`, même
+ * attente, même `saveAs`. Les rassembler ne retire aucune assertion : cela
+ * retire la répétition qui les entoure, et la prochaine étape du parcours
+ * s'ajoutera à un seul endroit.
+ */
+const charger = async (fichier, attendre = '#etat-actif:not([hidden])') => {
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+  await page.setInputFiles('#picker', fichier.includes('/') ? fichier : join(FIXTURES, fichier));
+  await page.waitForSelector(attendre, { timeout: 60_000 });
+};
+
+const telecharger = async (bouton) => {
+  const [dl] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60_000 }),
+    page.click(bouton),
+  ]);
+  const chemin = join('/tmp', dl.suggestedFilename());
+  await dl.saveAs(chemin);
+  return chemin;
+};
+
 const serveur = createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   // Un chemin qui se termine par « / » désigne l'index du dossier — c'est ce
@@ -397,16 +422,226 @@ check('la phrase reste sans jargon de format', !MOTS_INTERDITS.en.test(phrase), 
 check('le champ de saisie est en lecture seule',
   (await page.locator('#coords').getAttribute('readonly')) !== null);
 
-// Les deux contrôles ci-dessus ne voient que les deux phrases que ces deux
-// fichiers déclenchent. Le parcours en compte onze, et c'est celle qu'on n'a
-// pas prévue qui dira « conteneur » à l'utilisateur.
+/*
+ * Le volet « autres informations », enfin regardé.
+ *
+ * Aucun test du dépôt ne l'avait jamais ouvert — ni pour une vidéo ni pour une
+ * photo. Il ne tenait qu'au second lecteur, qui n'ouvre ni MOV ni MP4 : une
+ * vidéo n'avait donc rien à y mettre et il disparaissait, sans que rien ne
+ * bronche.
+ */
+/*
+ * L'ÉCRAN après une écriture — et non le fichier produit.
+ *
+ * Aucun contrôle du dépôt n'avait jamais regardé là. On vérifiait ce que le
+ * fichier contient, jamais ce que l'outil affiche une fois qu'il l'a écrit :
+ * l'écran gardait donc l'état du fichier tel qu'il avait été CHARGÉ. Après un
+ * ajout il ne montrait aucun lieu, et après un effacement il montrait encore
+ * celui qu'on venait de retirer — sur un outil de confidentialité, le pire des
+ * deux sens. Cinq signalements ont traversé ce trou.
+ */
+console.log("\nL'écran dit ce que le fichier porte MAINTENANT");
+const lieuAffiche = async () => {
+  const pill = page.locator('#pill-position');
+  const cache = await pill.getAttribute('hidden');
+  const surPastille = cache === null ? (await pill.textContent()).trim() : '';
+  // Le volet est un dépliant : replié, son contenu n'est pas du texte rendu.
+  // Il faut l'ouvrir pour le lire, comme le ferait quelqu'un qui le consulte.
+  let volet = '';
+  if ((await page.locator('#autres').getAttribute('hidden')) === null) {
+    await page.locator('#autres').evaluate((d) => { d.open = true; });
+    volet = await page.locator('#autres-liste').innerText();
+  }
+  return { surPastille, volet };
+};
+
+for (const [fichier, coords, motif] of [
+  ['sans-lieu.mp4', '43.90811, 4.86387', /43[.,]908/],
+  ['Canon_40D.jpg', '43.90811, 4.86387', /43[.,]908/],
+]) {
+  await charger(fichier);
+  await page.fill('#coords', coords);
+  await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
+  await telecharger('#telecharger');
+  // L'écran doit rattraper le fichier : le resondage est asynchrone.
+  await page.waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && !p.hidden && p.textContent.includes('43');
+  }, null, { timeout: 30_000 }).catch(() => {});
+  const { surPastille, volet } = await lieuAffiche();
+  check(`${fichier} : le lieu écrit s'affiche sur la pastille`,
+    motif.test(surPastille), surPastille || '(pastille cachée)');
+  check(`${fichier} : et le volet porte sa ligne de lieu`,
+    /Location/.test(volet), volet.replace(/\n/g, ' / ').slice(0, 90));
+}
+
+for (const fichier of ['DSCN0010.jpg', 'avec-lieu.mp4']) {
+  await charger(fichier, '#pill-position:not([hidden])');
+  await telecharger('#effacer');
+  await page.waitForFunction(() => {
+    const p = document.getElementById('pill-position');
+    return p && p.hidden;
+  }, null, { timeout: 30_000 }).catch(() => {});
+  const { surPastille, volet } = await lieuAffiche();
+  // Le sens qui compte le plus : on vient de cliquer « retirer le lieu ».
+  check(`${fichier} : après l'effacement, plus de lieu sur la pastille`,
+    surPastille === '', surPastille);
+  check(`${fichier} : ni de ligne de lieu dans le volet`,
+    !/Location/.test(volet), volet.replace(/\n/g, ' / ').slice(0, 90));
+}
+
+console.log('\nLe volet des autres informations');
+for (const [fichier, attendu] of [
+  ['DSCN0010.jpg', /Camera/],
+  ['piste-de-lieu.mp4', /Length/],
+  ['sans-lieu.mp4', /Size/],
+  // Le cas le plus simple qui soit, et il n'était vérifié nulle part : une
+  // vidéo DÉJÀ géolocalisée, ouverte telle quelle. Les contrôles du volet
+  // portaient sur la durée, la taille, et sur les rangements exotiques ; celui
+  // que tout le monde rencontre manquait. Les deux rangements les plus répandus
+  // — l'atome texte d'un MP4, les clés nommées d'un QuickTime — sont ici.
+  ['avec-lieu.mp4', /Location/],
+  ['avec-lieu.mov', /Location/],
+  // La plainte, telle quelle : le lieu est lisible par un outil mobile et
+  // n'apparaissait pas ici, parce qu'il est rangé dans le paquet de texte que
+  // la norme place en boîte de premier niveau — là où nous ne regardions pas.
+  ['lieu-hors-piste.mp4', /Location/],
+  // Et le cas où nous ne SAVONS PAS lire la chaîne. Se taire alors est ce qui a
+  // coûté cinq allers-retours : l'outil savait où était le champ, voyait son
+  // texte, et n'affichait rien. Il montre désormais la chaîne telle qu'elle est
+  // écrite — une copie d'écran suffit à nommer la forme qui nous manque.
+  ['lieu-illisible.mp4', /43\.9081,4\.8639,26/],
+  // Le signalement, tel quel : le champ de lieu contient ce qu'une application
+  // affiche à l'écran — degrés, minutes, secondes et leurs symboles — et non la
+  // suite de chiffres de la norme. Il doit produire une VRAIE ligne de lieu.
+  ['lieu-en-lettres.mp4', /Location/],
+  // Et la racine du défaut : la charge était lue un octet par caractère, donc
+  // tout accent arrivait déformé à l'écran.
+  ['appareil.mp4', /Modèle Témoin/],
+]) {
+  await charger(fichier);
+  await page.waitForFunction(() => {
+    const d = document.getElementById('autres');
+    return d && !d.hidden;
+  }, null, { timeout: 30_000 }).catch(() => {});
+
+  const present = (await page.locator('#autres').getAttribute('hidden')) === null;
+  check(`${fichier} : le volet est proposé`, present);
+  if (!present) continue;
+  await page.locator('#autres > summary').click();
+  const texte = (await page.locator('#autres-liste').innerText()).trim();
+  check(`${fichier} : et il porte de quoi le remplir`, attendu.test(texte),
+    texte.replace(/\n/g, ' / ').slice(0, 90));
+}
+
+console.log('\nUne vidéo dont le lieu bouge : lue, et pas touchée');
+await charger('piste-de-lieu.mp4', '#pill-position:not([hidden])');
+const phraseVideo = (await page.locator('#alerte-format').textContent()).trim();
+check('la raison est annoncée avant toute action', phraseVideo.length > 0, phraseVideo.slice(0, 80));
+check('elle reste sans jargon de format',
+  !MOTS_INTERDITS.en.test(phraseVideo), phraseVideo.slice(0, 80));
+// Le lieu principal S'AFFICHE, et c'est le point : c'est parce qu'on sait le
+// lire qu'il faut dire qu'il n'est pas le seul.
+const luVideo = (await page.locator('#pill-position').textContent()).trim();
+check('le lieu écrit par l\'appareil est bien affiché', /33\.12/.test(luVideo), luVideo);
+check('mais le champ reste en lecture seule',
+  (await page.locator('#coords').getAttribute('readonly')) !== null);
+for (const bouton of ['#effacer', '#effacer-tout']) {
+  check(`${bouton} est inactif sur une vidéo dont le lieu bouge`,
+    (await page.locator(bouton).getAttribute('aria-disabled')) === 'true');
+}
+
+/*
+ * Le parcours qui manquait, et qui aurait attrapé Q-051.
+ *
+ * L'ancien s'arrêtait à l'état de l'interface : champ actif, boutons actifs.
+ * C'est exactement ce que la capture d'écran montrait AVANT l'échec — l'outil
+ * proposait, et ne tenait pas. Tant qu'on ne clique pas et qu'on ne récupère
+ * pas le fichier, la moitié du chemin n'est exécutée par personne.
+ */
+console.log('\nUne vidéo sans lieu : ajout mené jusqu\'au fichier récupéré');
+await charger('sans-lieu.mp4');
+check('le bouton est inactif tant qu\'aucun lieu n\'est saisi',
+  (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'true');
+
+await page.fill('#coords', '43.90811, 4.86387');
+await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
+check('le bouton devient actif', (await page.locator('#telecharger').getAttribute('aria-disabled')) === 'false');
+
+await page.addInitScript(() => {
+  const vrai = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (o) => { window.__typeProduit = o && o.type; return vrai(o); };
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.setInputFiles('#picker', join(FIXTURES, 'sans-lieu.mp4'));
+await page.waitForSelector('#etat-actif:not([hidden])', { timeout: 60_000 });
+await page.fill('#coords', '43.90811, 4.86387');
+await page.waitForSelector('#resultat:not([hidden])', { timeout: 20_000 });
+const videoProduite = await telecharger('#telecharger');
+const typeAnnonce = await page.evaluate(() => window.__typeProduit);
+check('un fichier est bien produit', statSync(videoProduite).size > 0);
+
+/*
+ * Le TYPE annoncé, et pas seulement le contenu.
+ *
+ * Le fichier produit sortait sans type déclaré. Sur un téléphone, un fichier
+ * rangé dans les téléchargements sans type n'est pas indexé comme une vidéo :
+ * la galerie ne lui montre aucune fiche, et notre propre sélecteur — restreint
+ * aux images et aux vidéos — peut cesser de le proposer. Le fichier était
+ * parfait, et l'utilisateur ne voyait rien. Aucun contrôle ne regardait ce que
+ * le navigateur DIT du fichier ; celui-ci le regarde.
+ */
+check('le fichier produit s\'annonce comme une vidéo',
+  typeAnnonce === 'video/mp4', typeAnnonce || '(aucun type)');
+
+// Et il repasse par le sélecteur, qui filtre sur ce type-là.
+await charger(videoProduite, '#pill-position:not([hidden])');
+check('rechargé dans l\'outil, il montre le lieu écrit',
+  /43\.908/.test((await page.locator('#pill-position').textContent()).trim()));
+
+// Enfin les mots : plus une phrase ne doit appeler « photo » une vidéo.
+const zoneVideo = (await page.locator('#etat-actif').innerText()).toLowerCase();
+check('aucune phrase n\'appelle « photo » une vidéo',
+  !zoneVideo.includes('photo'),
+  zoneVideo.split('\n').filter((l) => l.includes('photo')).slice(0, 3).join(' | '));
+
+const reluVideo = execFileSync(
+  'exiftool',
+  ['-n', '-s', '-s', '-s', '-GPSLatitude', '-GPSLongitude', videoProduite],
+  { encoding: 'utf8' },
+).trim().split('\n').map(Number);
+check('l\'oracle relit dans la vidéo le lieu demandé',
+  Math.abs(reluVideo[0] - 43.90811) < 0.0001 && Math.abs(reluVideo[1] - 4.86387) < 0.0001,
+  `relu ${reluVideo.join(', ')}`);
+check('la vidéo reste lisible après le passage par le navigateur',
+  execFileSync('exiftool', ['-s3', '-ImageSize', videoProduite], { encoding: 'utf8' }).trim()
+    === execFileSync('exiftool', ['-s3', '-ImageSize', join(FIXTURES, 'sans-lieu.mp4')], { encoding: 'utf8' }).trim());
+
+console.log('\nUne vidéo ordinaire : effacement mené jusqu\'au fichier récupéré');
+await charger('avec-lieu.mp4', '#pill-position:not([hidden])');
+check('le lieu de la vidéo est affiché',
+  /43\.94/.test((await page.locator('#pill-position').textContent()).trim()));
+check('et le champ accepte une saisie',
+  (await page.locator('#coords').getAttribute('readonly')) === null);
+check('l\'effacement est offert',
+  (await page.locator('#effacer').getAttribute('aria-disabled')) !== 'true');
+
+const videoNettoyee = await telecharger('#effacer');
+const residuVideo = execFileSync('exiftool', ['-a', '-ee', '-gps*', videoNettoyee], { encoding: 'utf8' }).trim();
+check('l\'oracle ne trouve plus aucun lieu dans la vidéo', residuVideo === '', residuVideo.slice(0, 120));
+check('et le fichier garde exactement sa taille',
+  statSync(videoNettoyee).size === statSync(join(FIXTURES, 'avec-lieu.mp4')).size);
+
+// Les contrôles ci-dessus ne voient que les phrases que ces trois fichiers
+// déclenchent. Le parcours en compte onze, et c'est celle qu'on n'a pas prévue
+// qui dira « conteneur » à l'utilisateur.
 console.log('\nAucune phrase du parcours ne porte de jargon');
 const { MATRICE } = await import('../src/lib/exif/capacites.ts');
 const { DICOS, LANGUES } = await import('../src/lib/i18n/index.ts');
 const MOTIFS = [
   'ok', 'sans-lieu', 'sans-emplacement', 'forme-inhabituelle', 'rangement-inconnu',
   'copie-compressee', 'copie-ailleurs', 'lecture-seule', 'sans-lieu-possible',
-  'video', 'inconnu',
+  'lieu-en-mouvement', 'inconnu',
 ];
 // Les deux langues, et toutes les phrases de chacune : c'est la phrase qu'on
 // n'a pas prévue qui dira « container » à l'utilisateur.

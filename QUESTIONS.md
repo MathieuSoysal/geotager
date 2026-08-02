@@ -1910,3 +1910,546 @@ installée, en rouvrant le site dans un onglet ordinaire. C'est précisément le
 et c'est le seul qu'aucun test local ne remplace.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-050 — Le corpus vidéo existait, et la recherche l'avait manqué
+
+**Contexte :** Q-006 puis Q-039 ont fermé la ligne des vidéos, et la deuxième l'a fermée jusqu'à la
+lecture — vérifié en exécutant le moteur : aucune ligne de code ne lisait une vidéo. Le blocage
+retenu n'était pas du code, c'était **un fichier** : « Recherche menée le 27/07/2026, toutes
+négatives : `ianare/exif-samples`, `drewnoakes/metadata-extractor-images`, `Exiv2/exiv2`,
+`exiftool/exiftool`, `gopro/gpmf-parser`, `google/spatial-media` ne contiennent aucun
+`.mov`/`.mp4`/`.m4v`/`.3gp` ».
+
+**Cette conclusion était inexacte sur deux des six dépôts cités**, et c'est tout le lot :
+
+- `exiftool/exiftool` porte bien `t/images/QuickTime.mov` — 3 871 o, sous la licence Artistic/GPL de
+  sa distribution. Il n'a **aucune boîte de tête** : il commence directement par la description des
+  pistes, ce qui est parfaitement légal en QuickTime — la boîte de type est une invention MP4,
+  arrivée après. C'est précisément ce qui le rendait « inconnu » pour notre reconnaissance de format.
+- `gopro/gpmf-parser` porte `samples/hero6.mp4` — 8 878 253 o, Apache-2.0, donc **dans** l'allowlist.
+  Une vraie HERO6, avec un lieu écrit par l'appareil (`+33.1265-117.3272/`) **et** une piste dont la
+  description est `gpmd`, avec vingt-trois charges `GPS5` dans les données. C'est-à-dire l'objection
+  centrale de Q-006, disponible sous forme de fichier.
+
+S'y ajoute `bear.mp4` de `chromium/chromium` (41 358 o, BSD-3-Clause) : un vrai MP4 sans lieu, qui
+éprouve la création. Les trois sont inscrits dans `CREDITS.md`, et la réserve sur Artistic/GPL est
+traitée comme celle de `drewnoakes` — hors allowlist, nommée, et jamais distribuée.
+
+Deux d'entre eux reçoivent leur lieu de départ d'ExifTool, selon le patron déjà retenu en Q-035, et
+dans **trois rangements différents à dessein** : notre lecteur doit comprendre les trois.
+
+**Retenu : les quatre colonnes s'ouvrent**, chacune adossée à un discriminant exécuté sur un fichier
+réel. Voici, une par une, les quatre objections de Q-006 et ce qu'elles deviennent.
+
+**1. `@xyz` (Samsung) et 2. `com.apple.quicktime.location.ISO6709`.** Lus, réécrits et effacés comme
+les autres. Cinq rangements sont couverts : la forme simple, la variante Samsung, la liste d'éléments
+qu'écrit Google Photos, les clés nommées d'Apple, et la forme 3GPP. Et la règle qui compte est le
+**tout ou rien** : ils sont tous réécrits ensemble ou aucun ne l'est. Un fichier dont un rangement
+dit Avignon et dont l'autre dit encore San Diego serait un mensonge de plus, pas un demi-succès.
+
+**3. `location.name` — le lieu en toutes lettres.** C'était le reproche le plus juste : « le balayage
+résiduel cherche des coordonnées, pas des toponymes ; il rendrait "aucun résidu" sur un fichier qui
+dit "Avignon" en clair ». Le balayage cherche désormais les deux. La forme 3GPP range le nom de la
+ville juste avant les coordonnées, et le paquet de texte descriptif porte `photoshop:City`,
+`photoshop:Country` et `Iptc4xmpExt:LocationCreated` — la purge de `xmp.ts`, écrite pour les photos,
+s'applique telle quelle. Deux fichiers l'éprouvent : l'un qui nomme la ville **à côté** des chiffres,
+l'autre qui la nomme **sans aucun** chiffre. Le test vérifie aussi que le mot n'est plus présent dans
+les octets, et que l'auteur, lui, a survécu.
+
+**Ce que cette garantie ne couvre pas, et il vaut mieux l'écrire que le laisser supposer :** nous
+garantissons que les champs *prévus pour un lieu* sont vides, pas qu'aucun mot du fichier ne désigne
+un endroit du monde. « Avignon » glissé dans un commentaire libre passerait. Nous n'avons pas de
+dictionnaire de noms de lieux, et prétendre en avoir un serait le second mensonge.
+
+**4. Les pistes horodatées, qui vivent dans les données.** Elles ne sont pas touchées — et leur
+présence **ferme les trois écritures** au lieu d'être ignorée. Une piste de description `gpmd`,
+`camm`, `mett` ou `rtmd`, ou une charge `GPMF`, et le fichier est rendu intact avec sa phrase. Fermer
+« Corriger » autant qu'« Effacer » est le point : réécrire le lieu visible en laissant vingt-trois
+relevés seconde par seconde produirait un fichier qui *affiche* un lieu et en *révèle* un autre.
+C'est ce que fait `hero6.mp4`, et le test vérifie que l'opération **lève**, pas qu'elle réussit — et
+que le refus est fondé, en comptant les relevés que l'oracle trouve avec l'option `-ee`.
+
+**Les deux voies d'écriture.** Une chaîne de position peut s'écrire avec plus ou moins de décimales :
+sa longueur vaut dix caractères plus le nombre de décimales. On choisit donc le nombre de décimales
+qui retombe sur la longueur exacte de la chaîne d'origine, et **aucun octet ne bouge** — le fichier
+produit a la taille de l'original. Quand la chaîne en place est trop courte, cette voie est refusée
+plutôt que forcée : dix-huit caractères ne portent que quatre décimales par côté, soit une grille de
+onze mètres, quand le contrôle final du moteur exige le mètre. On efface alors tous les rangements et
+l'on en écrit un seul, assez long — ce qui fait grandir le fichier, et demande donc la même permission
+qu'un ajout. **Le moteur relit toujours ce qu'il vient d'écrire avant de le retenir.**
+
+Même mesure pour la forme 3GPP, et elle est contre-intuitive : ses degrés sont notés en virgule fixe
+sur seize bits, donc par pas d'un soixante-cinq-millième de degré — **un mètre sept en latitude**. Le
+pas de la grille y est plus large que notre tolérance ; ce rangement-là passe donc toujours par la
+voie qui fait grandir, bien que sa largeur ne varie jamais.
+
+**Ce que l'ajout exige.** Faire grandir la description n'est sûr que si l'on sait retrouver tout ce
+qui désigne un octet par son rang. Un fichier fragmenté range ces rangs à des endroits que ce module
+ne réécrit pas : on le refuse. Un rang qui pointe au-delà de la fin du fichier signale une structure
+qu'on n'a pas comprise : on refuse aussi. Sinon, les tables de tronçons sont reprises une par une, et
+le test prouve la chose qui compte sur un fichier de plusieurs mégaoctets : **les images et le son
+sont intacts octet pour octet**, mesuré sur les octets et non sur une taille.
+
+**Ce que ce lot ne prouve pas.** Le contrôle croisé d'une photo repose sur un **second lecteur écrit
+par d'autres**. Pour une vidéo, il n'existe pas dans un navigateur : `exifr` n'ouvre ni MOV ni MP4.
+Deux contrôles à nous le remplacent — la structure est reparcourue depuis le premier octet et chaque
+parent doit être exactement rempli par ses enfants, ce qui attrape le défaut réellement redouté ici,
+l'arithmétique des tailles ; et tous les rangements doivent s'accorder sur la même réponse. Le vrai
+lecteur indépendant, ExifTool, passe en intégration continue, sur de vrais fichiers, colonne par
+colonne. C'est moins que pour une photo, et le README le dit aussi.
+
+Restent hors du lot, faute de fichier pour les éprouver : les fichiers fragmentés (refusés sans
+qu'aucun test ne le montre), et l'écriture dans un espace libre existant pour corriger sans grandir
+une chaîne trop courte — aucune case n'en dépend.
+
+**Enfin, un défaut voisin, trouvé en écrivant les tests.** L'inventaire qui prouve que « tout le reste
+est préservé » excluait les tags `[GPS]`. ExifTool range le lieu d'une vidéo sous `[UserData]`,
+`[Keys]` ou `[ItemList]`, **jamais** sous `[GPS]` : l'inventaire aurait donc comparé une position à
+une position, et signalé comme une perte le changement qu'on venait de demander.
+
+**Bloque :** non.
+
+---
+
+## [V1.7] Q-051 — Le contrôle censé remplacer le second lecteur refusait toutes les vidéos
+
+**Contexte :** Q-050 a ouvert les quatre colonnes des vidéos, et a écrit qu'à défaut d'un second
+lecteur — `exifr` n'ouvre ni MOV ni MP4 — deux contrôles à nous le remplaçaient, dont un qui
+reparcourt la structure et exige que chaque parent soit exactement rempli par ses enfants.
+
+**Ce contrôle refusait TOUTES les vidéos réelles.** Signalé par un utilisateur, capture à l'appui :
+un vrai MP4 Android de 2,4 Mo sans lieu, le champ de coordonnées actif, le bouton actif, un lieu
+saisi — et « No file could be produced. Your originals were not modified. »
+
+C'est le défaut que ce projet nomme et interdit depuis Q-039 : **un bouton actif qui n'agit pas.**
+L'annonce et le comportement divergeaient, et la vidéo est le seul format où rien ne vérifiait leur
+accord.
+
+La cause tient en une ligne. `structureIntacte` descendait dans **toutes** les boîtes, feuilles
+comprises. `enfants()` lit des octets ; elle n'a aucun moyen de savoir qu'on lui présente une
+feuille, et elle ne le prétend pas. La charge utile d'un `tkhd` est faite de nombres, et des nombres
+se lisent très bien comme des en-têtes : un `tkhd` de drapeaux 15 produit une boîte fantôme de
+quinze octets, qui ne remplit évidemment pas son parent. `structureIntacte` rendait donc `false`,
+`croise` devenait `false`, et `appliquer()` rendait `RELECTURE_CROISEE_DIVERGENTE` — que
+l'interface, pour un fichier seul, affiche sous sa phrase générique.
+
+Mesuré sur treize vidéos réelles — les fichiers du corpus plus sept MP4 de `chromium/chromium`,
+H.264, HEVC, AV1, trois rotations, muet : l'écriture échouait sur **toutes**, et l'effacement aussi,
+puisque le contrôle était déjà faux sur le fichier d'ENTRÉE. Seule la lecture marchait, ce qui
+explique que le lieu s'affichait.
+
+**La vraie faute n'est pas la ligne, c'est l'endroit.** `structureIntacte` vivait dans
+`exif.worker.ts`, que `test/engine.test.ts` n'importe pas — il tire `self`, `exifr` et le protocole
+de messages. Aucun test ne pouvait l'atteindre. Les scénarios vidéo appelaient le moteur en direct
+et sautaient donc `appliquer()` tout entier ; le parcours navigateur chargeait bien une vidéo, mais
+ne vérifiait que l'état de l'interface — **il ne cliquait pas.** 514 tests moteur et 302 de bout en
+bout au vert, sur un chemin dont personne n'exécutait la seconde moitié.
+
+**Retenu :**
+
+1. **La notion « cette boîte en contient d'autres » devient publique.** `bmff.ts` la portait déjà,
+   dans la constante privée dont `toutesLesBoites` se sert pour ne pas descendre dans `mdat` — elle
+   était au bon endroit et n'était pas partagée. Elle s'exporte, et la documentation d'`enfants()`
+   dit désormais que l'appelant doit savoir ce qu'il lui présente.
+2. **Le contrôle déménage dans `quicktime.ts`.** C'est ce qui le rend éprouvable. `sonderVideo` a
+   exactement ce statut — partagée entre le worker et le test pour qu'ils ne puissent pas
+   diverger —, et le contrôle d'après écriture aurait dû l'avoir dès le premier jour.
+3. **Et il s'éprouve dans les deux sens.** Une taille de parent volontairement fausse, trop courte
+   puis trop longue, doit le faire échouer. Un contrôle qu'on n'a jamais vu échouer n'est pas un
+   contrôle — c'est la leçon de Q-039, appliquée cette fois à la vérification elle-même.
+4. **Le parcours navigateur va jusqu'au fichier.** Il clique, récupère le fichier produit et le fait
+   relire par l'oracle, pour l'ajout comme pour l'effacement. Vérifié en réintroduisant le défaut :
+   le parcours échoue, faute de fichier à récupérer.
+
+**Ce que la correction ne couvre pas, et il vaut mieux l'écrire.** Si c'est `udta` — et non `moov` —
+qui garde son ancienne taille, la structure reste cohérente : le rangement du lieu devient le voisin
+d'`udta` au lieu d'être son enfant. Le contrôle de structure ne le voit pas. C'est la relecture de
+la position qui l'attrape, en ne retrouvant plus rien. Les deux contrôles se complètent, aucun ne
+suffit seul, et le test le dit explicitement plutôt que de le laisser croire.
+
+**Trois défauts de la même famille, trouvés en cherchant celui-là.** Tous les trois sont des
+divergences entre ce qui est annoncé et ce qui est fait :
+
+- **`assezLong` ne vérifiait qu'une borne sur deux.** Une chaîne peut être trop LONGUE autant que
+  trop courte — au-delà de dix-huit décimales, l'écriture refuse. Un fichier dont le rangement
+  dépasse vingt-huit caractères s'annonçait donc corrigeable et levait ensuite. La question est
+  maintenant posée à `ecrireIso6709` elle-même, plutôt que ses bornes recopiées à côté.
+- **Une taille sur soixante-quatre bits aurait été écrasée.** Les boîtes dont nous remontons la
+  taille doivent porter la leur sur quatre octets ; au-delà, les quatre premiers octets ne portent
+  qu'un marqueur, et le remonter là écraserait le marqueur. Trop rare sur un `moov` pour qu'un
+  fichier témoin existe : on refuse, avant l'action.
+- **La preuve à l'octet près était presque vide sur la voie qui fait grandir.** Un ajout décale tout
+  ce qui le suit, donc la plage annoncée couvre nécessairement toute la fin du fichier — sur huit
+  mégaoctets, elle en exempte huit. Ce qu'il faut établir n'est pas « rien n'a changé de place »,
+  qui est faux par construction, mais « rien n'a changé de CONTENU » : un scénario compare
+  désormais la fin du fichier produit à la fin de l'original, décalée d'exactement ce qu'on a
+  inséré, sur chaque vidéo du corpus.
+
+**Enfin, le refus des fichiers fragmentés est prouvé.** Il existait depuis Q-050 et ne reposait sur
+aucun fichier — un raisonnement, pas une mesure. `bear-av1.mp4` de `chromium/chromium` en est un ;
+il rejoint le corpus sous la même licence que son voisin.
+
+**Bloque :** non.
+
+---
+
+## [V1.7] Q-052 — Le fichier produit ne disait pas ce qu'il était, et l'outil appelait « photo » une vidéo
+
+**Contexte :** deux signalements après Q-051, et ils ne sont pas de même nature.
+
+**Le premier est net.** Dix-sept phrases de `app` disent « photo » dans chaque langue, et elles
+s'affichaient telles quelles sous une pastille qui annonçait pourtant « Video » : *« Where was this
+photo taken? »*, *« Download the photo »*. L'outil nommait mal ce qu'il avait sous la main.
+
+**Le second n'a pas pu être reproduit**, et il faut le dire avant tout le reste : « je ne vois rien
+dans les informations de la vidéo ». Vérifié pied à pied — le correctif de Q-051 **est** déployé
+(le worker servi a le même contenu, octet pour octet, que la build locale) ; le fichier produit porte
+son lieu à sa place canonique ; l'oracle le relit ; et les six vidéos du corpus font l'aller-retour
+complet dans un vrai navigateur, chargement, saisie, clic, téléchargement, rechargement, sans une
+faute.
+
+Reste une cause matérielle, trouvée en lisant le chemin de sortie, et qui explique le symptôme de
+bout en bout **sans qu'aucun octet du fichier soit en cause** : le fichier produit sortait **sans
+type déclaré**, et le partage l'annonçait explicitement comme un flux d'octets quelconque. Sur un
+téléphone, un fichier rangé dans les téléchargements sans type n'est pas indexé comme une vidéo : la
+galerie ne lui montre aucune fiche, et notre propre sélecteur — restreint aux images et aux vidéos —
+peut cesser de le proposer. Le fichier est parfait, et l'utilisateur ne voit rien.
+
+Cela valait pour les photos aussi. C'est la vidéo qui l'a rendu visible, parce qu'une vidéo se
+consulte presque toujours par la galerie.
+
+**Retenu :**
+
+1. **Le fichier produit déclare son type**, au téléchargement comme au partage. La table format ⇄
+   type était écrite deux fois — dans le manifeste et dans les tests — et le fichier produit ne la
+   lisait nulle part : elle est désormais unique, et le manifeste en dérive au lieu de la recopier.
+   La source est le format que le MOTEUR a reconnu dans les octets, jamais le type que le système
+   attache au fichier d'entrée — c'est justement celui-là qui est vide ou faux dans les cas qui nous
+   occupent, ce que Q-042 avait déjà relevé pour le sélecteur.
+2. **Les mots suivent le fichier chargé.** Les phrases dites quand un fichier est là prennent le nom
+   de son genre. Le français rendait la chose simple : « photo » et « vidéo » sont tous deux
+   féminins, donc rien à accorder. Un lot mélangé retombe sur un nom neutre — aucun des deux n'y
+   serait vrai. Le héros, les titres de page et les guides ne bougent pas : c'est ce que les gens
+   cherchent, et aucun fichier n'y est chargé.
+3. **Le lieu s'écrit aussi à la façon d'Apple.** `moov/udta/©xyz` est ce que lisent Android, FFmpeg,
+   VLC et MediaInfo ; les logiciels d'Apple ne lisent que la clé nommée
+   `com.apple.quicktime.location.ISO6709`. Les deux sont désormais écrits ensemble, et effacés
+   ensemble — la règle du tout ou rien de Q-050 s'applique telle quelle.
+
+   Deux bornes volontaires : rien n'est écrit si `moov/meta` existe déjà — il faudrait allonger deux
+   tables et renuméroter, et aucun fichier du corpus n'a cette forme, donc rien ne l'éprouverait ; et
+   rien n'est écrit dans un vrai QuickTime, dont `©xyz` est de toute façon le rangement natif.
+
+   **Un détail mesuré plutôt que supposé :** la norme fait de `meta` une « FullBox », qui porte
+   quatre octets de version. Écrite ainsi, l'oracle n'y lit RIEN ; écrite sans, il y lit le lieu — et
+   c'est la forme qu'ExifTool produit lui-même. Ce rangement n'existant que pour être lu par
+   d'autres, on suit le lecteur et non le texte.
+4. **Un échec cesse d'être muet.** Sur un fichier seul, n'importe quel échec s'affichait « aucun
+   fichier produit », alors que la phrase exacte — traduite, propre à chaque code — était calculée
+   puis jetée : la liste des états n'est rendue qu'à partir de deux fichiers. Ce défaut a coûté deux
+   allers-retours de diagnostic, faute que l'outil dise ce qu'il savait déjà.
+
+**Un défaut trouvé en écrivant le troisième point, et qui vaut d'être noté.** L'insertion déduisait
+de la POSITION à quelle boîte un ajout appartenait. C'est faux dans un cas parfaitement ordinaire :
+quand `udta` est la dernière boîte de `moov`, les deux finissent au même octet, et rien dans la
+position ne distingue « dans udta » de « après udta, dans moov ». `udta` avalait donc le rangement
+d'Apple, qui devenait invisible pour tout le monde — nous compris. Chaque insertion dit désormais
+chez qui elle va, au lieu de le laisser deviner.
+
+**Ce qui reste ouvert.** Le second signalement n'est pas reproduit. La cause proposée se corrige sur
+pièces et explique le symptôme entièrement, mais elle n'est pas prouvée être la sienne. S'il reste
+invisible après ce lot, c'est le fichier lui-même qu'il faudra : un MP4 de téléphone porte
+peut-être un rangement qu'aucune des six vidéos du corpus ne montre.
+
+**Bloque :** non.
+
+---
+
+## [V1.7] Q-053 — Une vidéo n'avait rien à dire dans « les autres informations »
+
+**Contexte :** le volet repliable n'apparaît pas sur une vidéo. Mesuré dans un vrai navigateur :
+seize lignes sur un `Canon_40D.jpg`, dix-huit sur un `DSCN0010.jpg` — et **zéro** sur un MP4 sans
+lieu, où le volet disparaît entièrement. Une vidéo qui porte un lieu s'en tire avec **une** ligne :
+la position, que la pastille affiche déjà juste au-dessus.
+
+La condition est `infos.length === 0` (`src/lib/ui/app.ts:319`), et `infos` se remplit de cinq
+sources : `camera`, `takenAt`, `position`, `altitude`, `details`. **Quatre sur cinq ne sont écrites
+que dans le bloc `if (tags)` de `lire()`**, alimenté par le second lecteur — que la V1.7 a cessé
+d'appeler sur une vidéo puisqu'il n'ouvre ni MOV ni MP4. Il ne restait donc que la position.
+
+Ce n'est pas une régression du volet : personne n'avait jamais écrit la lecture des informations
+d'une vidéo. Le lot précédent a ouvert les quatre opérations sur le LIEU et s'est arrêté là.
+
+**Retenu : lire ce que le fichier porte réellement**, dans les boîtes que le module parcourt déjà —
+durée et date depuis `mvhd`, dimensions depuis le `tkhd` de la première piste qui en déclare (la
+première piste tout court peut être le son), appareil et logiciel depuis les clés nommées d'Apple ou
+les atomes texte d'`udta`.
+
+L'essentiel de la conception est de la **réutilisation**, pas du code neuf : l'appariement
+rang → valeur des clés d'Apple — la seule partie subtile du rangement — est sorti du lecteur du lieu
+pour servir aux deux, et le décodage des atomes texte d'`udta` de même. Aucun changement de
+contrat : `PhotoRead.details` est depuis toujours le canal ouvert prévu pour cela, et sa
+documentation dit déjà que la clé est un identifiant stable que l'interface traduit.
+
+**Trois refus, et ils valent mieux que les lignes ajoutées :**
+
+- **Une date de remplissage n'est pas une date.** Zéro n'est pas le 1er janvier 1904, et beaucoup
+  d'outils écrivent la valeur qui retombe pile sur le 1er janvier 1970 — `bear.mp4` le fait. Le
+  format QuickTime datant de 1991, rien d'antérieur ne peut être une prise de vue : on s'abstient.
+- **Un texte qu'on ne sait pas décoder ne s'affiche pas.** Les atomes d'`udta` sont écrits dans un
+  jeu de caractères que rien ne déclare, et les fichiers anciens emploient celui du Macintosh.
+  `tete-nue.mov` porte ainsi un auteur dont le premier octet ne veut rien dire chez nous. Faute de
+  la table qui le convertit, l'afficher octet pour octet donnerait du charabia.
+- **Deux dispositions, pas une.** `©day` s'écrit tantôt à la façon QuickTime — longueur, langue,
+  chaîne — tantôt dans une boîte `data`. Les deux sont lues ; une seule aurait rendu la moitié des
+  fichiers muets.
+
+**Ce qu'on n'affiche pas, délibérément :** le nom du codage vidéo. Il est trivial à lire — le
+parcours qui cherche les pistes de lieu le croise déjà — et il ne dit rien à quelqu'un venu placer
+un lieu sur une vidéo.
+
+**Et le vrai trou du lot : personne n'avait jamais regardé ce volet.** Ni `engine.test.ts` ni
+`e2e.test.mjs` ne mentionnaient `#autres`, `details`, `takenAt` ou `camera` — pour aucun format.
+C'est pour cela que ceci pouvait être livré sans que rien ne bronche. Les scénarios ajoutés
+l'ouvrent enfin, sur une photo comme sur une vidéo, et vérifient les DEUX SENS : ce qui doit y être
+y est, et ce qui ne doit pas y être n'y est pas. Un fichier témoin a été préparé pour la ligne
+« Appareil », qu'aucune vidéo du corpus ne portait — sans lui, elle aurait été écrite sans preuve.
+
+**Bloque :** non.
+
+---
+
+## [V1.7] Q-054 — Le lecteur cherchait le lieu à des adresses fixes
+
+**Contexte :** « Pourquoi le lieu n'apparaît pas dans les informations de la vidéo ? Je peux
+pourtant le lire avec un outil mobile. » C'était exact, et c'était notre défaut.
+
+**Reproduit deux fois**, en rangeant le lieu ailleurs que là où nous regardions, puis en demandant à
+l'oracle indépendant :
+
+| Où est le lieu | ExifTool | Nous |
+|---|---|---|
+| `moov/meta/ilst/©xyz`, clé en quatre lettres | 43.90811 4.86387 | **rien** |
+| paquet de texte, boîte `uuid` de premier niveau | 43.90811 4.86387 | **rien** |
+
+La cause tenait en six lignes : chaque recherche passait par un **chemin fixe** — `moov/udta`,
+`moov/meta`, `moov/udta/meta/ilst` — et `chemin()` ne rend que la PREMIÈRE boîte de chaque cran. Un
+fichier qui range son lieu dans un second `udta`, dans celui d'une piste, dans un `ilst` accroché
+ailleurs, ou dans le paquet de texte que la norme place en boîte de premier niveau, passait à côté
+de nous. Ces quatre cas sont parfaitement réguliers ; c'est notre lecture qui était étroite.
+
+**Le second cas n'était pas qu'un affichage manquant.** Sur un fichier dont le lieu n'est QUE dans
+le paquet de texte, le balayage résiduel — celui qui doit faire ÉCHOUER un effacement incomplet —
+ne voyait rien non plus. Un effacement rendait donc un fichier annoncé propre **qui disait encore où
+il avait été tourné**. C'est très exactement le résultat que Q-006 nomme le pire possible pour cet
+outil, et que tout le reste du moteur est bâti pour empêcher.
+
+**Retenu : un rangement compte où qu'il soit.** Les chemins fixes cèdent la place à une recherche
+sur tout le fichier — `toutesLesBoites` fait déjà ce parcours pour les pistes de lieu et les tables
+de rangs. Tout `udta`, tout `ilst` — nommé par quatre lettres comme par rang —, tout paquet de
+texte, y compris la boîte `uuid` de premier niveau reconnue à son identifiant. Ce qui est trouvé est
+lu, réécrit avec les autres, effacé avec les autres, et surveillé par le balayage comme les autres.
+
+S'y ajoute la **lecture** des coordonnées du paquet de texte, qu'on savait jusqu'ici seulement
+détecter. Elles n'y sont pas en degrés décimaux mais à la façon de l'EXIF — `43,54.4866N`, des
+degrés, des minutes décimales, un hémisphère. Les lire comme un nombre donnerait 43, soit cent
+kilomètres d'erreur qui n'auraient pas l'air fausses.
+
+**Une décision à assumer :** quand on corrige le lieu d'une vidéo dont le paquet de texte en porte
+une seconde copie, cette copie est **purgée** et non réécrite. Les nombres y ont une longueur
+variable, donc les réécrire déplacerait des octets ; les laisser ferait dire deux lieux au même
+fichier. Le titre, l'auteur et l'historique ne sont pas touchés — `purgerLeLieu` ne blanchit que les
+propriétés de lieu, et c'est déjà ce qu'elle fait pour les photos.
+
+**Un défaut voisin, trouvé en éprouvant le premier.** La sonde recalculait le lieu de son côté, sur
+les seuls rangements ordinaires. Le lecteur savait donc lire un lieu que la sonde annonçait absent —
+et c'est la sonde qui alimente le volet. Les deux passent désormais par la même lecture, comme le
+reste du module.
+
+**Ce qui reste couvert sans témoin, et il faut le dire :** le cas `moov/meta/ilst` à clé de quatre
+lettres. ExifTool écrit toujours ce rangement sous `moov/udta/meta`, donc l'oracle ne sait pas
+fabriquer le fichier, et le projet interdit d'en fabriquer un pour l'occasion. La recherche
+généralisée le couvre **par construction, pas par mesure**. Le paquet de texte, lui, a son témoin :
+`exiftool -XMP:GPSLatitude=…` sur un vrai MP4 produit exactement le cas dangereux.
+
+**Bloque :** non.
+
+---
+
+## [V1.7] Q-055 — L'écran montrait le fichier chargé, jamais le fichier produit
+
+**Contexte :** cinquième signalement du même symptôme, et le premier à le nommer exactement :
+« vous avez enregistré le lieu dans la vidéo, les outils du téléphone le voient, mais vous, vous ne
+l'affichez pas ».
+
+Ce n'était pas un défaut de lecture — les quatre tours précédents cherchaient au mauvais endroit.
+**L'affichage n'était jamais rafraîchi après une écriture.** Mesuré dans le navigateur, après avoir
+enregistré un lieu dans un MP4 qui n'en avait pas :
+
+```
+avant l'écriture         pastille=(cachée)   volet= Length 0:01 / Size 320 × 180
+APRÈS le téléchargement  pastille=(cachée)   volet= Length 0:01 / Size 320 × 180
+```
+
+Le fichier produit portait bien le lieu. L'écran, lui, montrait toujours l'état du fichier **tel
+qu'il avait été chargé**.
+
+**Et l'autre sens était pire.** Après un clic sur « Effacer la position », sur un JPEG géolocalisé :
+
+```
+APRÈS l'effacement   pastille=Currently : 43.46745, 11.88513
+                     volet= … / Location / 43° 28′ 2.81″ N 11° 53′ 6.46″ E / …
+```
+
+Le lieu était retiré du fichier rendu, et l'écran continuait de l'afficher. Sur un outil dont c'est
+le métier, c'est l'affichage le plus trompeur possible : on clique « retirer », et le lieu reste là.
+
+**Le défaut touchait tous les formats, depuis l'origine.** Vérifié à l'identique sur un JPEG. Il ne
+se voyait pas sur une photo parce que le volet y reste rempli d'appareil, de date et de pose : une
+ligne « Location » manquante passe inaperçue au milieu de seize autres. Sur une vidéo, dont le volet
+ne porte que deux lignes, il saute aux yeux.
+
+**Retenu : après une écriture réussie, l'élément adopte les octets produits**, est resondé par le
+même chemin que le chargement initial, et l'écran est refait.
+
+On remplace les octets, et non l'affichage seul. La moitié de ce que l'écran porte est une
+CAPACITÉ — champ actif, boutons d'effacement, phrase de motif — et la rafraîchir sans changer les
+octets la ferait décrire le fichier produit pendant que les boutons agiraient sur l'original. Ce
+projet a déjà payé cette divergence deux fois, en Q-039 puis en Q-051 ; la reproduire ici pour
+gagner trois lignes n'aurait aucun sens. Le NOM d'origine est conservé : c'est lui qui compose le
+nom de sortie, et adopter le nom suffixé empilerait « -geotagged-geotagged » à la deuxième écriture.
+
+**Pourquoi quatre tours sont passés à côté, et c'est la leçon du lot.** Chacun a vérifié le FICHIER
+produit — octets, structure, relecture par l'oracle, aller-retour par le sélecteur — et aucun n'a
+regardé l'ÉCRAN après l'avoir produit. Le dépôt n'avait aucun contrôle de cette moitié-là, pour
+aucun format. Les corrections précédentes restent bonnes, deux d'entre elles empêchaient même de
+rendre un fichier faussement propre, mais aucune ne répondait à la question posée.
+
+Les contrôles ajoutés couvrent les deux sens, sur une photo comme sur une vidéo, et **échouaient
+tous les six** sur le code d'avant : après un ajout la pastille et la ligne de lieu apparaissent ;
+après un effacement elles disparaissent.
+
+**Bloque :** non.
+
+---
+
+## [V1.7] Q-056 — Le lieu était trouvé, illisible, et l'outil se taisait
+
+**Contexte :** « Peux-tu montrer le géotag dans "Voir les autres informations" ? » — la question,
+prise au mot, a mis le doigt sur deux formes d'écriture parfaitement courantes que nous TROUVIONS
+sans savoir les décoder.
+
+Mesuré sur un vrai MP4 du corpus, en ne changeant que la chaîne du rangement `©xyz`, ExifTool servant
+d'oracle :
+
+| Chaîne dans le fichier | ExifTool | Nous, avant |
+|---|---|---|
+| `+43.908110+004.863870/` | 43.90811 4.86387 | 43.90811 4.86387 |
+| la même, **suivie d'un octet nul** | 43.90811 4.86387 | **rien** |
+| `+43.9081+004.8639/CRSWGS_84/` | 43.9081 4.8639 | **rien** |
+| `+43.90811+4.86387` | 43.90811 4.86387 | **rien** |
+
+Dans les trois cas d'échec, le rangement était localisé et son texte était sous nos yeux : seul le
+décodage refusait. La position devenait nulle, donc **ni pastille, ni ligne de lieu**.
+
+Aucune des trois formes n'est exotique :
+
+- **L'octet nul final** est ce qu'écrivent quantité d'outils, qui terminent la chaîne à la mode du
+  langage C et comptent ce zéro dans la longueur déclarée. `trim()` retire les blancs, pas les
+  octets de commande, et l'expression régulière exigeait la fin de chaîne après la barre oblique.
+- **`CRSWGS_84`** est le suffixe que la norme ISO 6709 prévoit pour nommer le système de repère. Il
+  est facultatif, il est légal, et certains appareils l'écrivent.
+- **La longitude à un seul chiffre** viole la largeur canonique de la norme — `+004.86387` — mais
+  les lecteurs du téléphone la lisent. Moins de chiffres que la largeur canonique ne peut désigner
+  que des degrés : deux chiffres de minutes n'y tiendraient pas, donc il n'y a aucune ambiguïté à
+  lever, et refuser revenait à se taire sur un fichier que tout le monde comprend.
+
+**Retenu :** on nettoie avant d'analyser (blancs ET octets de commande), on accepte le nom du
+système de repère, et on lit une largeur inférieure à la canonique comme des degrés. Ce qui suit les
+coordonnées — altitude, nom de repère, octet nul — est rendu TEL QUEL à la réécriture : il compte
+dans la longueur déclarée, donc l'effacer déplacerait des octets.
+
+**Et surtout : quand on ne sait pas lire, on montre.** Le volet porte désormais une ligne « Lieu tel
+qu'il est écrit » avec les caractères mêmes du fichier, dès qu'un rangement de lieu porte un texte
+que nous ne décodons pas — et seulement dans ce cas, la ligne de position existant déjà sinon.
+
+**C'est ce silence, et non les trois défauts, qui a coûté cinq allers-retours.** Nous SAVIONS qu'il
+y avait un lieu ; l'interface n'en disait rien. Le reste du moteur ne fonctionne pas ainsi : un
+fichier qu'on ne sait pas modifier le DIT, avec sa phrase, avant l'action. Désormais une copie
+d'écran suffit à nommer la forme qui nous manque, sans que personne ait à envoyer sa vidéo.
+
+**Les contrôles.** Neuf formes d'écriture, chacune dans un vrai MP4 du corpus dont seule la chaîne
+change — ExifTool écrit celles qu'il accepte, les autres remplacent la charge à longueur constante,
+donc aucun octet ne se déplace. Pour chacune, **ce que nous lisons doit valoir ce que lit l'oracle**.
+C'est le contrôle qui manquait : une divergence dans ce sens-là — lui lit, pas nous — est exactement
+le symptôme signalé, et rien ne la regardait. Cinq assertions échouent sur le code d'avant.
+
+Un témoin est ajouté au corpus, `lieu-illisible.mp4`, dont la chaîne n'est décodée par aucun des deux
+lecteurs : le banc et le parcours navigateur vérifient tous deux que le volet la montre au lieu de se
+taire.
+
+**Ce qui reste vrai :** nous restons plus tolérants que l'oracle sur une chaîne entourée de blancs,
+qu'il refuse et que nous lisons. Lire davantage n'expose personne — c'est se taire qui trompe.
+
+**Bloque :** non.
+
+---
+
+## [V1.7] Q-057 — Un lieu écrit pour être lu, et une charge lue un octet par caractère
+
+**Contexte :** septième signalement. Le volet montrait bien la ligne « Lieu tel qu'il est écrit »
+ajoutée en Q-056 — c'est elle qui a permis de nommer le cas sans que le fichier change de mains — et
+la chaîne qu'elle portait était `43°54′29.2″N 4°51′49.9″E`. Pas la suite de chiffres de la norme :
+ce qu'une application AFFICHE À L'ÉCRAN, déposé tel quel dans le champ de lieu.
+
+**Deux défauts se cumulaient, et le premier masquait le second.**
+
+1. **La charge était lue un octet par caractère.** `texte()` fait `String.fromCharCode` sur les
+   octets — ce qui est juste pour un nom de boîte de quatre octets, qui est une identité, et FAUX
+   pour tout texte destiné à un humain. Mesuré sur le fichier témoin :
+
+   ```
+   ancien décodage : "43Â°54â²29.2â³N 4Â°51â²49.9â³E"
+   nouveau         : "43°54′29.2″N 4°51′49.9″E"
+   ```
+
+   Aucune souplesse du lecteur n'aurait rattrapé cela : la chaîne arrivait déformée avant lui.
+
+2. **Le lecteur ne connaissait que la forme numérique.** Une fois la chaîne rendue intacte, il
+   fallait encore savoir lire les degrés, minutes et secondes.
+
+**Le défaut de décodage dépassait le lieu.** Un nom d'appareil, un auteur, un logiciel : tout ce que
+le volet affiche passait par là. Le corpus était entièrement en ASCII, donc rien ne l'a jamais
+signalé — le fichier `appareil.mp4` porte désormais des accents à dessein, et l'assertion qui le lit
+échoue sur le code d'avant.
+
+**Retenu :** un décodeur séparé, `texteLisible`. L'indicateur d'ordre des octets annonce l'UTF-16
+sans ambiguïté ; l'UTF-8 se valide de lui-même, une suite mal formée étant refusée plutôt que
+devinée ; à défaut on retombe sur un octet par caractère, qui est ce qu'écrivent les fichiers
+anciens. `texte()` reste, pour les noms de boîtes, avec la raison écrite au-dessus.
+
+Et `lireDms`, appelée derrière la lecture numérique par un point de passage unique,
+`lireLieuTexte` — l'affichage, le sondage et le balayage résiduel lisent ainsi la MÊME chose, ce que
+Q-054 avait déjà coûté une fois.
+
+**Le symbole de degré est exigé, et il doit y en avoir exactement deux.** C'est ce qui distingue un
+lieu d'un titre où traîneraient deux nombres. Le comptage se fait AVANT toute lecture, et il n'est
+pas décoratif : sans lui, sur `43°54′29.2″N 4°51′49.9″E 5°12′00.0″W`, la lecture « lettre après les
+nombres » échouait et celle « lettre avant » en retenait deux AUTRES — rendant une position que
+personne n'avait écrite. Le test le prouve, et il échouait avant ce comptage.
+
+**Ce que l'oracle ne pouvait pas trancher.** ExifTool annonce le champ et rend « NaN » sur les sept
+formes mesurées : il ne lit pas cette écriture-là. Il sert donc autrement — c'est LUI qui donne la
+valeur de référence, lue dans un fichier portant les mêmes coordonnées sous forme numérique, et
+notre lecture des lettres doit retomber dessus. Après correction, c'est encore lui qui relit le
+fichier produit, puisque nous y écrivons la forme qu'il sait lire.
+
+**La leçon de Q-056 a payé au tour suivant, et c'est le seul point qui vaille.** Six tours ont été
+perdus à chercher à l'aveugle parce que l'outil se taisait. Le septième a été résolu en une question,
+sans que l'utilisateur ait à envoyer sa vidéo : la ligne « lieu tel qu'il est écrit » a nommé la
+forme manquante. Montrer ce qu'on ne comprend pas n'est pas un aveu de faiblesse — c'est ce qui rend
+un défaut nommable.
+
+**Bloque :** non.

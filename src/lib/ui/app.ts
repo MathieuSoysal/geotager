@@ -9,10 +9,48 @@ import { parseCoordinates, formatDecimal, formatDms, distanceMetres, formatDista
 import type { Carte } from './carte.ts';
 import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '../exif/types.ts';
 import { dicoDuDocument, type CodeErreur } from '../i18n/index.ts';
+import { typeDeclare } from '../exif/capacites.ts';
 
 // Les mots de CETTE page. L'attribut `lang` du document a été écrit au build :
 // on ne devine pas la langue, on la lit.
 const T = dicoDuDocument();
+
+/**
+ * Le nom du genre de fichier chargé — « photo », « vidéo », ou rien des deux.
+ *
+ * L'outil disait « photo » partout, y compris sous une pastille annonçant
+ * « Video ». Les phrases prennent donc ce nom, et le choisissent ici :
+ *
+ *   - un seul genre dans le lot, c'est son nom ;
+ *   - deux genres mélangés, aucun des deux n'est vrai : le nom neutre ;
+ *   - rien de chargé, on garde « photo » — c'est ce que le HTML servi porte
+ *     déjà, et c'est ce que la plupart des gens viennent déposer.
+ */
+function motDuGenre(pluriel = false): string {
+  const N = T.app.noms;
+  const lus = items.map((i) => i.read?.format).filter(Boolean);
+  const videos = lus.filter((f) => f === 'video').length;
+  if (lus.length === 0) return pluriel ? N.photos : N.photo;
+  if (videos === lus.length) return pluriel ? N.videos : N.video;
+  if (videos === 0) return pluriel ? N.photos : N.photo;
+  return pluriel ? N.neutres : N.neutre;
+}
+
+/**
+ * Réécrit les phrases que le HTML servi porte déjà.
+ *
+ * Elles sont rendues au build avec le mot par défaut : sans JavaScript la page
+ * reste juste, et avec, elle suit le fichier réellement chargé.
+ */
+function majMotsDuGenre(): void {
+  const nom = motDuGenre();
+  el.titreActif.textContent = T.app.titreActif(nom);
+  el.changer.textContent = T.app.changer(nom);
+  el.coordsLabel.textContent = T.app.ouPrise(nom);
+  el.coordsAideFort.textContent = T.app.aideCoordsFort(nom);
+  el.carteAvis.textContent = T.app.avisCarte(nom);
+  el.partagerSortie.textContent = T.app.partagerSortie(nom);
+}
 
 /** La phrase d'une erreur, dans la langue de la page. */
 const messageErreur = (code: string, secours: string): string =>
@@ -57,6 +95,9 @@ const el = {
   majPlusTard: $<HTMLButtonElement>('maj-plus-tard'),
   installer: $<HTMLButtonElement>('installer'),
   titreActif: $('titre-actif'),
+  coordsLabel: $('coords-label'),
+  coordsAideFort: $('coords-aide-fort'),
+  carteAvis: $('carte-avis'),
   annonce: $('annonce'),
 };
 
@@ -194,6 +235,8 @@ function marquerEtape(n: 1 | 2 | 3): void {
  */
 function versEtatVide(deplacerFocus = false): void {
   items.length = 0;
+  // Avant de vider : `motDuGenre` lit `items`, et rend « photo » une fois vide.
+  queueMicrotask(majMotsDuGenre);
   principal = null;
   cible = null;
   precision = null;
@@ -231,6 +274,8 @@ function afficherPrincipal(): void {
 
   el.vide.hidden = true;
   el.actif.hidden = false;
+  // Les mots d'abord : le titre annoncé plus bas les emprunte.
+  majMotsDuGenre();
   el.nom.textContent = r.name;
   el.nom.title = r.name;
   el.pillFormat.textContent = `${NOM_FORMAT[r.format] ?? r.format} · ${octets(r.size)}`;
@@ -299,8 +344,8 @@ function afficherPrincipal(): void {
    * muette juste à côté. `phrase` est déjà en portée, plus haut.
    */
   const etat = r.position
-    ? T.app.photoLue(formatDecimal(r.position))
-    : T.app.photoLueSansPosition;
+    ? T.app.photoLue(formatDecimal(r.position), motDuGenre())
+    : T.app.photoLueSansPosition(motDuGenre());
   annoncer(phrase ? `${etat} ${phrase}` : etat);
 }
 
@@ -397,7 +442,7 @@ async function ouvrirCarte(): Promise<void> {
   }
 
   carte = creerCarte(el.carteVue, {
-    textes: { origine: T.app.repereOrigine },
+    textes: { origine: T.app.repereOrigine(motDuGenre()) },
     onChoix: (p, m) => {
       cible = p;
       precision = m;
@@ -421,7 +466,7 @@ function majResultat(): void {
   if (!cible || enApplication) {
     el.resultat.hidden = !cible;
     inactiver(el.telecharger, true);
-    el.telecharger.textContent = T.app.telechargerPhotos(items.length);
+    el.telecharger.textContent = T.app.telechargerPhotos(items.length, motDuGenre(), motDuGenre(true));
     return;
   }
   el.resultat.hidden = false;
@@ -429,10 +474,10 @@ function majResultat(): void {
   const origine = principal?.read?.position;
   el.resultatDetail.textContent = origine
     ? T.app.depuisOrigine(formatDistance(distanceMetres(origine, cible), T.app.virgule))
-    : T.app.nouvellePosition;
+    : T.app.nouvellePosition(motDuGenre());
   const modifiables = items.filter((i) => i.read?.can.write).length;
   inactiver(el.telecharger, modifiables === 0);
-  el.telecharger.textContent = T.app.telechargerPhotos(modifiables);
+  el.telecharger.textContent = T.app.telechargerPhotos(modifiables, motDuGenre(), motDuGenre(true));
   marquerEtape(3);
 }
 
@@ -566,6 +611,26 @@ function nomSortie(nom: string, prefixe: string): string {
   return point > 0 ? `${nom.slice(0, point)}${prefixe}${nom.slice(point)}` : `${nom}${prefixe}`;
 }
 
+/**
+ * Le type à déclarer sur le fichier produit.
+ *
+ * Il sortait sans type du tout, et le partage l'annonçait comme un flux
+ * d'octets quelconque. Ce n'est pas une finition : un fichier rangé dans les
+ * téléchargements d'un téléphone sans type n'est pas indexé comme une vidéo. La
+ * galerie ne lui montre aucune fiche, et notre propre sélecteur — restreint aux
+ * images et aux vidéos — peut cesser de le proposer. Le fichier est parfait, et
+ * l'utilisateur ne voit rien.
+ *
+ * On demande d'abord au MOTEUR, qui a reconnu le format dans les octets. Le
+ * `type` que le système attache au fichier d'entrée ne sert que de repli :
+ * c'est justement lui qui est vide ou faux dans les cas qui nous occupent — un
+ * fichier venu d'un dossier de messagerie arrive souvent sans type, ce que
+ * Q-042 avait déjà relevé pour le sélecteur.
+ */
+function typeDuProduit(it: Item, nom: string): string {
+  return (it.read && typeDeclare(it.read.format, nom)) || it.file.type || '';
+}
+
 /** Les trois contrôles d'écriture, rendus à l'utilisateur. */
 function rendreLesBoutons(): void {
   enApplication = false;
@@ -621,7 +686,8 @@ async function appliquerMaintenant(
   inactiver(el.effacerTout, true);
 
   const statuts = new Map<string, string>();
-  const produits: Array<{ name: string; input: Uint8Array }> = [];
+  let derniereRaison = '';
+  const produits: Array<{ id: string; name: string; input: Uint8Array; type: string }> = [];
   let echecs = 0;
 
   /*
@@ -645,10 +711,14 @@ async function appliquerMaintenant(
     const res: WriteResult = rep.payload;
     if (res.ok) {
       statuts.set(it.id, `✓ ${res.route === 'P1' ? T.app.sansRienDeplacer : T.app.ecrit}`);
-      produits.push({ name: nomSortie(it.file.name, prefixe), input: res.bytes });
+      const nom = nomSortie(it.file.name, prefixe);
+      produits.push({ id: it.id, name: nom, input: res.bytes, type: typeDuProduit(it, nom) });
     } else {
       echecs++;
       statuts.set(it.id, messageErreur(res.code, res.message).slice(0, 40));
+      // La phrase entière, pour le cas d'un fichier seul : elle existe,
+      // traduite, et elle était calculée puis jetée. Voir plus bas.
+      derniereRaison = messageErreur(res.code, res.message);
     }
   }
 
@@ -667,13 +737,29 @@ async function appliquerMaintenant(
     el.alerteFormat.hidden = false;
     el.alerteFormat.classList.remove('attention');
     el.alerteFormat.classList.add('grave');
-    el.alerteFormat.textContent = T.app.aucunProduit;
+    /*
+     * La raison, et non la constatation.
+     *
+     * Sur un fichier SEUL, tout échec s'affichait « aucun fichier produit »,
+     * alors que la phrase exacte — traduite, propre à chaque code — était
+     * calculée juste au-dessus puis jetée : `statuts` n'est rendu qu'à partir
+     * de deux fichiers. Un défaut qui a coûté deux allers-retours à le
+     * diagnostiquer, faute que l'outil dise ce qu'il savait déjà.
+     *
+     * En lot, la constatation reste la bonne phrase : les raisons peuvent
+     * différer d'un fichier à l'autre, et la liste les donne une par une.
+     */
+    el.alerteFormat.textContent =
+      concernes.length === 1 && derniereRaison ? derniereRaison : T.app.aucunProduit;
     annoncer(T.app.aucunProduitAnnonce);
     return;
   }
 
   if (produits.length === 1) {
-    telechargerBlob(new Blob([produits[0].input as BlobPart]), produits[0].name);
+    telechargerBlob(
+      new Blob([produits[0].input as BlobPart], { type: produits[0].type }),
+      produits[0].name,
+    );
   } else {
     const zip = await downloadZip(produits).blob();
     telechargerBlob(zip, T.app.zip);
@@ -686,9 +772,7 @@ async function appliquerMaintenant(
    * l'endroit du code où la confondre coûterait le plus cher.
    */
   proposerPartage(
-    produits.map(
-      (p) => new File([p.input as BlobPart], p.name, { type: 'application/octet-stream' }),
-    ),
+    produits.map((p) => new File([p.input as BlobPart], p.name, { type: p.type })),
   );
 
   marquerEtape(3);
@@ -697,6 +781,51 @@ async function appliquerMaintenant(
       ? T.app.pretsVerifies(produits.length)
       : T.app.pretsAvecEchecs(produits.length, echecs),
   );
+
+  await adopterLesProduits(produits);
+}
+
+/**
+ * L'écran montre le fichier qu'on vient d'écrire, et non celui qu'on a chargé.
+ *
+ * Il montrait le second, et personne ne l'avait jamais vérifié : après un ajout
+ * il n'affichait aucun lieu — « vous l'avez enregistré, mais vous ne le montrez
+ * pas » —, et après un effacement il affichait ENCORE celui qu'on venait de
+ * retirer. Sur un outil dont c'est le métier, ce second sens est le pire des
+ * deux : on clique « retirer le lieu » et le lieu reste à l'écran.
+ *
+ * On remplace les octets de l'élément, et non l'affichage seul. La moitié de ce
+ * que l'écran porte est une CAPACITÉ — champ actif, boutons d'effacement,
+ * phrase de motif — et la rafraîchir sans changer les octets la ferait décrire
+ * le fichier produit pendant que les boutons agiraient sur l'original. Ce
+ * projet a déjà payé cette divergence deux fois : Q-039, puis Q-051.
+ *
+ * Le NOM d'origine est conservé : c'est lui qui compose le nom de sortie, et
+ * adopter le nom suffixé empilerait « -geotagged-geotagged » à la deuxième
+ * écriture.
+ */
+async function adopterLesProduits(
+  produits: Array<{ id: string; name: string; input: Uint8Array; type: string }>,
+): Promise<void> {
+  for (const p of produits) {
+    const it = items.find((x) => x.id === p.id);
+    if (!it) continue;
+    // `File` recopie les octets : celui qui part au téléchargement n'est pas
+    // celui qu'on transfère au worker, et le tampon ne peut pas être neutralisé
+    // sous les pieds du navigateur.
+    it.file = new File([p.input as BlobPart], it.file.name, { type: p.type });
+    const buffer = await it.file.arrayBuffer();
+    const rep = await demander(
+      { type: 'read', id: it.id, name: it.file.name, buffer },
+      [buffer],
+    );
+    if (rep.type === 'read:ok') {
+      it.read = rep.payload;
+      it.erreur = undefined;
+    }
+  }
+  if (principal) afficherPrincipal();
+  if (items.length > 1) majListeLot();
 }
 
 /* --- partage sortant ------------------------------------------------ */

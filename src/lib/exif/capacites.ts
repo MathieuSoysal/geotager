@@ -82,12 +82,21 @@ export const MATRICE: LigneMatrice[] = [
     // conteneur le dit avant l'action.
     capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
   },
-  // « Lire » a longtemps porté « oui » ici sans qu'aucune ligne de code ne lise
-  // une vidéo : le moteur rendait « aucune position » sans consulter le moindre
-  // lecteur, et le second lecteur n'ouvre ni MOV ni MP4. La case était fausse.
-  // Elle le reste tant qu'aucune vidéo réelle ne peut l'éprouver — aucun corpus
-  // public sous licence libre n'en fournit. Voir Q-006 et Q-039.
-  { formats: ['video'], capacites: RIEN },
+  {
+    formats: ['video'],
+    // Ces quatre cases ont passé six mois à « pas encore » faute d'un FICHIER,
+    // pas faute de code : la recherche de corpus de Q-006 avait conclu qu'aucune
+    // vidéo réelle sous licence libre n'existait, et c'était inexact. Trois en
+    // ont été trouvées, et chaque case est désormais exécutée sur l'une d'elles.
+    //
+    // Une vidéo range son lieu en TEXTE, à plusieurs endroits à la fois. Corriger
+    // ne déplace aucun octet quand les rangements sont assez longs ; sinon, le
+    // fichier grandit, ce qui demande la même permission qu'un ajout. Et quand
+    // le lieu est aussi écrit tout au long de l'enregistrement — une caméra
+    // d'action le fait —, les trois opérations d'écriture se ferment fichier par
+    // fichier plutôt que de rendre un fichier faussement propre. Voir Q-050.
+    capacites: { lire: true, corriger: true, ajouter: true, effacer: true, effacerTout: false },
+  },
 ];
 
 /** Ce que l'outil sait faire d'un format, indépendamment du fichier reçu. */
@@ -106,6 +115,55 @@ export function capacitesDe(format: Format): Capacites {
  */
 export function cellules(c: Capacites): boolean[] {
   return [c.lire, c.corriger, c.ajouter, c.effacer];
+}
+
+/* ------------------------------------------------------------------ */
+/* Les types de fichier                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Format reconnu ⇄ type déclaré, et les extensions qui vont avec.
+ *
+ * Source unique, pour la même raison que la matrice : cette table était écrite
+ * deux fois — dans le manifeste et dans les tests — et le fichier PRODUIT, lui,
+ * ne la lisait nulle part. Il sortait donc sans type déclaré du tout.
+ *
+ * Ce que cela coûte quand on l'oublie, et c'est ce qui a motivé la table :
+ * un fichier rangé dans les téléchargements d'un téléphone SANS type n'est pas
+ * indexé comme une vidéo. La galerie ne lui montre aucune fiche, et notre
+ * propre sélecteur — restreint aux images et aux vidéos — peut cesser de le
+ * proposer. Le fichier est parfait, et l'utilisateur ne voit rien.
+ *
+ * L'ordre compte : le premier type d'un format est celui qu'on DÉCLARE en
+ * écrivant. Les suivants ne servent qu'à reconnaître.
+ */
+export const TYPES_PAR_FORMAT: Partial<Record<Format, { types: string[]; extensions: string[] }>> = {
+  jpeg: { types: ['image/jpeg'], extensions: ['.jpg', '.jpeg'] },
+  png: { types: ['image/png'], extensions: ['.png'] },
+  webp: { types: ['image/webp'], extensions: ['.webp'] },
+  heic: { types: ['image/heic', 'image/heif'], extensions: ['.heic', '.heif'] },
+  avif: { types: ['image/avif'], extensions: ['.avif'] },
+  tiff: { types: ['image/tiff'], extensions: ['.tif', '.tiff'] },
+  gif: { types: ['image/gif'], extensions: ['.gif'] },
+  video: { types: ['video/mp4', 'video/quicktime'], extensions: ['.mp4', '.m4v', '.mov'] },
+};
+
+/**
+ * Le type à DÉCLARER pour un fichier de ce format, ou null.
+ *
+ * Une vidéo se décline en deux types selon l'emballage, et l'extension du nom
+ * est le seul indice qui les sépare — les octets, eux, sont les mêmes boîtes.
+ * C'est le seul endroit du moteur où le nom du fichier a voix au chapitre, et
+ * seulement pour choisir entre deux étiquettes également vraies.
+ */
+export function typeDeclare(format: Format, nom = ''): string | null {
+  const entree = TYPES_PAR_FORMAT[format];
+  if (!entree) return null;
+  const point = nom.lastIndexOf('.');
+  const ext = point < 0 ? '' : nom.slice(point).toLowerCase();
+  if (format === 'video' && (ext === '.mov' || ext === '.qt')) return 'video/quicktime';
+  if (format === 'heic' && ext === '.heif') return 'image/heif';
+  return entree.types[0];
 }
 
 /* ------------------------------------------------------------------ */
@@ -129,7 +187,11 @@ export type Motif =
   | 'copie-ailleurs'
   | 'lecture-seule'
   | 'sans-lieu-possible'
-  | 'video'
+  // Une vidéo qui enregistre le lieu tout au long de son déroulement. La seule
+  // raison qui ferme les trois écritures d'un coup en laissant la lecture
+  // ouverte : le lieu principal s'affiche très bien, et c'est justement
+  // pourquoi il faut dire qu'il n'est pas le seul.
+  | 'lieu-en-mouvement'
   | 'inconnu';
 
 // Les phrases elles-mêmes vivent dans src/lib/i18n/ : le moteur rend un motif,

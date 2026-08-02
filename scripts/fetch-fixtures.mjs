@@ -27,7 +27,7 @@
  * réservé aux tests.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const DIR = process.env.FIXTURES ?? 'test/fixtures';
@@ -36,6 +36,9 @@ const IANARE = 'https://raw.githubusercontent.com/ianare/exif-samples/master';
 const DREWNOAKES = 'https://raw.githubusercontent.com/drewnoakes/metadata-extractor-images/main';
 const LIBAVIF = 'https://raw.githubusercontent.com/AOMediaCodec/libavif/main/tests/data';
 const PIXLS = 'https://raw.pixls.us/getfile.php';
+const GOPRO = 'https://raw.githubusercontent.com/gopro/gpmf-parser/main/samples';
+const CHROMIUM = 'https://raw.githubusercontent.com/chromium/chromium/main/media/test/data';
+const EXIFTOOL = 'https://raw.githubusercontent.com/exiftool/exiftool/master/t/images';
 
 /**
  * `requis` traduit mécaniquement la règle du projet : une case du tableau ne
@@ -97,6 +100,18 @@ const FICHIERS = [
     role: 'Canon EOS 40D — brut propriétaire à magie secondaire' },
   { nom: 'negatif.tif', url: `${PIXLS}/2465/nice/Kodak%20-%20EOS%20DCS%203%20-%208bit%20(4:3).TIF`, requis: true,
     role: 'Kodak EOS DCS 3 — un négatif numérique qui EST un « .tif »' },
+
+  // Les vidéos. Q-006 les avait fermées faute de fichier, et cette conclusion
+  // était inexacte : ces trois-là existent, sous licence libre, et chacune
+  // éprouve un cas que les deux autres ne montrent pas. Voir Q-050.
+  { nom: 'piste-de-lieu.mp4', url: `${GOPRO}/hero6.mp4`, requis: true,
+    role: 'GoPro HERO6 — lieu écrit par un vrai appareil, ET une piste qui l\'enregistre en continu' },
+  { nom: 'sans-lieu.mp4', url: `${CHROMIUM}/bear.mp4`, requis: true,
+    role: 'Vrai MP4 sans lieu — exerce la création' },
+  { nom: 'tete-nue.mov', url: `${EXIFTOOL}/QuickTime.mov`, requis: true,
+    role: 'Vrai QuickTime SANS boîte de tête — le format ne se devine qu\'à la structure' },
+  { nom: 'fragmente.mp4', url: `${CHROMIUM}/bear-av1.mp4`, requis: true,
+    role: 'MP4 fragmenté — les rangs absolus y vivent là où ce moteur ne va pas : éprouve le refus' },
 ];
 
 /**
@@ -124,7 +139,97 @@ const PREPARES = [
     role: 'TIFF à soixante et une bandes portant le bloc de position d\'un vrai Nikon',
     args: ['-tagsfromfile', join(DIR, 'DSCN0010.jpg'), '-gps:all'],
   },
+
+  /*
+   * Les vidéos géolocalisées. Le préfixe de groupe n'est pas décoratif : dans
+   * ExifTool, `ItemList` est PRÉFÉRÉ à l'écriture, donc un `-GPSCoordinates=`
+   * nu irait ailleurs que voulu. Les trois rangements ci-dessous sont écrits à
+   * dessein dans trois endroits DIFFÉRENTS — notre lecteur doit comprendre les
+   * trois, et c'est plus exigeant qu'un fichier trouvé déjà géolocalisé.
+   *
+   * Six décimales, et non quatre : une chaîne de dix-huit caractères n'a que
+   * quatre décimales par côté, soit une grille de onze mètres, et le contrôle
+   * final du moteur exige le mètre. Le fichier de référence doit donc porter
+   * une chaîne assez longue pour que la correction se fasse SUR PLACE.
+   */
+  {
+    nom: 'avec-lieu.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 réel dont ExifTool a inscrit le lieu à la façon la plus répandue',
+    args: ['-n', '-UserData:GPSCoordinates=+43.949300+004.805500/'],
+  },
+  {
+    nom: 'avec-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime dont le lieu est rangé à la façon d\'Apple, par clés nommées',
+    args: ['-n', '-Keys:GPSCoordinates=+43.949300+004.805500/'],
+  },
+  {
+    nom: 'nom-de-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime qui écrit le lieu EN TOUTES LETTRES à côté des coordonnées — le cas « Avignon » de Q-006',
+    args: ['-n', '-UserData:LocationInformation=Avignon Role=shooting Lat=43.9493 Lon=4.8055 Alt=26'],
+  },
+  {
+    nom: 'lieu-hors-piste.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 dont le lieu n\'est QUE dans le paquet de texte, rangé en boîte de premier niveau — le cas où l\'effacement pouvait mentir',
+    args: ['-n', '-XMP:GPSLatitude=43.90811', '-XMP:GPSLongitude=4.86387'],
+  },
+  {
+    // Le modèle porte des accents À DESSEIN : ils sont écrits en UTF-8, donc sur
+    // deux octets, et un lecteur qui prend un octet pour un caractère affiche
+    // « ModÃ¨le ». Tout le corpus étant en ASCII, rien ne l'aurait signalé.
+    nom: 'appareil.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 qui nomme son appareil, accents compris — sans lui, la ligne « Appareil » du volet ne serait éprouvée par rien',
+    args: ['-n', '-UserData:Make=Geotager', '-UserData:Model=Modèle Témoin'],
+  },
+  {
+    nom: 'texte-de-lieu.mov', depuis: 'tete-nue.mov', requis: true,
+    role: 'QuickTime dont le paquet de texte descriptif nomme la ville, sans aucune coordonnée',
+    args: ['-XMP:City=Avignon', '-XMP:Country=France'],
+  },
+  {
+    nom: 'lieu-illisible.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 dont le rangement de lieu porte une chaîne qu\'AUCUN des deux lecteurs ne sait décoder — le témoin du volet qui montre au lieu de se taire',
+    args: ['-n', '-UserData:GPSCoordinates=+43.9081+004.864/'],
+    remplacer: '43.9081,4.8639,26',
+  },
+  {
+    // Le lieu écrit POUR ÊTRE LU, avec ses symboles de degré, de minute et de
+    // seconde. Des applications déposent dans ce champ ce qu'elles affichent à
+    // l'écran, au lieu de la suite de chiffres de la norme. ExifTool n'en tire
+    // rien — il annonce le champ et rend « NaN » —, et c'est bien pourquoi ce
+    // fichier doit exister : aucun corpus public ne le fournira.
+    nom: 'lieu-en-lettres.mp4', depuis: 'sans-lieu.mp4', requis: true,
+    role: 'MP4 dont le lieu est écrit en degrés, minutes et secondes, avec les symboles — la forme que le signalement a fait apparaître',
+    args: ['-n', '-UserData:GPSCoordinates=+43.908110+004.863870+77777777777/'],
+    remplacer: '43°54′29.2″N 4°51′49.9″E',
+  },
 ];
+
+/**
+ * Remplace la charge du rangement de lieu par une chaîne de MÊME LONGUEUR.
+ *
+ * ExifTool écrit la chaîne telle qu'on la lui donne tant qu'elle lui paraît
+ * valide ; pour les formes qu'il refuse d'écrire, il faut poser les octets
+ * soi-même. À longueur constante, rien ne se déplace : le conteneur reste celui
+ * d'une vraie vidéo, et seule la chaîne change.
+ */
+function remplacerLaChaineDeLieu(fichier, texte) {
+  const b = new Uint8Array(readFileSync(fichier));
+  let i = -1;
+  for (let k = 0; k + 4 <= b.length; k++) {
+    if (b[k] === 0xa9 && b[k + 1] === 0x78 && b[k + 2] === 0x79 && b[k + 3] === 0x7a) { i = k; break; }
+  }
+  if (i < 0) throw new Error('aucun rangement « ©xyz » à remplacer');
+  // En OCTETS, et non en caractères : un symbole de degré en pèse deux, un
+  // symbole de minute trois. C'est la longueur déclarée du rangement qu'il faut
+  // remplir exactement, sans quoi le fichier change de taille.
+  const octets = new TextEncoder().encode(texte);
+  const longueur = (b[i + 4] << 8) | b[i + 5];
+  if (longueur !== octets.length) {
+    throw new Error(`${longueur} octets à remplir, ${octets.length} fournis`);
+  }
+  b.set(octets, i + 8);
+  writeFileSync(fichier, b);
+}
 
 mkdirSync(DIR, { recursive: true });
 
@@ -171,6 +276,7 @@ for (const p of PREPARES) {
   try {
     copyFileSync(source, dest);
     execFileSync('exiftool', [...p.args, '-overwrite_original', dest], { stdio: 'pipe' });
+    if (p.remplacer) remplacerLaChaineDeLieu(dest, p.remplacer);
     console.log(`  préparé   ${p.nom} — ${p.role}`);
   } catch (e) {
     manquants++;

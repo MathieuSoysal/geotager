@@ -18,6 +18,38 @@
  */
 import type { Langue } from './i18n/types.ts';
 import { DICOS, LANGUES } from './i18n/index.ts';
+import { TYPES_PAR_FORMAT, capacitesDe } from './exif/capacites.ts';
+import type { Format } from './exif/types.ts';
+
+/**
+ * Les types que « Ouvrir avec » propose, dérivés du tableau.
+ *
+ * Écrits à la main, ils dérivaient : c'est le test qui rattrapait l'oubli, dans
+ * les deux sens. Ils se lisent maintenant de la même table que celle dont
+ * l'interface tire le type du fichier PRODUIT, si bien qu'un format ouvert à
+ * l'ajout ne peut plus manquer ici, ni y figurer sans savoir recevoir un lieu.
+ */
+function typesOuvrables(): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [format, entree] of Object.entries(TYPES_PAR_FORMAT)) {
+    if (!capacitesDe(format as Format).ajouter) continue;
+    for (const type of entree.types) {
+      out[type] = entree.extensions.filter(
+        (e) => entree.types.length === 1 || estExtensionDe(type, e),
+      );
+    }
+  }
+  return out;
+}
+
+/** Quelle extension va avec quel type, quand un format en porte plusieurs. */
+function estExtensionDe(type: string, ext: string): boolean {
+  if (type === 'video/quicktime') return ext === '.mov';
+  if (type === 'video/mp4') return ext === '.mp4' || ext === '.m4v';
+  if (type === 'image/heif') return ext === '.heif';
+  if (type === 'image/heic') return ext === '.heic';
+  return true;
+}
 
 /** Le fond de l'application : écran de démarrage à froid et barre de titre. */
 export const FOND = '#17161b';
@@ -72,11 +104,15 @@ export function manifeste(langue: Langue): string {
        * EN MÉMOIRE, et les passe à la page qui suit. Rien n'est écrit sur le
        * disque, pas même le temps d'un aller-retour : voir `sw-modele.js`.
        *
-       * Images seulement. L'outil accepte les vidéos dans le sélecteur — mieux
-       * vaut prendre le fichier et expliquer que le refuser sans un mot — mais
-       * s'inscrire dans le menu de partage des vidéos serait autre chose : ce
-       * serait se proposer pour un travail qu'on ne sait pas faire, à quelqu'un
-       * qui ne nous a rien demandé.
+       * Les vidéos y figurent depuis que les quatre cases de leur ligne sont
+       * ouvertes. Elles n'y étaient pas tant qu'aucune opération ne leur était
+       * offerte : s'inscrire au menu de partage d'un format qu'on ne sait pas
+       * traiter, c'est se proposer pour un travail qu'on ne sait pas faire, à
+       * quelqu'un qui ne l'a pas demandé.
+       *
+       * `image/*` reste, et n'a pas d'équivalent en face : le partage doit
+       * rester STRICTEMENT plus large que « Ouvrir avec », pour la raison
+       * expliquée plus bas.
        */
       share_target: {
         action: `${T.base}partager`,
@@ -95,6 +131,8 @@ export function manifeste(langue: Langue): string {
                 'image/heif',
                 'image/avif',
                 'image/tiff',
+                'video/quicktime',
+                'video/mp4',
               ],
             },
           ],
@@ -124,27 +162,19 @@ export function manifeste(langue: Langue): string {
        * s'AJOUTE à ce que la fenêtre tenait déjà — voir `charger` dans
        * `ui/app.ts`.
        *
-       * Les mêmes formats que le partage, à deux absences près, et pour la même
-       * raison qu'y manquent les vidéos. Un GIF n'a nulle part où mettre un
-       * lieu — le moteur le range en « sans-lieu-possible » — et un fichier brut
-       * d'appareil, DNG, NEF ou CR2, ne doit rien recevoir du tout. S'inscrire
-       * pour eux serait se proposer pour un travail qu'on ne sait pas faire, à
-       * quelqu'un qui ne l'a pas demandé.
+       * Les mêmes formats que le partage, à deux absences près. Un GIF n'a
+       * nulle part où mettre un lieu — le moteur le range en
+       * « sans-lieu-possible » — et un fichier brut d'appareil, DNG, NEF ou
+       * CR2, ne doit rien recevoir du tout. S'inscrire pour eux serait se
+       * proposer pour un travail qu'on ne sait pas faire, à quelqu'un qui ne
+       * l'a pas demandé.
+       *
+       * Les vidéos y sont entrées avec leur colonne « ajouter ». Le test
+       * l'exige dans les DEUX SENS : un format à qui le tableau sait donner un
+       * lieu et qui manquerait ici resterait invisible du menu « Ouvrir avec »
+       * du système, sans que rien ne le signale.
        */
-      file_handlers: [
-        {
-          action: T.base,
-          accept: {
-            'image/jpeg': ['.jpg', '.jpeg'],
-            'image/png': ['.png'],
-            'image/webp': ['.webp'],
-            'image/heic': ['.heic'],
-            'image/heif': ['.heif'],
-            'image/avif': ['.avif'],
-            'image/tiff': ['.tif', '.tiff'],
-          },
-        },
-      ],
+      file_handlers: [{ action: T.base, accept: typesOuvrables() }],
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
