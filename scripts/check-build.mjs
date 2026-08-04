@@ -375,6 +375,77 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
     for (const [nom, re] of BLOCS_OBLIGATOIRES[lang] ?? []) {
       if (!re.test(lisible)) echecs.push(`${rel(f)} : le bloc « ${nom} » est absent du HTML servi`);
     }
+
+    /*
+     * The install button, present and hidden, and on the tool page only.
+     *
+     * The `hidden` is the whole mechanism: the button is revealed only by the
+     * browser's prompt, which never arrives if the app is already installed.
+     * Losing it, one attribute, one line, would show it to everybody, including
+     * where it can do nothing, which is exactly the opposite of what is wanted.
+     * Removing it outright would mean no longer offering installation, with
+     * nothing to say so.
+     *
+     * Why it stops at the tool: a guide and the contents page load no script,
+     * and that is a promise written in both READMEs which the end-to-end test
+     * keeps. A button placed there would be exactly what this project refuses
+     * elsewhere, a control that cannot act, invisible instead of greyed out.
+     * They link back to the tool, where the offer exists.
+     */
+    const bouton = html.match(/<button[^>]*\bid=["']installer["'][^>]*>/i)?.[0];
+    if (!bouton) {
+      echecs.push(`${rel(f)} : le bouton d'installation est absent`);
+    } else if (!/\shidden(?=[\s>=])/i.test(bouton)) {
+      echecs.push(`${rel(f)} : le bouton d'installation doit être « hidden » dans le HTML servi`);
+    }
+
+    /*
+     * The photo picker: no `capture`, and MIME types only.
+     *
+     * Twice in eight days the same line of markup closed off photo input on
+     * phones, and both times everything went green. This is the check that was
+     * missing, and it is here rather than in the end-to-end test because the
+     * latter cannot see it: `setInputFiles` places files into the element
+     * without ever opening the system picker. The failure shows on neither a
+     * desktop nor Chromium; the markup is the only purchase, and this branch
+     * sees both languages.
+     *
+     * `capture` does not request a camera by preference: it makes the capture
+     * picker open instead of the file picker. On iPhone the "Photo Library /
+     * Take Photo or Video / Choose File" sheet disappears, on Android the
+     * camera opens on its own, and in both cases `multiple` means nothing,
+     * since one shot returns one file. It is the attribute being specified that
+     * does this, not its value, so presence is judged, never content.
+     *
+     * And `accept` stays made of generic MIME types, for the reason written
+     * above the field: an entry that is neither `image/*` nor `video/*`, a bare
+     * extension, or the `android/allowCamera` that circulates as a remedy for
+     * Android 14's missing camera button, makes Chrome fall back to the file
+     * explorer, which does not read `Android/media`. The WhatsApp folder then
+     * appeared empty.
+     */
+    const picker = html.match(/<input[^>]*\bid=["']picker["'][^>]*>/i)?.[0];
+    if (!picker) {
+      echecs.push(`${rel(f)} : le sélecteur de photo est absent de la page servie`);
+    } else {
+      if (/\scapture(?=[\s>=])/i.test(picker)) {
+        echecs.push(
+          `${rel(f)} : le sélecteur de photo porte « capture » — il n'ouvrirait plus que ` +
+            `l'appareil photo, et plus la photothèque`,
+        );
+      }
+      if (!/\smultiple(?=[\s>=])/i.test(picker)) {
+        echecs.push(`${rel(f)} : le sélecteur de photo ne prend plus qu'un fichier à la fois`);
+      }
+      const accept = picker.match(/\saccept=["']([^"']*)["']/i)?.[1] ?? '';
+      const entrees = accept.split(',').map((e) => e.trim()).filter(Boolean);
+      if (!entrees.length || entrees.some((e) => !/^(image|video)\/\*$/.test(e))) {
+        echecs.push(
+          `${rel(f)} : « accept » n'est plus fait que de types MIME génériques — ` +
+            `${accept || '(vide)'}`,
+        );
+      }
+    }
   } else if (genre === 'guide') {
     controlerGuide(rel(f), html, cheminDe(f), lang);
   } else if (genre === 'sommaire') {
@@ -391,6 +462,17 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
      * exists to prevent.
      */
     echecs.push(`${rel(f)} : forme de page inconnue du contrôle de contenu`);
+  }
+
+  /*
+   * And the reverse, which is the real risk of drift: a button placed on a page
+   * that loads no script. It would never be revealed there, and so never
+   * usable, and it would not show, since it is `hidden`. The check is here,
+   * outside the family chain, so an offending page also undergoes its own
+   * family's checks rather than escaping them.
+   */
+  if (genre !== 'outil' && /<button[^>]*\bid=["']installer["']/i.test(html)) {
+    echecs.push(`${rel(f)} : un bouton d'installation sur une page sans script`);
   }
 
   // Reciprocal links between languages: each page must announce every
@@ -651,6 +733,9 @@ for (const [fichierReadme, page] of [
       ...(m.file_handlers ?? []).map((h, n) => [`file_handlers[${n}].action`, h.action]),
       ...(m.icons ?? []).map((i, n) => [`icons[${n}].src`, i.src]),
       ...(m.screenshots ?? []).map((i, n) => [`screenshots[${n}].src`, i.src]),
+      // One more address the system reads: it inherits the refusal of foreign
+      // addresses, like all the others.
+      ...(m.related_applications ?? []).map((a, n) => [`related_applications[${n}].url`, a.url]),
     ];
     for (const [nom, adresse] of adresses) {
       if (typeof adresse !== 'string') {
@@ -671,6 +756,81 @@ for (const [fichierReadme, page] of [
     // white square, which is always ugly and often illegible.
     if (!(m.icons ?? []).some((i) => String(i.purpose ?? '').split(/\s+/).includes('maskable'))) {
       echecs.push(`${rel(cible)} : aucune icône « maskable »`);
+    }
+
+    /*
+     * What makes the application installable, and what nothing was checking.
+     *
+     * Chrome's published list, word for word: the app is not already installed,
+     * the engagement heuristics are met, the site is on HTTPS, and the manifest
+     * carries "short_name or name", icons that "must include a 192px and a
+     * 512px icon", a "start_url", a "display" among fullscreen / standalone /
+     * minimal-ui / window-controls-overlay, and "prefer_related_applications
+     * must not be present, or be false".
+     *
+     * Two things are worth noting, because we believed otherwise. The service
+     * worker is not on it: neither it, nor a `fetch` handler, nor any offline
+     * capability. And nor is `display_override`; it is `display` alone that is
+     * judged.
+     *
+     * While installation was only offered from the browser menu, losing one of
+     * these fields went unnoticed. Now that a button depends on it, the same
+     * loss makes it disappear from the page for everybody, with no message, no
+     * error, nothing.
+     */
+    for (const [cle, valeur] of [
+      ['name', m.name],
+      ['short_name', m.short_name],
+      ['description', m.description],
+    ]) {
+      if (typeof valeur !== 'string' || !valeur.trim()) {
+        echecs.push(`${rel(cible)} : « ${cle} » est vide — le navigateur ne proposera pas d'installer`);
+      }
+    }
+    if (!['standalone', 'fullscreen', 'minimal-ui'].includes(String(m.display))) {
+      echecs.push(
+        `${rel(cible)} : « display » vaut « ${m.display} » — seul un mode autonome rend installable`,
+      );
+    }
+    for (const taille of ['192x192', '512x512']) {
+      if (!(m.icons ?? []).some((i) => String(i.sizes ?? '').split(/\s+/).includes(taille))) {
+        echecs.push(`${rel(cible)} : aucune icône « ${taille} », exigée pour l'installation`);
+      }
+    }
+
+    /*
+     * `prefer_related_applications` set to true means "offer some other
+     * application rather than this one". The installability criterion then
+     * stops being met, no prompt is ever fired, and the install button
+     * disappears from every page. It is the least visible regression of the
+     * lot: nothing breaks, nothing is displayed, a button simply stops
+     * existing.
+     */
+    if (m.prefer_related_applications === true) {
+      echecs.push(
+        `${rel(cible)} : « prefer_related_applications » à vrai supprime l'invitation à installer`,
+      );
+    }
+
+    /*
+     * The manifest names itself so the page can ask the browser whether the app
+     * is already installed. A malformed entry throws nothing: the question
+     * simply gets an empty answer, and we fall back unknowingly on the
+     * inference it was meant to replace.
+     */
+    const parentes = m.related_applications ?? [];
+    if (!parentes.length) {
+      echecs.push(`${rel(cible)} : « related_applications » est absent — voir getInstalledRelatedApps`);
+    }
+    for (const [n, a] of parentes.entries()) {
+      const nom = `related_applications[${n}]`;
+      if (a.platform !== 'webapp') {
+        echecs.push(`${rel(cible)} : « ${nom}.platform » vaut « ${a.platform} », attendu « webapp »`);
+      }
+      const adresse = String(a.url ?? '');
+      if (!adresse.startsWith('/') || !existsSync(join(DIR, adresse.replace(/^\//, '')))) {
+        echecs.push(`${rel(cible)} : « ${nom}.url » ne désigne aucun manifeste — ${adresse}`);
+      }
     }
 
     /*

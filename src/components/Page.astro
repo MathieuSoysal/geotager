@@ -197,7 +197,33 @@ const jsonLd = {
                    reçoit. Le dossier `WhatsApp` s'affichait alors VIDE. `image/*`
                    couvre déjà HEIC, AVIF et TIFF partout où le système sait les
                    nommer ; on ne perd rien de ce que la page annonce. -->
-              <input id="picker" type="file" accept="image/*,video/*" multiple capture="environment" />
+              <!-- ET PAS DE `capture` — jamais. Il ne dit pas « préfère
+                   l'appareil photo » : il fait ouvrir le sélecteur de CAPTURE À
+                   LA PLACE du sélecteur de fichiers. Sur iPhone, la feuille
+                   « Photothèque / Prendre une photo ou une vidéo / Choisir un
+                   fichier » ne s'affiche plus du tout et la photothèque devient
+                   INATTEIGNABLE ; sous Android, l'appareil photo part seul et la
+                   galerie disparaît de même. Ouvrir une photo DÉJÀ PRISE — le
+                   geste pour lequel cet outil existe — redevenait impossible au
+                   doigt, et ce champ est la seule porte qui reste sur iPhone :
+                   le dépôt est de bureau, le collage n'a rien à viser dans
+                   l'état vide, le partage et l'ouverture système sont de
+                   Chromium.
+
+                   `multiple` tombe avec : une prise de vue ne rend qu'UN
+                   fichier, sur un outil dont tout le reste nettoie des lots.
+
+                   Et l'attribut n'achetait rien. iOS propose déjà « Prendre une
+                   photo ou une vidéo » dans cette même feuille, sans qu'on le
+                   demande : on l'a payé le prix de la photothèque.
+
+                   Seule l'ABSENCE dit « pas de capture » : le comportement tient
+                   à l'attribut SPÉCIFIÉ, pas à sa valeur, et `capture=""`,
+                   `"false"`, `"none"` disent tous encore capture. Si un raccourci
+                   « prendre une photo » est voulu un jour, ce sera un SECOND
+                   champ derrière son propre bouton, jamais un attribut sur
+                   celui-ci. -->
+              <input id="picker" type="file" accept="image/*,video/*" multiple />
             </label>
             <p class="hero-titre" aria-hidden="true">{T.hero.titre} <em>{T.hero.titreEm}</em></p>
             <p class="sub">{T.hero.sous}</p>
