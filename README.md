@@ -48,7 +48,7 @@ the worst thing this tool could do.
 
 *“Change” replaces a location that is already there, “add” creates one where there is none. They are
 two different operations: the first does not change the file size, the second does. The table on
-each page is rendered from `src/lib/exif/capacites.ts`, which the engine reads too, so it cannot
+each page is rendered from `packages/core/src/capacites.ts`, which the engine reads too, so it cannot
 drift from what the code can actually do.*
 
 The full plan, the decisions and the open questions live in [`PLAN-GATE1.md`](PLAN-GATE1.md) and
@@ -189,6 +189,61 @@ from the gallery.
 Share target is Android and desktop Chrome/Edge; iOS does not implement it. File handling is
 desktop Chrome/Edge.
 
+## Using the engine outside the website
+
+The engine is a standalone package. The website, the command line and anything you build all run
+the same bytes through the same verification — there is no "lite" version.
+
+### From a terminal
+
+```bash
+npx geotager read photo.jpg                              # prints JSON
+npx geotager set photo.jpg --lat 48.8584 --lng 2.2945    # writes photo-geotagged.jpg
+npx geotager strip '*.heic' --out ./clean                # batch, originals untouched
+```
+
+Originals are never overwritten unless you pass `--in-place`. Globs are expanded by the tool
+itself, so they behave the same on Windows and inside a `spawn()` with no shell. Exit codes are
+`0` success, `1` some files failed and were left untouched, `2` usage error, `3` nothing matched.
+`npx geotager --help` documents the rest.
+
+### From your own code
+
+```bash
+npm install @geotager/core
+```
+
+```js
+import { readGps, setGps, stripGps } from '@geotager/core';
+
+readGps(bytes);                                    // { lat, lng, alt? } | null
+await setGps(bytes, { lat: 48.8584, lng: 2.2945 }); // new bytes
+await stripGps(bytes);                              // new bytes
+```
+
+Bytes in, bytes out — no DOM, no filesystem, no network. It runs unchanged in Node, in a browser,
+in a Web Worker and in an edge function. Writes throw rather than return a file that failed
+verification; `applyGps` returns the refusal as a value instead, for batches.
+
+### From a link
+
+`?lat=&lng=&zoom=` pre-fills the coordinate field and centres the map:
+
+```
+https://geotager.app/?lat=48.8584&lng=2.2945&zoom=16
+```
+
+It fills a text field and nothing else — no file is loaded, nothing is written, and the map stays
+closed until asked for. Both `lat` and `lng` must be present and in range, or the whole thing is
+ignored in silence: these links are built by programs and get truncated by messaging apps, and an
+error banner would accuse the wrong person.
+
+### For AI agents
+
+[`/agent-setup/prompt.md`](public/agent-setup/prompt.md) — served at
+<https://geotager.app/agent-setup/prompt.md> — is a ready-to-use instruction document covering all
+three paths above, written so a model can act on it directly.
+
 ## Development
 
 ```bash
@@ -208,10 +263,17 @@ and therefore cannot see what is added on the way out. It is deliberately outsid
 
 ```bash
 npm run fixtures   # fetches real test photos (not committed)
-npm test           # EXIF engine, with ExifTool as an independent oracle — 316 assertions
-npm run test:e2e   # full journey in Chromium, files read back by ExifTool — 104 assertions
+npm test           # EXIF engine, with ExifTool as an independent oracle — 722 assertions
+npm run test:api   # the @geotager/core public surface, same oracle — 57 assertions
+npm run test:cli   # the geotager command line, by launching it — 82 assertions
+npm run test:e2e   # full journey in Chromium, files read back by ExifTool — 359 assertions
 npm run test:all   # the whole chain
 ```
+
+`test:api` and `test:cli` exist because the package boundary is the one part of this repository
+whose breakage would not show up in the website. `test:cli` launches a real process rather than
+importing anything: an exit code, the separation of stdout from stderr, and glob expansion do not
+exist inside a function call.
 
 Every cell of the table above is backed by a test that actually performs the operation on a real
 photo of that format — including the “not yet” cells, whose test requires that no witness file
@@ -233,6 +295,29 @@ end of the file, zeroed coordinates, a parasitic preamble. As no public corpus p
 PNG or TIFF, the starting location is written into a real device file by ExifTool — an
 implementation independent of ours. Sources and licences in [`CREDITS.md`](CREDITS.md), rationale in
 [`QUESTIONS.md`](QUESTIONS.md), entry Q-035.
+
+### Releasing
+
+`.github/workflows/cd.yml` publishes both packages to npm when a **GitHub release is
+published**. Not on merge: an npm version is immutable, so publishing on every merge would
+fail on the ones that do not bump the number and succeed irreversibly on the ones that do.
+
+Three refusals run before a single byte is sent — the release tag must match both manifests,
+the CLI's dependency range must accept the core being published, and the whole test chain
+must pass again on the tagged commit. Then core is published first (the CLI depends on it),
+with `--provenance` so the tarball is publicly linked to this repository and commit. Finally
+the *published* package is installed from npm and made to read a real photo — the only check
+that covers a too-narrow `files` list or a `bin` that lost its executable bit.
+
+To cut a release: bump `version` in both `packages/*/package.json` to the same number, merge,
+then publish a GitHub release tagged `v<that number>`.
+
+One secret is required: `NPM_TOKEN`, a granular automation token with write access to
+`@geotager/core` and `geotager`, stored on the `npm` environment. Add required reviewers to
+that environment if you want a human gate before anything is published.
+
+`workflow_dispatch` runs the same job with `--dry-run` on by default, to exercise the
+workflow without publishing.
 
 ### Continuous integration
 

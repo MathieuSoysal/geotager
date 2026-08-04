@@ -5,11 +5,14 @@
  * worker et affiche ce qui revient. Tout ce qui coûte est de l'autre côté.
  */
 import { downloadZip } from 'client-zip';
-import { parseCoordinates, formatDecimal, formatDms, distanceMetres, formatDistance } from '../exif/coords.ts';
+import {
+  parseCoordinates, formatDecimal, formatDms, distanceMetres, formatDistance,
+  validerPosition, ZOOM_MIN, ZOOM_MAX,
+} from '@geotager/core/coords';
 import type { Carte } from './carte.ts';
-import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '../exif/types.ts';
+import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '@geotager/core/types';
 import { dicoDuDocument, type CodeErreur } from '../i18n/index.ts';
-import { typeDeclare } from '../exif/capacites.ts';
+import { typeDeclare } from '@geotager/core/capabilities';
 
 // Les mots de CETTE page. L'attribut `lang` du document a été écrit au build :
 // on ne devine pas la langue, on la lit.
@@ -118,6 +121,14 @@ let carte: Carte | null = null;
 let precision: number | null = null;
 /** Empêche l'aller-retour champ → carte → champ de se mordre la queue. */
 let enSync = false;
+/**
+ * Zoom demandé par `?zoom=` dans l'adresse, ou null.
+ *
+ * Consommé à la PREMIÈRE ouverture de la carte, puis remis à null : voir
+ * `ouvrirCarte`, qui explique pourquoi il ne doit pas survivre à une
+ * fermeture.
+ */
+let zoomDeLAdresse: number | null = null;
 /** Cette fenêtre a cliqué « Recharger » sur le bandeau de mise à jour. */
 let demandeMaj = false;
 /**
@@ -458,7 +469,14 @@ async function ouvrirCarte(): Promise<void> {
   // On n'ouvre pas au zoom maximal sur la position de la photo : la première
   // requête dirait alors le pas de porte. Le quartier suffit à se repérer, et
   // l'utilisateur zoome lui-même s'il le veut.
-  carte.centrer(depart ?? { lat: 46.6, lon: 2.4 }, depart ? 13 : 4);
+  //
+  // Un `?zoom=` reçu dans l'adresse prime sur ce choix, et seulement à la
+  // PREMIÈRE ouverture : il est consommé ici. Sans cela, refermer puis rouvrir
+  // la carte ramènerait l'utilisateur au zoom du lien, en défaisant à chaque
+  // fois ce qu'il vient de régler à la main.
+  const zoomVoulu = zoomDeLAdresse ?? (depart ? 13 : 4);
+  zoomDeLAdresse = null;
+  carte.centrer(depart ?? { lat: 46.6, lon: 2.4 }, zoomVoulu);
   carte.marquerOrigine(origine);
 }
 
@@ -943,6 +961,96 @@ el.effacerTout.addEventListener('click', () => {
  * lot sans que rien ne le dise. On ne laisse pas une propriété tenir à cela.
  */
 versEtatVide();
+
+/* --- lieu proposé par l'adresse ------------------------------------ */
+
+/*
+ * `?lat=&lng=&zoom=` — pré-remplir le lieu depuis l'adresse.
+ *
+ * À quoi cela sert, et pourquoi le format le mérite : un assistant qui ne peut
+ * pas exécuter de code sait quand même fabriquer un lien. Il connaît les
+ * coordonnées d'un endroit qu'on vient de lui nommer, et il peut les remettre à
+ * l'utilisateur sous une forme où il n'y a plus qu'à déposer la photo — le
+ * champ est déjà rempli, la carte déjà centrée. Sans cela, la seule voie était
+ * de recopier deux nombres à la main.
+ *
+ * Ce que ce paramètre ne fait PAS, et c'est ce qui le rend acceptable :
+ *
+ *   - il ne charge aucun fichier, n'en réclame aucun, et ne déclenche aucune
+ *     écriture. Il remplit un champ de saisie, exactement comme une frappe.
+ *     Un lien reçu de n'importe où ne peut donc rien faire d'irréversible.
+ *   - il n'ouvre pas la carte. L'ouvrir demanderait des tuiles à un tiers pour
+ *     quelqu'un qui n'a rien demandé ; la carte reste chargée à la demande,
+ *     comme partout ailleurs dans ce fichier.
+ *   - il ne renseigne AUCUNE précision. `precision` reste nulle, comme pour
+ *     une saisie au clavier : un lien ne mesure rien, et inscrire dans le
+ *     fichier de quelqu'un un chiffre que personne n'a mesuré est exactement
+ *     ce que le gestionnaire de saisie refuse déjà de faire.
+ *
+ * Une valeur mal formée est ignorée EN SILENCE, et sans reproche : ces adresses
+ * sont fabriquées par des programmes, se recopient de travers, et se font
+ * tronquer par les messageries. Un bandeau d'erreur au chargement pour un
+ * paramètre que l'utilisateur n'a pas tapé lui-même accuserait la mauvaise
+ * personne. La page s'ouvre alors comme si de rien n'était — c'est-à-dire
+ * exactement comme avant l'existence de ce bloc.
+ */
+function lieuDeLAdresse(): void {
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(location.search);
+  } catch {
+    return;
+  }
+
+  /** Un paramètre en nombre fini, ou null. Le vide n'est pas zéro. */
+  const nombre = (nom: string): number | null => {
+    const brut = params.get(nom);
+    if (brut === null) return null;
+    const texte = brut.trim();
+    // `Number('')` vaut 0, et `Number(' ')` aussi : sans ce test, `?lat=`
+    // annoncerait l'équateur.
+    if (texte === '') return null;
+    const v = Number(texte);
+    return Number.isFinite(v) ? v : null;
+  };
+
+  const lat = nombre('lat');
+  // `lon` est accepté à côté de `lng` : les deux orthographes circulent, et
+  // refuser l'une renverrait l'utilisateur sur une page vide sans lui dire
+  // pourquoi.
+  const lng = nombre('lng') ?? nombre('lon');
+
+  // Les deux, ou rien. Une latitude seule ne désigne pas un lieu, et remplir le
+  // champ à moitié laisserait une saisie invalide que l'utilisateur n'a pas
+  // faite.
+  if (lat === null || lng === null) return;
+  // La MÊME validation que partout ailleurs — finitude et plage — parce qu'une
+  // latitude de 500 projetée sur la carte y disparaît sans un mot.
+  const p = validerPosition({ lat, lon: lng });
+  if (!p) return;
+
+  cible = p;
+  precision = null;
+  el.coords.value = formatDecimal(p);
+  majEtatCoords(false);
+  majResultat();
+
+  /*
+   * Le zoom est RETENU, pas appliqué : la carte n'existe pas encore, et
+   * l'ouvrir ici irait chercher des tuiles pour quelqu'un qui n'a rien
+   * demandé. `ouvrirCarte` le consommera si l'utilisateur ouvre la carte.
+   *
+   * Hors des bornes, il est ignoré plutôt que ramené dans les bornes : un
+   * `?zoom=99` vient d'un lien construit de travers, et le corriger en silence
+   * ferait passer pour intentionnel un zoom maximal que personne n'a demandé.
+   */
+  const z = nombre('zoom');
+  if (z !== null && Number.isInteger(z) && z >= ZOOM_MIN && z <= ZOOM_MAX) {
+    zoomDeLAdresse = z;
+  }
+}
+
+lieuDeLAdresse();
 
 /* --- arrivées depuis le système ------------------------------------ */
 

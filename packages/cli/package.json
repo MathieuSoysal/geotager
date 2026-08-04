@@ -1,0 +1,62 @@
+{
+  "name": "geotager",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Read, write and remove EXIF GPS geotags from the command line: photo and video location metadata for JPEG, HEIC, PNG, WebP, TIFF, MP4. Nothing is uploaded.",
+  "license": "MIT",
+  "author": "Mathieu Soysal",
+  "homepage": "https://geotager.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MathieuSoysal/geotager.git",
+    "directory": "packages/cli"
+  },
+  "bugs": "https://github.com/MathieuSoysal/geotager/issues",
+  "keywords": [
+    "exif",
+    "exif-cli",
+    "gps",
+    "geotag",
+    "geotagging",
+    "metadata",
+    "strip-exif",
+    "remove-exif",
+    "cli",
+    "command-line",
+    "location",
+    "batch",
+    "lossless",
+    "jpeg",
+    "heic",
+    "avif",
+    "png",
+    "webp",
+    "tiff",
+    "mp4",
+    "privacy"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "geotager": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@geotager/core": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "^6.0.3"
+  }
+}

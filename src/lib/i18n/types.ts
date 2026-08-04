@@ -17,8 +17,8 @@
  * arrêtée. Un type que personne ne vérifie est un commentaire.
  */
 
-import type { Motif } from '../exif/capacites.ts';
-import type { Format } from '../exif/types.ts';
+import type { Motif } from '@geotager/core/capabilities';
+import type { Format } from '@geotager/core/types';
 
 export type Langue = 'en' | 'fr';
 
