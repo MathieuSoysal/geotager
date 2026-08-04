@@ -26,7 +26,7 @@ import {
   metresParPixel,
   versPixels,
   type LatLon,
-} from '../exif/coords.ts';
+} from '@geotager/core/coords';
 
 /**
  * Le fournisseur de fond, en un seul endroit.

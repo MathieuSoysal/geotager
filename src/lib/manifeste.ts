@@ -18,8 +18,8 @@
  */
 import type { Langue } from './i18n/types.ts';
 import { DICOS, LANGUES } from './i18n/index.ts';
-import { TYPES_PAR_FORMAT, capacitesDe } from './exif/capacites.ts';
-import type { Format } from './exif/types.ts';
+import { TYPES_PAR_FORMAT, capacitesDe } from '@geotager/core/capabilities';
+import type { Format } from '@geotager/core/types';
 
 /**
  * Les types que « Ouvrir avec » propose, dérivés du tableau.

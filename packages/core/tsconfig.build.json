@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+
+  // Le paquet est ÉCRIT en TypeScript avec l'extension `.ts` explicite — c'est
+  // la convention du dépôt, à plus de soixante endroits — et il est PUBLIÉ en
+  // JavaScript. `rewriteRelativeImportExtensions` fait le pont : il réécrit
+  // `./tiff.ts` en `./tiff.js` à l'émission. Sans lui, le paquet publié
+  // demanderait à Node des fichiers `.ts` qui ne sont pas dans le colis.
+  //
+  // Publier la source TypeScript telle quelle était l'autre voie. Elle est
+  // refusée : elle exige de l'installateur un Node capable d'effacer les types,
+  // ce qui n'est pas le cas de tous ceux que le champ `engines` accepte. Un
+  // paquet publié ne choisit pas le Node de qui l'installe.
+  // `dom` est ABSENT de `lib`, et c'est le garde-fou qui rend la promesse
+  // « fonctionne aussi hors navigateur » mécanique plutôt que déclarative :
+  // écrire `document.` ou `window.` dans ce paquet ne compile pas. `types:
+  // ["node"]` n'est pas une contradiction — il n'apporte ici que les deux
+  // globales d'encodage, qui sont une norme WHATWG présente des deux côtés, et
+  // n'ouvre aucun module du système de fichiers sans un `import` visible.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023"],
+    "types": ["node"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"]
+}

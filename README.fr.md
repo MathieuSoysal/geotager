@@ -50,7 +50,7 @@ faire.
 
 *« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont
 deux opérations différentes&nbsp;: la première ne change pas la taille du fichier, la seconde si.
-Le tableau de la page d'accueil est rendu depuis `src/lib/exif/capacites.ts`, que le moteur lit
+Le tableau de la page d'accueil est rendu depuis `packages/core/src/capacites.ts`, que le moteur lit
 aussi&nbsp;; il ne peut donc pas dériver de ce que le code sait faire.*
 
 Le plan complet, les décisions et les points non tranchés sont dans
@@ -191,6 +191,62 @@ geste, jamais un fichier&nbsp;; l'original n'a pas bougé de la galerie.
 Le partage vaut pour Android et Chrome/Edge sur ordinateur&nbsp;; iOS ne l'implémente pas.
 L'ouverture de fichiers vaut pour Chrome/Edge sur ordinateur.
 
+## Se servir du moteur hors du site
+
+Le moteur est un paquet autonome. Le site, la ligne de commande et ce que vous construirez font
+passer les mêmes octets par la même vérification — il n'existe pas de version allégée.
+
+### Depuis un terminal
+
+```bash
+npx geotager read photo.jpg                              # affiche du JSON
+npx geotager set photo.jpg --lat 48.8584 --lng 2.2945    # écrit photo-geotagged.jpg
+npx geotager strip '*.heic' --out ./clean                # en lot, originaux intacts
+```
+
+Les originaux ne sont jamais écrasés sans `--in-place`. Les motifs sont développés par l'outil
+lui-même, donc ils se comportent pareil sous Windows et dans un `spawn()` sans shell. Les codes de
+sortie sont `0` réussite, `1` des fichiers ont échoué et sont restés intacts, `2` faute d'usage,
+`3` aucun fichier trouvé. `npx geotager --help` documente le reste.
+
+### Depuis votre propre code
+
+```bash
+npm install @geotager/core
+```
+
+```js
+import { readGps, setGps, stripGps } from '@geotager/core';
+
+readGps(bytes);                                     // { lat, lng, alt? } | null
+await setGps(bytes, { lat: 48.8584, lng: 2.2945 }); // de nouveaux octets
+await stripGps(bytes);                              // de nouveaux octets
+```
+
+Des octets entrent, des octets sortent — aucun DOM, aucun système de fichiers, aucun réseau. Le
+paquet tourne à l'identique dans Node, dans un navigateur, dans un Web Worker et dans une fonction
+de bord. Les écritures lèvent plutôt que de rendre un fichier qui n'a pas passé la vérification ;
+`applyGps` rend le refus au lieu de le lever, pour les lots.
+
+### Depuis un lien
+
+`?lat=&lng=&zoom=` pré-remplit le champ de coordonnées et centre la carte :
+
+```
+https://geotager.app/?lat=48.8584&lng=2.2945&zoom=16
+```
+
+Le lien remplit un champ de saisie et rien d'autre — aucun fichier n'est chargé, rien n'est écrit,
+et la carte reste fermée tant que personne ne l'ouvre. `lat` et `lng` doivent être présents et dans
+les bornes, sinon tout est ignoré en silence : ces adresses sont fabriquées par des programmes et se
+font tronquer par les messageries, et un bandeau d'erreur accuserait la mauvaise personne.
+
+### Pour les agents
+
+[`/agent-setup/prompt.md`](public/agent-setup/prompt.md) — servi sur
+<https://geotager.app/agent-setup/prompt.md> — est un document d'instructions prêt à l'emploi qui
+couvre les trois voies ci-dessus, écrit pour qu'un modèle puisse agir directement dessus.
+
 ## Développement
 
 ```bash
@@ -211,10 +267,17 @@ délibérément hors de `npm run build` (la build de Cloudflare n'a rien à inte
 
 ```bash
 npm run fixtures   # récupère de vraies photos de test (non committées)
-npm test           # moteur EXIF, avec ExifTool comme oracle indépendant — 316 assertions
-npm run test:e2e   # parcours complet dans Chromium, fichiers relus par ExifTool — 104 assertions
+npm test           # moteur EXIF, avec ExifTool comme oracle indépendant — 722 assertions
+npm run test:api   # la façade publique de @geotager/core, même oracle — 57 assertions
+npm run test:cli   # la ligne de commande geotager, en la lançant — 82 assertions
+npm run test:e2e   # parcours complet dans Chromium, fichiers relus par ExifTool — 359 assertions
 npm run test:all   # la chaîne entière
 ```
+
+`test:api` et `test:cli` existent parce que la frontière du paquet est la seule partie du dépôt
+dont une rupture ne se verrait pas dans le site. `test:cli` lance un VRAI processus plutôt que
+d'importer quoi que ce soit : un code de sortie, la séparation des deux flux et le développement
+des motifs n'existent pas à l'intérieur d'un appel de fonction.
 
 Chaque case du tableau ci-dessus est adossée à un test qui l'exécute réellement sur une vraie photo
 de ce format&nbsp;— y compris les cases à « pas encore », dont le test exige qu'aucun fichier

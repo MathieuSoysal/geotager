@@ -1,23 +1,33 @@
 {
-  "name": "geotager",
+  "name": "geotager-app",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "description": "Voir, modifier et supprimer la position GPS d'une photo, entierement dans le navigateur.",
   "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "packages/cli"
+  ],
   "scripts": {
+    "build:paquets": "npm run build --workspace @geotager/core --workspace geotager",
+    "predev": "npm run build:paquets",
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "prebuild": "npm run build:paquets",
     "build": "ASTRO_TELEMETRY_DISABLED=1 astro check && ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/gen-sw.mjs && node scripts/check-build.mjs",
     "deploy": "node scripts/deploy.mjs",
     "preview": "astro preview",
     "test": "node --experimental-strip-types test/engine.test.ts",
+    "test:api": "node --experimental-strip-types test/api.test.ts",
+    "test:cli": "node --experimental-strip-types test/cli.test.ts",
     "fixtures": "node scripts/fetch-fixtures.mjs",
     "icons": "node scripts/build-icons.mjs",
     "verifier:en-ligne": "node scripts/verifier-en-ligne.mjs",
     "test:e2e": "node --experimental-strip-types test/e2e.test.mjs",
-    "test:all": "npm run fixtures && npm test && npm run build && npm run test:e2e"
+    "test:all": "npm run fixtures && npm test && npm run test:api && npm run build && npm run test:cli && npm run test:e2e"
   },
   "dependencies": {
+    "@geotager/core": "^1.0.0",
     "astro": "^7.1.4",
     "client-zip": "^2.5.0",
     "exifr": "^7.1.3"

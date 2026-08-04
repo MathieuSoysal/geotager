@@ -23,5 +23,13 @@
     // transforme juste la panne déroutante d'un futur contributeur en une
     // erreur de type qui nomme le problème.
     "erasableSyntaxOnly": true
-  }
+  },
+
+  // `astro/tsconfigs/base` inclut `**/*` et n'écarte que `dist`. Depuis que le
+  // dépôt est un espace de travail, cela happe aussi le JavaScript ÉMIS des
+  // paquets — c'est-à-dire la sortie du compilateur, revérifiée comme si
+  // c'était une source. On l'écarte : la source, elle, reste incluse et
+  // vérifiée, si bien que `astro check` couvre le site ET les deux paquets en
+  // une seule passe.
+  "exclude": ["dist", "packages/*/dist"]
 }

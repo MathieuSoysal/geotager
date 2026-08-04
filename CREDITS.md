@@ -58,7 +58,7 @@ aucun inventé :
 
 ### Écrit à la main plutôt qu'emprunté
 
-Le moteur EXIF pour JPEG (`src/lib/exif/jpeg.ts`) n'utilise aucune bibliothèque. `piexifjs` et son
+Le moteur EXIF pour JPEG (`packages/core/src/jpeg.ts`) n'utilise aucune bibliothèque. `piexifjs` et son
 fork TypeScript, envisagés au Gate 1, réécrivent le bloc TIFF en entier : cela déplace les octets et
 casse les MakerNote à offsets absolus. L'édition sur place à longueur constante était l'objectif
 produit&nbsp;; elle imposait d'écrire le code.
