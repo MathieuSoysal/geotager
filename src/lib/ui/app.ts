@@ -6,11 +6,14 @@
  * side.
  */
 import { downloadZip } from 'client-zip';
-import { parseCoordinates, formatDecimal, formatDms, distanceMetres, formatDistance } from '../exif/coords.ts';
+import {
+  parseCoordinates, formatDecimal, formatDms, distanceMetres, formatDistance,
+  validerPosition, ZOOM_MIN, ZOOM_MAX,
+} from '@geotager/core/coords';
 import type { Carte } from './carte.ts';
-import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '../exif/types.ts';
+import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '@geotager/core/types';
 import { dicoDuDocument, type CodeErreur } from '../i18n/index.ts';
-import { typeDeclare } from '../exif/capacites.ts';
+import { typeDeclare } from '@geotager/core/capabilities';
 
 // The words for this page. The document's `lang` attribute was written at
 // build time: we do not guess the language, we read it.
@@ -119,6 +122,13 @@ let carte: Carte | null = null;
 let precision: number | null = null;
 /** Stops the field -> map -> field round trip biting its own tail. */
 let enSync = false;
+/**
+ * Zoom requested by `?zoom=` in the address, or null.
+ *
+ * Consumed the first time the map opens, then reset to null: see `ouvrirCarte`,
+ * which explains why it must not survive a close.
+ */
+let zoomDeLAdresse: number | null = null;
 /** This window clicked "Reload" on the update banner. */
 let demandeMaj = false;
 /**
@@ -457,7 +467,14 @@ async function ouvrirCarte(): Promise<void> {
   // We do not open at maximum zoom on the photo's position: the first request
   // would then name the doorstep. The neighbourhood is enough to get oriented,
   // and the user zooms in themselves if they want to.
-  carte.centrer(depart ?? { lat: 46.6, lon: 2.4 }, depart ? 13 : 4);
+  //
+  // A `?zoom=` received in the address takes precedence over that choice, and
+  // only on the first opening, since it is consumed here. Without that, closing
+  // and reopening the map would return the user to the link's zoom, undoing
+  // what they had just set by hand.
+  const zoomVoulu = zoomDeLAdresse ?? (depart ? 13 : 4);
+  zoomDeLAdresse = null;
+  carte.centrer(depart ?? { lat: 46.6, lon: 2.4 }, zoomVoulu);
   carte.marquerOrigine(origine);
 }
 
@@ -934,6 +951,89 @@ el.effacerTout.addEventListener('click', () => {
  * synchronous would have erased the batch with nothing to say so.
  */
 versEtatVide();
+
+// Location proposed by the address
+
+/*
+ * `?lat=&lng=&zoom=`: pre-filling the location from the address.
+ *
+ * What it is for, and why the format earns it: an assistant that cannot run
+ * code can still build a link. It knows the coordinates of a place just named
+ * to it, and it can hand them back in a form where all that remains is to drop
+ * the photo, the field already filled and the map already centred. Without it,
+ * the only route was copying two numbers by hand.
+ *
+ * What this parameter does not do, which is what makes it acceptable:
+ *
+ *   - it loads no file, asks for none, and triggers no write. It fills an input
+ *     field, exactly as a keystroke would. A link received from anywhere can
+ *     therefore do nothing irreversible.
+ *   - it does not open the map. Opening it would request tiles from a third
+ *     party for somebody who asked for nothing; the map stays loaded on demand.
+ *   - it records no precision. `precision` stays null, as for keyboard entry: a
+ *     link measures nothing, and writing a number nobody measured into
+ *     somebody's file is exactly what the input handler already refuses to do.
+ *
+ * A malformed value is ignored silently, and without reproach: these addresses
+ * are built by programs, get copied wrongly, and are truncated by messaging
+ * apps. An error banner on load, for a parameter the user did not type, would
+ * blame the wrong person.
+ */
+function lieuDeLAdresse(): void {
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(location.search);
+  } catch {
+    return;
+  }
+
+  /** A parameter as a finite number, or null. Empty is not zero. */
+  const nombre = (nom: string): number | null => {
+    const brut = params.get(nom);
+    if (brut === null) return null;
+    const texte = brut.trim();
+    // `Number('')` is 0, and so is `Number(' ')`: without this test, `?lat=`
+    // would announce the equator.
+    if (texte === '') return null;
+    const v = Number(texte);
+    return Number.isFinite(v) ? v : null;
+  };
+
+  const lat = nombre('lat');
+  // `lon` is accepted alongside `lng`: both spellings circulate, and refusing
+  // one would send the user to an empty page without saying why.
+  const lng = nombre('lng') ?? nombre('lon');
+
+  // Both, or neither. A latitude alone does not name a place, and half-filling
+  // the field would leave invalid input the user did not enter.
+  if (lat === null || lng === null) return;
+  // The same validation as everywhere else, finiteness and range, because a
+  // latitude of 500 projected onto the map disappears without a word.
+  const p = validerPosition({ lat, lon: lng });
+  if (!p) return;
+
+  cible = p;
+  precision = null;
+  el.coords.value = formatDecimal(p);
+  majEtatCoords(false);
+  majResultat();
+
+  /*
+   * The zoom is remembered, not applied: the map does not exist yet, and
+   * opening it here would fetch tiles for somebody who asked for nothing.
+   * `ouvrirCarte` will consume it if the user opens the map.
+   *
+   * Out of range it is ignored rather than clamped: a `?zoom=99` comes from a
+   * badly built link, and silently correcting it would pass off as intentional
+   * a maximum zoom nobody asked for.
+   */
+  const z = nombre('zoom');
+  if (z !== null && Number.isInteger(z) && z >= ZOOM_MIN && z <= ZOOM_MAX) {
+    zoomDeLAdresse = z;
+  }
+}
+
+lieuDeLAdresse();
 
 // Arrivals from the system
 

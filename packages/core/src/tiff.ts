@@ -337,6 +337,37 @@ function readAscii(view: TiffView, entry: Entry): string {
   return String.fromCharCode(...bytes).replace(/\0.*$/, '');
 }
 
+/**
+ * The altitude of a TIFF view, in metres, or null.
+ *
+ * Two entries, and the second is not decorative: `GPSAltitude` is an
+ * always-positive rational, and `GPSAltitudeRef`, a byte, 0 for above sea level
+ * and 1 for below, carries the sign. Reading the first without the second would
+ * put a Dead Sea valley at +430 m.
+ *
+ * As everywhere else in this engine, a zero denominator is not "zero metres":
+ * it is a value we cannot read, and null is returned.
+ */
+export function readAltitude(view: TiffView): number | null {
+  const gps = view.gpsIfd;
+  if (!gps) return null;
+  const alt = gps.entries.find((x) => x.tag === GPS.Altitude);
+  if (!alt || alt.type !== 5 || alt.count < 1) return null;
+  const paires = readRationals(view, alt);
+  if (paires.length < 1) return null;
+  const [n, d] = paires[0];
+  if (d === 0) return null;
+  const valeur = n / d;
+  if (!Number.isFinite(valeur)) return null;
+
+  const ref = gps.entries.find((x) => x.tag === GPS.AltitudeRef);
+  // The entry fits in one byte: it is always inline, in the entry's own four
+  // value bytes, never at the end of an offset.
+  const sousLaMer =
+    ref !== undefined && ref.type === 1 && view.bytes[ref.entryOffset + 8] === 1;
+  return sousLaMer ? -valeur : valeur;
+}
+
 /** Reads the location of a TIFF view, or null if it carries none. */
 export function readPosition(view: TiffView): { lat: number; lon: number } | null {
   const gps = view.gpsIfd;
@@ -366,6 +397,16 @@ export interface Edit {
   route: 'P1' | 'P2';
   /** Byte ranges modified, for the byte-exact check. */
   changed: Array<[number, number]>;
+  /**
+   * True if the requested altitude was actually recorded.
+   *
+   * The P1 route adds no entry: it can only write altitude into a file that
+   * already carried one, in the right format. This flag is what lets the caller
+   * prefer P2 when altitude is requested, and refuse outright when neither
+   * route can deliver it, rather than return a file where it is silently
+   * missing.
+   */
+  altitudeEcrite?: boolean;
 }
 
 // Removing the location, always P1
@@ -454,7 +495,25 @@ interface GpsField {
   data: Uint8Array;
 }
 
-function buildGpsFields(lat: number, lon: number, e: Endian, accuracyMetres?: number): GpsField[] {
+/**
+ * Altitude in metres to the pair (positive rational, reference byte).
+ *
+ * The denominator is fixed at 1000, giving millimetres, well beyond what a
+ * receiver measures, and keeping the numerator inside an unsigned 32-bit
+ * integer for any plausible terrestrial altitude. It is bounded anyway, because
+ * the field does not state what it cannot carry: writing an overflowing
+ * numerator would record an arbitrary altitude.
+ */
+const ALTITUDE_DENOM = 1000;
+const ALTITUDE_MAX = 0xffffffff / ALTITUDE_DENOM;
+
+function buildGpsFields(
+  lat: number,
+  lon: number,
+  e: Endian,
+  accuracyMetres?: number,
+  altitudeMetres?: number,
+): GpsField[] {
   const rat = (pairs: Array<[number, number]>) => {
     const b = new Uint8Array(pairs.length * 8);
     pairs.forEach(([n, d], k) => {
@@ -476,6 +535,25 @@ function buildGpsFields(lat: number, lon: number, e: Endian, accuracyMetres?: nu
     { tag: GPS.LongitudeRef, type: 2, count: 2, data: ascii(lon >= 0 ? 'E' : 'W') },
     { tag: GPS.Longitude, type: 5, count: 3, data: rat(degreesToDms(lon)) },
   ];
+  // Altitude is written only when asked for. A photo without one does not get
+  // an invented one, and above all that silence is what guarantees the web app,
+  // which never passes one, writes exactly the same bytes as before this field
+  // existed.
+  if (typeof altitudeMetres === 'number' && Number.isFinite(altitudeMetres)) {
+    const borne = Math.min(ALTITUDE_MAX, Math.abs(altitudeMetres));
+    fields.push({
+      tag: GPS.AltitudeRef,
+      type: 1,
+      count: 1,
+      data: new Uint8Array([altitudeMetres < 0 ? 1 : 0]),
+    });
+    fields.push({
+      tag: GPS.Altitude,
+      type: 5,
+      count: 1,
+      data: rat([[Math.round(borne * ALTITUDE_DENOM), ALTITUDE_DENOM]]),
+    });
+  }
   // GPSTimeStamp and GPSDateStamp describe the moment of the satellite fix,
   // not the moment the user clicks. Writing "now" into them would be a lie
   // recorded in the file, so they are left alone.
@@ -504,20 +582,52 @@ export function ecrirePositionSurPlace(
   lat: number,
   lon: number,
   accuracyMetres?: number,
+  altitudeMetres?: number,
 ): Edit | null {
-  const fields = buildGpsFields(lat, lon, view.endian, accuracyMetres);
+  const fields = buildGpsFields(lat, lon, view.endian, accuracyMetres, altitudeMetres);
   const gps = view.gpsIfd;
   if (!gps) return null;
+
+  /*
+   * Three families of field, and the distinction drives this route's whole
+   * behaviour:
+   *
+   *   - required, the four location fields. One missing, or in another shape,
+   *     and the in-place write does not happen: that is the `return null` that
+   *     sends the caller to P2.
+   *   - optional, the altitude. It is written if the file already reserved room
+   *     for it, and its absence is reported rather than suffered.
+   *   - ignored, the block version and the precision, which P1 never could add
+   *     and does not claim to.
+   */
+  const facultatifs = new Set<number>([GPS.Altitude, GPS.AltitudeRef]);
+  const ignores = new Set<number>([GPS.HPositioningError, GPS.VersionID]);
+
   const plan: Array<{ entry: Entry; field: GpsField }> = [];
+  let altitudeDemandee = 0;
+  let altitudePlacee = 0;
+
   for (const field of fields) {
-    if (field.tag === GPS.HPositioningError || field.tag === GPS.VersionID) continue;
+    if (ignores.has(field.tag)) continue;
+    const optionnel = facultatifs.has(field.tag);
+    if (optionnel) altitudeDemandee++;
+
     const entry = gps.entries.find((x) => x.tag === field.tag);
-    if (!entry) return null;
-    if (entry.type !== field.type || entry.count !== field.count) return null;
-    if (entry.valueLength !== field.data.length) return null;
+    const utilisable =
+      entry !== undefined &&
+      entry.type === field.type &&
+      entry.count === field.count &&
+      entry.valueLength === field.data.length;
+
+    if (!utilisable) {
+      if (optionnel) continue;
+      return null;
+    }
+    if (optionnel) altitudePlacee++;
     plan.push({ entry, field });
   }
-  if (plan.length < 4) return null;
+  // The four location fields, and nothing less.
+  if (plan.length - altitudePlacee < 4) return null;
 
   const out = new Uint8Array(view.bytes);
   const changed: Array<[number, number]> = [];
@@ -531,7 +641,14 @@ export function ecrirePositionSurPlace(
       changed.push([entry.valueOffset, entry.valueOffset + field.data.length]);
     }
   }
-  return { bytes: out, route: 'P1', changed };
+  return {
+    bytes: out,
+    route: 'P1',
+    changed,
+    // Both entries, not one: an altitude without its reference byte changes
+    // sign depending on the reader.
+    altitudeEcrite: altitudeDemandee > 0 && altitudePlacee === altitudeDemandee,
+  };
 }
 
 /**
@@ -551,8 +668,9 @@ export function ecrirePositionParAjout(
   lat: number,
   lon: number,
   accuracyMetres?: number,
+  altitudeMetres?: number,
 ): Edit {
-  const fields = buildGpsFields(lat, lon, view.endian, accuracyMetres);
+  const fields = buildGpsFields(lat, lon, view.endian, accuracyMetres, altitudeMetres);
   const e = view.endian;
   const old = view.bytes;
   const base = old.length + (old.length % 2); // alignement pair
@@ -628,7 +746,10 @@ export function ecrirePositionParAjout(
   // Repoint the header
   writeU32(out, 4, base, e);
 
-  return { bytes: out, route: 'P2', changed: [[4, 8], [base, cursor]] };
+  // P2 rewrites the GPS IFD whole: everything `buildGpsFields` produced is in
+  // the file, altitude included.
+  const altitudeEcrite = fields.some((f) => f.tag === GPS.Altitude);
+  return { bytes: out, route: 'P2', changed: [[4, 8], [base, cursor]], altitudeEcrite };
 }
 
 /** Writes a location into a TIFF block, choosing the safest route. */
@@ -637,10 +758,11 @@ export function writePositionInTiff(
   lat: number,
   lon: number,
   accuracyMetres?: number,
+  altitudeMetres?: number,
 ): Edit {
   return (
-    ecrirePositionSurPlace(view, lat, lon, accuracyMetres) ??
-    ecrirePositionParAjout(view, lat, lon, accuracyMetres)
+    ecrirePositionSurPlace(view, lat, lon, accuracyMetres, altitudeMetres) ??
+    ecrirePositionParAjout(view, lat, lon, accuracyMetres, altitudeMetres)
   );
 }
 

@@ -82,7 +82,19 @@ export interface WriteFail {
 export type WriteResult = WriteOk | WriteFail;
 
 export type Operation =
-  | { kind: 'set'; position: LatLon; accuracyMetres?: number }
+  | {
+      kind: 'set';
+      position: LatLon;
+      accuracyMetres?: number;
+      /**
+       * Altitude in metres, positive above sea level.
+       *
+       * Absent means leave it alone, which is not the same as zero. That
+       * distinction is what guarantees a write without altitude produces
+       * exactly the bytes it produced before this field existed.
+       */
+      altitudeMetres?: number;
+    }
   | { kind: 'erase' }
   | { kind: 'eraseAll' };
 

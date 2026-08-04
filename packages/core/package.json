@@ -1,0 +1,66 @@
+{
+  "name": "@geotager/core",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Read, write and strip the GPS position of a photo or a video, byte for byte. Works in Node and in the browser, without any DOM.",
+  "license": "MIT",
+  "author": "Mathieu Soysal",
+  "homepage": "https://geotager.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MathieuSoysal/geotager.git",
+    "directory": "packages/core"
+  },
+  "bugs": "https://github.com/MathieuSoysal/geotager/issues",
+  "keywords": [
+    "exif",
+    "gps",
+    "geotag",
+    "geotagging",
+    "metadata",
+    "jpeg",
+    "heic",
+    "avif",
+    "png",
+    "webp",
+    "tiff",
+    "quicktime",
+    "privacy"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./coords": {
+      "types": "./dist/coords.d.ts",
+      "default": "./dist/coords.js"
+    },
+    "./capabilities": {
+      "types": "./dist/capacites.d.ts",
+      "default": "./dist/capacites.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "exifr": "^7.1.3"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

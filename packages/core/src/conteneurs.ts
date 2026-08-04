@@ -123,6 +123,8 @@ export interface Ecriture {
   changed: Plage[];
   /** True if the requested precision could actually be recorded. */
   precisionEcrite: boolean;
+  /** True if the requested altitude could actually be recorded. */
+  altitudeEcrite: boolean;
 }
 
 // Format detection
@@ -322,7 +324,7 @@ function appliquerAuBloc(
   b: Uint8Array,
   bloc: BlocLu,
   produire: (vue: TiffView) => Edit,
-): { pose: Pose; route: 'P1' | 'P2' } {
+): { pose: Pose; route: 'P1' | 'P2'; altitudeEcrite: boolean } {
   const { emplacement } = bloc;
   const longueur = emplacement.tiff.length;
   const autres = c.plagesRevendiquees(b, emplacement);
@@ -348,11 +350,16 @@ function appliquerAuBloc(
         changed: [...plages, ...service],
       },
       route: edit.route,
+      altitudeEcrite: edit.altitudeEcrite ?? false,
     };
   }
 
   if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
-  return { pose: c.reconstruire!(b, emplacement, edit.bytes), route: edit.route };
+  return {
+    pose: c.reconstruire!(b, emplacement, edit.bytes),
+    route: edit.route,
+    altitudeEcrite: edit.altitudeEcrite ?? false,
+  };
 }
 
 /**
@@ -375,6 +382,7 @@ export function ecrirePosition(
   lat: number,
   lon: number,
   precisionMetres?: number,
+  altitudeMetres?: number,
 ): Ecriture {
   const demandee = typeof precisionMetres === 'number' && precisionMetres > 0;
   const blocs = lireBlocs(c, b);
@@ -384,20 +392,48 @@ export function ecrirePosition(
 
   if (!bloc) {
     if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
-    const edit = ecrirePositionParAjout(parseTiff(emptyTiff()), lat, lon, precisionMetres);
+    const edit = ecrirePositionParAjout(
+      parseTiff(emptyTiff()),
+      lat,
+      lon,
+      precisionMetres,
+      altitudeMetres,
+    );
     const pose = c.reconstruire!(b, null, edit.bytes);
-    return { ...pose, route: 'P2', precisionEcrite: demandee };
+    return {
+      ...pose,
+      route: 'P2',
+      precisionEcrite: demandee,
+      altitudeEcrite: edit.altitudeEcrite ?? false,
+    };
   }
 
-  const { pose, route } = appliquerAuBloc(c, b, bloc, (vue) => {
-    const surPlace = ecrirePositionSurPlace(vue, lat, lon, precisionMetres);
-    if (surPlace) return surPlace;
-    if (!peutGrandir(c, b)) throw AJOUT_IMPOSSIBLE();
-    return ecrirePositionParAjout(vue, lat, lon, precisionMetres);
+  const { pose, route, altitudeEcrite } = appliquerAuBloc(c, b, bloc, (vue) => {
+    const surPlace = ecrirePositionSurPlace(vue, lat, lon, precisionMetres, altitudeMetres);
+    const grandir = peutGrandir(c, b);
+    /*
+     * The order of preference, and the one exception that reverses it.
+     *
+     * P1 goes first, always: moving no byte beats everything else. The
+     * exception is an explicitly requested altitude that P1 cannot fit,
+     * because the file reserved no room for it. Staying silent to preserve
+     * bytes would return a file missing precisely what was asked to be put in
+     * it; when the format tolerates growing, it grows.
+     */
+    const altitudeDemandee = typeof altitudeMetres === 'number' && Number.isFinite(altitudeMetres);
+    const p1Suffit = surPlace !== null && (!altitudeDemandee || surPlace.altitudeEcrite === true);
+    if (p1Suffit) return surPlace;
+    if (!grandir) {
+      // Nothing to grow: P1 as it stands, if it exists, and its flag will say
+      // the altitude is not there. Otherwise the usual refusal.
+      if (surPlace) return surPlace;
+      throw AJOUT_IMPOSSIBLE();
+    }
+    return ecrirePositionParAjout(vue, lat, lon, precisionMetres, altitudeMetres);
   });
   // The P1 route cannot add an entry, so it cannot record a precision the file
   // did not already carry. It will not be announced.
-  return { ...pose, route, precisionEcrite: demandee && route === 'P2' };
+  return { ...pose, route, precisionEcrite: demandee && route === 'P2', altitudeEcrite };
 }
 
 /** Removes the location from every block in the file. */
@@ -437,7 +473,7 @@ export function effacerPosition(c: Conteneur, b: Uint8Array): Ecriture {
     );
   }
 
-  return { bytes: courant, route: 'P1', changed, precisionEcrite: false };
+  return { bytes: courant, route: 'P1', changed, precisionEcrite: false, altitudeEcrite: false };
 }
 
 /** Removes all information, if the container knows how. */
@@ -449,5 +485,5 @@ export function toutEffacer(c: Conteneur, b: Uint8Array): Ecriture {
     );
   }
   const pose = c.toutEffacer(b);
-  return { ...pose, route: 'P2', precisionEcrite: false };
+  return { ...pose, route: 'P2', precisionEcrite: false, altitudeEcrite: false };
 }

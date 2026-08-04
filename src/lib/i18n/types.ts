@@ -16,8 +16,8 @@
  * nobody checks is a comment.
  */
 
-import type { Motif } from '../exif/capacites.ts';
-import type { Format } from '../exif/types.ts';
+import type { Motif } from '@geotager/core/capabilities';
+import type { Format } from '@geotager/core/types';
 
 export type Langue = 'en' | 'fr';
 

@@ -66,6 +66,19 @@ https://:version.:project.workers.dev/*
 /fr/manifest.webmanifest
   Content-Type: application/manifest+json; charset=utf-8
 
+# Les instructions destinées aux agents. Même raisonnement que pour le
+# manifeste : on ne dépend pas de la table MIME de l'hébergeur.
+#
+# `text/plain` plutôt que `text/markdown`, et c'est un choix. Cette adresse est
+# la référence que le document désigne lui-même comme la seule qui fasse foi :
+# quelqu'un — ou quelque chose — va l'ouvrir pour VÉRIFIER. Un navigateur
+# affiche `text/plain` et TÉLÉCHARGE `text/markdown` : sous le type le plus
+# exact, la vérification demanderait d'ouvrir un fichier reçu, ce qui est
+# exactement le geste qu'on ne veut pas apprendre à faire à quelqu'un.
+/agent-setup/prompt.md
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=3600
+
 # Les icônes et l'image de partage n'ont pas d'empreinte dans leur nom : elles
 # ne peuvent donc pas être immuables. Une semaine, et une revalidation.
 /icons/*

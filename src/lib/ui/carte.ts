@@ -24,7 +24,7 @@ import {
   metresParPixel,
   versPixels,
   type LatLon,
-} from '../exif/coords.ts';
+} from '@geotager/core/coords';
 
 /**
  * The tile provider, in one place.
