@@ -295,6 +295,31 @@ fournissant de PNG ni de TIFF géolocalisé, le lieu de départ y est inscrit pa
 implémentation indépendante de la nôtre — dans un vrai fichier d'appareil. Sources et licences dans
 [`CREDITS.md`](CREDITS.md).
 
+### Publier une version
+
+`.github/workflows/cd.yml` publie les deux paquets sur npm quand une **publication GitHub
+paraît**. Pas à la fusion : une version npm est immuable, si bien que publier à chaque fusion
+échouerait sur toutes celles qui ne changent pas le numéro, et réussirait irrémédiablement sur
+celles qui le changent.
+
+Trois refus tombent avant le premier octet envoyé — l'étiquette doit dire la même chose que les
+deux manifestes, la dépendance de la ligne de commande doit accepter le cœur qu'on publie, et
+toute la chaîne de tests doit repasser sur le commit étiqueté. Le cœur part ensuite en premier
+— la ligne de commande en dépend —, avec `--provenance`, qui lie publiquement le paquet à ce
+dépôt et à ce commit. Enfin le paquet PUBLIÉ est installé depuis npm et mis à lire une vraie
+photo : c'est le seul contrôle qui attrape un `files` trop étroit ou un `bin` qui a perdu son
+droit d'exécution.
+
+Pour publier : porter `version` au même numéro dans les deux `packages/*/package.json`,
+fusionner, puis publier une release GitHub étiquetée `v<ce numéro>`.
+
+Un secret est nécessaire : `NPM_TOKEN`, un jeton d'automatisation granulaire ayant le droit
+d'écrire sur `@geotager/core` et `geotager`, rangé dans l'environnement `npm`. Y ajouter des
+relecteurs obligatoires si l'on veut une main humaine avant toute publication.
+
+`workflow_dispatch` rejoue le même travail avec `--dry-run` par défaut, pour éprouver le
+workflow sans rien publier.
+
 ### Intégration continue
 
 `.github/workflows/ci.yml` installe ExifTool et rejoue `npm run test:all` sur chaque proposition de
