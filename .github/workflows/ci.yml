@@ -16,7 +16,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # `fetch-depth: 0`, the entire history, and the sitemap is what needs it.
+      # By default this action clones to a depth of one: `git log` then has a
+      # single commit to show, and `derniereMaj` returns that commit's date for
+      # every page, which is a build timestamp, exactly what
+      # `src/lib/histoire.ts` says it refuses to write. All sixteen pages
+      # declared the same `lastmod`, and it moved forward on every deployment.
+      # Google only reads `lastmod` if it is "consistently and verifiably
+      # accurate".
+      #
+      # The cost is a full clone of a repository this size, a few seconds.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:

@@ -53,7 +53,13 @@ jobs:
     environment: npm
 
     steps:
+      # `fetch-depth: 0` for the same reason as in CI: this workflow replays
+      # `npm run test:all`, hence the build, hence the sitemap, and a
+      # single-commit clone would have its sixteen pages declare the tag's date.
+      # The full reason is written out in `ci.yml`.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
