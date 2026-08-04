@@ -296,6 +296,29 @@ PNG or TIFF, the starting location is written into a real device file by ExifToo
 implementation independent of ours. Sources and licences in [`CREDITS.md`](CREDITS.md), rationale in
 [`QUESTIONS.md`](QUESTIONS.md), entry Q-035.
 
+### Releasing
+
+`.github/workflows/cd.yml` publishes both packages to npm when a **GitHub release is
+published**. Not on merge: an npm version is immutable, so publishing on every merge would
+fail on the ones that do not bump the number and succeed irreversibly on the ones that do.
+
+Three refusals run before a single byte is sent — the release tag must match both manifests,
+the CLI's dependency range must accept the core being published, and the whole test chain
+must pass again on the tagged commit. Then core is published first (the CLI depends on it),
+with `--provenance` so the tarball is publicly linked to this repository and commit. Finally
+the *published* package is installed from npm and made to read a real photo — the only check
+that covers a too-narrow `files` list or a `bin` that lost its executable bit.
+
+To cut a release: bump `version` in both `packages/*/package.json` to the same number, merge,
+then publish a GitHub release tagged `v<that number>`.
+
+One secret is required: `NPM_TOKEN`, a granular automation token with write access to
+`@geotager/core` and `geotager`, stored on the `npm` environment. Add required reviewers to
+that environment if you want a human gate before anything is published.
+
+`workflow_dispatch` runs the same job with `--dry-run` on by default, to exercise the
+workflow without publishing.
+
 ### Continuous integration
 
 `.github/workflows/ci.yml` installs the external oracles and replays `npm run test:all` on every

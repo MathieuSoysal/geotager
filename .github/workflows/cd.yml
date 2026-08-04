@@ -1,0 +1,229 @@
+# Publication sur npm.
+#
+# Déclenchée par une PUBLICATION de version, jamais par une fusion. La raison
+# n'est pas le confort : une version npm est IMMUABLE. On ne republie pas
+# 1.0.0, on ne la retire pas passé les vingt-quatre heures, et ce qui est parti
+# est parti. Publier à chaque fusion dans `main` échouerait donc sur toutes les
+# fusions qui ne changent pas le numéro, et réussirait — irrémédiablement — sur
+# celles qui le changent sans qu'on l'ait voulu.
+#
+# Créer la publication est l'acte délibéré ; ce fichier n'est que ce qui en
+# découle.
+#
+# Trois refus AVANT le premier octet envoyé, dans cet ordre :
+#
+#   1. l'étiquette de la publication et les numéros des deux manifestes doivent
+#      dire la même chose ;
+#   2. la dépendance de la ligne de commande envers le cœur doit accepter le
+#      cœur qu'on s'apprête à publier ;
+#   3. toute la chaîne de tests doit passer — la même que l'intégration
+#      continue, oracles externes compris.
+#
+# Le troisième est le plus coûteux et c'est celui qu'on ne saute pas. Une
+# régression fusionnée est un correctif ; une régression PUBLIÉE est une version
+# morte et un numéro brûlé.
+name: Publication
+
+on:
+  release:
+    types: [published]
+  # Pour éprouver le workflow lui-même sans rien publier. `dry-run` est vrai par
+  # défaut : le déclenchement manuel ne doit pas pouvoir publier par accident,
+  # il faut décocher la case en connaissance de cause.
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Tout faire, sauf envoyer à npm'
+        type: boolean
+        default: true
+
+# `id-token: write` sert la PROVENANCE : npm inscrit alors, dans un journal
+# public, le lien entre le paquet publié, ce dépôt, ce commit et cette exécution.
+# Quiconque installe peut vérifier que le tarball vient bien d'ici et non du
+# poste de quelqu'un. C'est la même exigence que le reste du dépôt — on ne
+# demande pas qu'on nous croie sur parole.
+permissions:
+  contents: read
+  id-token: write
+
+# Deux publications simultanées de la même version se marcheraient dessus, et la
+# seconde échouerait à mi-chemin — cœur publié, ligne de commande non.
+concurrency:
+  group: publication
+  cancel-in-progress: false
+
+jobs:
+  publier:
+    runs-on: ubuntu-latest
+
+    # Un point où accrocher une approbation obligatoire, dans les réglages du
+    # dépôt, sans toucher à ce fichier. C'est aussi là que vit NPM_TOKEN.
+    environment: npm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          # Écrit le `.npmrc` qui fait lire NODE_AUTH_TOKEN à `npm publish`.
+          registry-url: 'https://registry.npmjs.org'
+
+      # --- 1. l'étiquette et les manifestes disent-ils la même chose ? -----
+      #
+      # Sans ce contrôle, publier la version 1.2.0 depuis une étiquette `v1.2.0`
+      # dont les manifestes portent encore 1.1.0 réussit sans un mot : npm ne
+      # regarde que le manifeste. On se retrouve avec une publication GitHub
+      # v1.2.0 et un paquet npm 1.1.0, et rien n'a protesté.
+      - name: Contrôler les numéros de version
+        id: versions
+        run: |
+          CORE=$(node -p "require('./packages/core/package.json').version")
+          CLI=$(node -p "require('./packages/cli/package.json').version")
+          echo "core=$CORE" >> "$GITHUB_OUTPUT"
+          echo "cli=$CLI" >> "$GITHUB_OUTPUT"
+
+          if [ "$CORE" != "$CLI" ]; then
+            echo "::error::@geotager/core est en $CORE et geotager en $CLI." \
+                 "Les deux paquets sont versionnés ensemble : alignez-les, ou" \
+                 "séparez ce workflow en deux avant de les faire diverger."
+            exit 1
+          fi
+
+          # Le déclenchement manuel n'a pas d'étiquette : il n'y a rien à
+          # comparer, et le manifeste fait alors seul autorité.
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            if [ "${TAG#v}" != "$CORE" ]; then
+              echo "::error::La publication s'appelle « $TAG » mais les" \
+                   "manifestes portent $CORE. Corrigez l'un ou l'autre :" \
+                   "npm ne regarde que le manifeste, et publierait $CORE."
+              exit 1
+            fi
+          fi
+
+          echo "Version à publier : $CORE"
+
+      # --- 2. la ligne de commande accepte-t-elle ce cœur-là ? -------------
+      #
+      # `geotager` dépend de `@geotager/core`. Publier un cœur 2.0.0 en laissant
+      # la ligne de commande demander `^1.0.0` produit un paquet qui s'installe
+      # en tirant une version qui n'existe plus, ou pire, une ancienne.
+      - name: Contrôler la dépendance entre les deux paquets
+        run: |
+          PLAGE=$(node -p "require('./packages/cli/package.json').dependencies['@geotager/core']")
+          CORE="${{ steps.versions.outputs.core }}"
+          node -e "
+            const plage = process.argv[1], version = process.argv[2];
+            const majeurPlage = plage.replace(/^[^0-9]*/, '').split('.')[0];
+            const majeurCore  = version.split('.')[0];
+            if (majeurPlage !== majeurCore) {
+              console.error(
+                '::error::geotager demande @geotager/core ' + plage +
+                ', mais on publie ' + version + '. Mettez la dépendance à jour.');
+              process.exit(1);
+            }
+            console.log('geotager demande ' + plage + ' — compatible avec ' + version + '.');
+          " "$PLAGE" "$CORE"
+
+      # --- 3. toute la chaîne, oracles compris ----------------------------
+      #
+      # Exactement ce que fait `ci.yml`. Un paquet publié ne se rattrape pas :
+      # c'est le seul endroit du dépôt où l'on ne peut pas se permettre de faire
+      # confiance à une exécution précédente, fût-elle verte il y a dix minutes
+      # — l'étiquette peut désigner un autre commit que celui qui a été testé.
+      - name: Installer les oracles externes
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libimage-exiftool-perl libheif-examples \
+            libheif-plugin-libde265 libheif-plugin-dav1d libheif-plugin-aomdec
+          exiftool -ver
+          heif-info --version || true
+
+      - run: npm ci
+
+      - name: Installer Chromium
+        run: npx playwright install chromium --with-deps
+
+      - run: npm run test:all
+
+      # --- 4. publier, cœur d'abord ---------------------------------------
+      #
+      # L'ORDRE N'EST PAS INDIFFÉRENT. `geotager` dépend de `@geotager/core` :
+      # publiée en premier, elle serait, le temps que l'autre arrive,
+      # installable et cassée. npm ne l'empêche pas — il ne vérifie pas
+      # l'existence des dépendances à la publication.
+      #
+      # `--provenance` attache la preuve d'origine. `--access public` est
+      # nécessaire au premier envoi d'un paquet SCOPÉ, que npm crée sinon privé
+      # et refuse sur un compte gratuit.
+      #
+      # Le saut si la version existe déjà rend le workflow rejouable : une
+      # publication refaite après un échec au milieu ne butera pas sur le paquet
+      # qui était déjà parti.
+      - name: Publier @geotager/core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.versions.outputs.core }}
+          ESSAI: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+        run: |
+          if npm view "@geotager/core@$VERSION" version >/dev/null 2>&1; then
+            echo "@geotager/core@$VERSION est déjà publiée — rien à faire."
+            exit 0
+          fi
+          if [ "$ESSAI" = "true" ]; then
+            npm publish --workspace @geotager/core --access public --dry-run
+          else
+            npm publish --workspace @geotager/core --access public --provenance
+          fi
+
+      - name: Publier geotager
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.versions.outputs.cli }}
+          ESSAI: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+        run: |
+          if npm view "geotager@$VERSION" version >/dev/null 2>&1; then
+            echo "geotager@$VERSION est déjà publiée — rien à faire."
+            exit 0
+          fi
+          if [ "$ESSAI" = "true" ]; then
+            npm publish --workspace geotager --access public --dry-run
+          else
+            npm publish --workspace geotager --access public --provenance
+          fi
+
+      # --- 5. le paquet publié s'installe-t-il vraiment ? ------------------
+      #
+      # Le seul contrôle qui porte sur ce que npm a RÉELLEMENT servi, et non sur
+      # ce qu'on lui a envoyé. Il attrape ce qu'aucun test du dépôt ne peut
+      # voir : un `files` trop étroit, un `bin` sans droit d'exécution, une
+      # entrée d'export qui ne résout pas une fois hors du dépôt.
+      - name: Éprouver le paquet tel que npm le sert
+        if: ${{ github.event_name == 'release' }}
+        env:
+          VERSION: ${{ steps.versions.outputs.cli }}
+        run: |
+          # npm met quelques secondes à servir une version tout juste publiée.
+          for essai in 1 2 3 4 5 6; do
+            if npm view "geotager@$VERSION" version >/dev/null 2>&1; then break; fi
+            echo "pas encore servie, nouvelle tentative dans 10 s ($essai/6)"
+            sleep 10
+          done
+
+          cd "$(mktemp -d)"
+          npx --yes "geotager@$VERSION" --version
+          # Une vraie opération, sur un vrai fichier, depuis le paquet publié.
+          cp "$GITHUB_WORKSPACE/test/fixtures/DSCN0010.jpg" photo.jpg 2>/dev/null \
+            || curl -sL -o photo.jpg \
+               https://raw.githubusercontent.com/ianare/exif-samples/master/jpg/gps/DSCN0010.jpg
+          npx --yes "geotager@$VERSION" read photo.jpg --quiet | tee sortie.json
+          node -e "
+            const r = JSON.parse(require('fs').readFileSync('sortie.json', 'utf8'));
+            if (!r[0] || !r[0].gps || typeof r[0].gps.lat !== 'number') {
+              console.error('::error::Le paquet publié ne relit pas la position.');
+              process.exit(1);
+            }
+            console.log('Le paquet publié lit bien', r[0].gps.lat, r[0].gps.lng);
+          "
