@@ -634,7 +634,7 @@ check('et le fichier garde exactement sa taille',
 // journey has eleven, and it is the one we did not anticipate that will say
 // "container" to the user.
 console.log('\nAucune phrase du parcours ne porte de jargon');
-const { MATRICE } = await import('../src/lib/exif/capacites.ts');
+const { MATRICE } = await import('../packages/core/src/capacites.ts');
 const { DICOS, LANGUES } = await import('../src/lib/i18n/index.ts');
 const MOTIFS = [
   'ok', 'sans-lieu', 'sans-emplacement', 'forme-inhabituelle', 'rangement-inconnu',
@@ -856,6 +856,65 @@ check('la page anglaise déclare sa langue',
   (await page.locator('html').getAttribute('lang')) === 'en');
 check('elle pointe vers la version française',
   (await page.locator('nav.main a[rel="alternate"]').getAttribute('href')) === '/fr/');
+
+/*
+ * The location proposed by the address.
+ *
+ * These checks come before the zero-third-party proof, and not by accident:
+ * they navigate, so they add requests to the log that proof rests on. A link
+ * fetching anything from outside would be caught by the next check, on that
+ * same log, which is to say by the project's central guard rail rather than by
+ * a test written specially for it.
+ */
+console.log("\nLe lieu proposé par l'adresse");
+{
+  const ouvrir = async (query) => {
+    await page.goto(`http://127.0.0.1:${PORT}/${query}`, { waitUntil: 'networkidle' });
+    return (await page.locator('#coords').inputValue()).trim();
+  };
+
+  check('?lat&lng pré-remplit le champ',
+    (await ouvrir('?lat=48.8584&lng=2.2945')) === '48.85840, 2.29450',
+    await page.locator('#coords').inputValue());
+
+  // The field lives in the active state, which stays hidden until a photo is
+  // there: the link must make nothing appear, only prepare the ground.
+  check("mais n'ouvre aucun état actif", await page.locator('#etat-actif').isHidden());
+  check("et n'affiche aucune erreur de saisie", await page.locator('#coords-erreur').isHidden());
+
+  check('« lon » est accepté comme « lng »',
+    (await ouvrir('?lat=-33.8688&lon=151.2093')) === '-33.86880, 151.20930');
+
+  /*
+   * Silence on malformed values. These addresses are produced by programs,
+   * copied wrong and truncated by messaging apps: accusing the user of a
+   * mistake they did not make would be the wrong answer. The page opens as if
+   * nothing had happened.
+   */
+  for (const [nom, query] of [
+    ['une latitude hors plage', '?lat=91&lng=0'],
+    ['une longitude hors plage', '?lat=0&lng=181'],
+    ['du texte à la place des nombres', '?lat=nord&lng=est'],
+    ['une latitude seule', '?lat=48.8584'],
+    ['une longitude seule', '?lng=2.2945'],
+    ['des valeurs vides', '?lat=&lng='],
+    ['NaN', '?lat=NaN&lng=NaN'],
+  ]) {
+    check(`${nom} est ignorée en silence`, (await ouvrir(query)) === '');
+    check(`  et ne pose aucun message d'erreur`, await page.locator('#coords-erreur').isHidden());
+  }
+
+  // The zoom is remembered without opening anything: the map stays loaded on
+  // demand, and the tile counter proves it just below.
+  const avantZoom = tuilesDemandees;
+  await ouvrir('?lat=48.8584&lng=2.2945&zoom=17');
+  check("un ?zoom= n'ouvre pas la carte de lui-même", await page.locator('#carte').isHidden());
+  check("et ne demande aucune tuile", tuilesDemandees === avantZoom,
+    `${tuilesDemandees} vs ${avantZoom}`);
+
+  check("le champ reste rempli malgré un zoom hors bornes",
+    (await ouvrir('?lat=48.8584&lng=2.2945&zoom=99')) === '48.85840, 2.29450');
+}
 
 console.log('\nPreuve du zéro-tiers');
 const horsOrigine = (liste) => liste.filter((u) => {

@@ -14,8 +14,8 @@ import {
   writeGpsToJpeg,
   deleteGpsFromJpeg,
   stripAllMetadata,
-} from '../src/lib/exif/jpeg.ts';
-import { parseTiff, readPosition, degreesToDms } from '../src/lib/exif/tiff.ts';
+} from '../packages/core/src/jpeg.ts';
+import { parseTiff, readPosition, degreesToDms } from '../packages/core/src/tiff.ts';
 import {
   conteneurDe,
   detecterFormat,
@@ -24,11 +24,11 @@ import {
   lirePosition,
   memesOctetsHorsPlages,
   toutEffacer,
-} from '../src/lib/exif/conteneurs.ts';
-import '../src/lib/exif/formats.ts';
-import { empreinteDesEmplacements, itemsDuFichier } from '../src/lib/exif/isobmff.ts';
-import { boites, enfants, toutesLesBoites } from '../src/lib/exif/bmff.ts';
-import { writeU32 } from '../src/lib/exif/octets.ts';
+} from '../packages/core/src/conteneurs.ts';
+import '../packages/core/src/formats.ts';
+import { empreinteDesEmplacements, itemsDuFichier } from '../packages/core/src/isobmff.ts';
+import { boites, enfants, toutesLesBoites } from '../packages/core/src/bmff.ts';
+import { writeU32 } from '../packages/core/src/octets.ts';
 import {
   accepteAjoutVideo,
   infosVideo,
@@ -43,10 +43,10 @@ import {
   lirePositionVideo,
   porteursDeLieu,
   sonderVideo,
-} from '../src/lib/exif/quicktime.ts';
+} from '../packages/core/src/quicktime.ts';
 import { createHash } from 'node:crypto';
 import { commandePour } from '../scripts/deploy.mjs';
-import { MATRICE, capacitesDe, cellules } from '../src/lib/exif/capacites.ts';
+import { MATRICE, capacitesDe, cellules } from '../packages/core/src/capacites.ts';
 import { manifeste } from '../src/lib/manifeste.ts';
 import { DICOS, LANGUES } from '../src/lib/i18n/index.ts';
 import {
@@ -59,9 +59,9 @@ import {
   normaliserLon,
   validerPosition,
   versPixels,
-} from '../src/lib/exif/coords.ts';
-import type { Format } from '../src/lib/exif/types.ts';
-import { lireDms } from '../src/lib/exif/coords.ts';
+} from '../packages/core/src/coords.ts';
+import type { Format } from '../packages/core/src/types.ts';
+import { lireDms } from '../packages/core/src/coords.ts';
 
 // Same default as scripts/fetch-fixtures.mjs: without it the bench looked for
 // the corpus at the root of the repository and failed on an uncaught exception,
