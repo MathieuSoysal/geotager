@@ -21,12 +21,31 @@ import { execFileSync } from 'node:child_process';
 
 const EST_UNE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * Le jour d'un commit, lu en UTC — `--date=short-local` avec `TZ=UTC`.
+ *
+ * `%cs` rendait la date dans le fuseau que le commit PORTE, et un fuseau n'est
+ * pas une opinion sur laquelle bâtir une comparaison : la fusion que GitHub
+ * fabrique pour une pull request est horodatée à l'heure de son propriétaire.
+ * Une fusion du 4 août à 23 h 21 UTC s'écrit donc `2026-08-05T01:21+02:00`, et
+ * `%cs` en tire « 2026-08-05 » — un jour de plus que le monde. Le contrôle de
+ * build, lui, demande la date à `toISOString()`, qui est en UTC : il voyait un
+ * `lastmod` dans le FUTUR et refusait la build, pour la seule raison qu'elle
+ * tombait après 22 h UTC. Deux heures par jour où rien ne pouvait passer.
+ *
+ * Les deux bouts parlent maintenant le même fuseau. Et c'est aussi ce qu'il
+ * faut : `lastmod` est une date absolue lue par un moteur, pas l'heure qu'il
+ * était chez la personne qui a fusionné.
+ */
+const EN_UTC = ['--date=short-local', '--format=%cd'];
+
 /** Une commande git dont l'échec vaut « je ne sais pas », jamais une exception. */
 function git(args: string[]): string[] {
   try {
     return execFileSync('git', args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, TZ: 'UTC' },
     })
       .split('\n')
       .map((l) => l.trim())
@@ -38,7 +57,7 @@ function git(args: string[]): string[] {
 
 /** Le jour du dernier changement réel de ces fichiers, ou null. */
 export function derniereMaj(chemins: string[]): string | null {
-  const [ligne] = git(['log', '-1', '--format=%cs', '--', ...chemins]);
+  const [ligne] = git(['log', '-1', ...EN_UTC, '--', ...chemins]);
   return ligne && EST_UNE_DATE.test(ligne) ? ligne : null;
 }
 
@@ -53,6 +72,6 @@ export function derniereMaj(chemins: string[]): string | null {
  * modification n'apprend rien à personne.
  */
 export function premierAjout(chemins: string[]): string | null {
-  const [ligne] = git(['log', '--diff-filter=A', '--format=%cs', '--reverse', '--', ...chemins]);
+  const [ligne] = git(['log', '--diff-filter=A', ...EN_UTC, '--reverse', '--', ...chemins]);
   return ligne && EST_UNE_DATE.test(ligne) ? ligne : null;
 }
