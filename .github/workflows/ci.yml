@@ -17,7 +17,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # `fetch-depth: 0` — l'historique ENTIER, et c'est le plan du site qui le
+      # demande. Par défaut cette action clone à une profondeur de UN : `git log`
+      # n'a alors qu'un seul commit à montrer, et `derniereMaj` rend la date de
+      # CE commit pour chaque page — c'est-à-dire un horodatage de build, très
+      # exactement ce que `src/lib/histoire.ts` dit refuser d'écrire. Les seize
+      # pages déclaraient ainsi le même `lastmod`, et il rajeunissait à chaque
+      # déploiement. Google ne lit `lastmod` que s'il est « consistently and
+      # verifiably accurate » ; seize dates qui bougent ensemble sans qu'une
+      # ligne ait changé sont le contraire.
+      #
+      # Le coût est un clone complet d'un dépôt de cette taille, soit quelques
+      # secondes. La date de première parution des guides le demande de même.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:

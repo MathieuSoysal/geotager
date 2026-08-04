@@ -61,7 +61,13 @@ jobs:
     environment: npm
 
     steps:
+      # `fetch-depth: 0` pour la même raison qu'en intégration : ce workflow
+      # rejoue `npm run test:all`, donc la build, donc le plan du site, et un
+      # clone d'un seul commit ferait déclarer à ses seize pages la date de
+      # l'étiquette. La raison est écrite en entier dans `ci.yml`.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
