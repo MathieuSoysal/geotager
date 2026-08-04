@@ -17,12 +17,29 @@ import { execFileSync } from 'node:child_process';
 
 const EST_UNE_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * The day of a commit, read in UTC: `--date=short-local` with `TZ=UTC`.
+ *
+ * `%cs` rendered the date in the zone the commit carries, and a zone is not an
+ * opinion to build a comparison on: the merge GitHub creates for a pull request
+ * is stamped in its owner's local time. A merge at 23:21 UTC on 4 August is
+ * therefore written `2026-08-05T01:21+02:00`, and `%cs` yields "2026-08-05", a
+ * day ahead of the world. The build check asks `toISOString()`, which is UTC:
+ * it saw a `lastmod` in the future and refused the build, for no reason other
+ * than it being after 22:00 UTC. Two hours a day when nothing could pass.
+ *
+ * Both ends now speak the same zone, which is also what is wanted: `lastmod` is
+ * an absolute date read by an engine, not the local time of whoever merged.
+ */
+const EN_UTC = ['--date=short-local', '--format=%cd'];
+
 /** A git command whose failure means "I do not know", never an exception. */
 function git(args: string[]): string[] {
   try {
     return execFileSync('git', args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, TZ: 'UTC' },
     })
       .split('\n')
       .map((l) => l.trim())
@@ -34,7 +51,7 @@ function git(args: string[]): string[] {
 
 /** The day these files last really changed, or null. */
 export function derniereMaj(chemins: string[]): string | null {
-  const [ligne] = git(['log', '-1', '--format=%cs', '--', ...chemins]);
+  const [ligne] = git(['log', '-1', ...EN_UTC, '--', ...chemins]);
   return ligne && EST_UNE_DATE.test(ligne) ? ligne : null;
 }
 
@@ -48,6 +65,6 @@ export function derniereMaj(chemins: string[]): string | null {
  * modification date tells nobody anything.
  */
 export function premierAjout(chemins: string[]): string | null {
-  const [ligne] = git(['log', '--diff-filter=A', '--format=%cs', '--reverse', '--', ...chemins]);
+  const [ligne] = git(['log', '--diff-filter=A', ...EN_UTC, '--reverse', '--', ...chemins]);
   return ligne && EST_UNE_DATE.test(ligne) ? ligne : null;
 }
