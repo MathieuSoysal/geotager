@@ -404,6 +404,55 @@ for (const f of fichiers.filter((x) => extname(x) === '.html')) {
     } else if (!/\shidden(?=[\s>=])/i.test(bouton)) {
       echecs.push(`${rel(f)} : le bouton d'installation doit être « hidden » dans le HTML servi`);
     }
+
+    /*
+     * Le sélecteur de photo — sans `capture`, et rien que des types MIME.
+     *
+     * Deux fois en huit jours, la MÊME ligne de balisage a fermé l'entrée des
+     * photos sur téléphone, et les deux fois tout est passé au vert. C'est ce
+     * contrôle-là qui manquait, et il est ici plutôt que dans le test de bout
+     * en bout parce que celui-ci ne peut pas le voir : `setInputFiles` pose les
+     * fichiers DANS l'élément sans jamais ouvrir le sélecteur du système. La
+     * panne ne se voit ni sur un ordinateur, ni dans Chromium — le balisage est
+     * la seule prise, et cette branche voit les deux langues.
+     *
+     * `capture` ne demande pas un appareil photo de préférence : il fait ouvrir
+     * le sélecteur de CAPTURE À LA PLACE du sélecteur de fichiers. Sur iPhone la
+     * feuille « Photothèque / Prendre une photo ou une vidéo / Choisir un
+     * fichier » disparaît, sous Android l'appareil photo part seul, et dans les
+     * deux cas `multiple` ne veut plus rien dire — une prise de vue ne rend
+     * qu'UN fichier. C'est l'attribut SPÉCIFIÉ qui déclenche cela, pas sa
+     * valeur : on juge donc sa présence, jamais son contenu.
+     *
+     * Et `accept` reste fait de types MIME génériques, pour la raison écrite
+     * au-dessus du champ : une entrée qui n'est ni `image/*` ni `video/*` — une
+     * extension nue, ou le `android/allowCamera` qui circule comme remède au
+     * bouton d'appareil photo manquant d'Android 14 — fait retomber Chrome sur
+     * l'explorateur de fichiers, qui ne lit pas `Android/media`. Le dossier
+     * WhatsApp s'affichait alors VIDE.
+     */
+    const picker = html.match(/<input[^>]*\bid=["']picker["'][^>]*>/i)?.[0];
+    if (!picker) {
+      echecs.push(`${rel(f)} : le sélecteur de photo est absent de la page servie`);
+    } else {
+      if (/\scapture(?=[\s>=])/i.test(picker)) {
+        echecs.push(
+          `${rel(f)} : le sélecteur de photo porte « capture » — il n'ouvrirait plus que ` +
+            `l'appareil photo, et plus la photothèque`,
+        );
+      }
+      if (!/\smultiple(?=[\s>=])/i.test(picker)) {
+        echecs.push(`${rel(f)} : le sélecteur de photo ne prend plus qu'un fichier à la fois`);
+      }
+      const accept = picker.match(/\saccept=["']([^"']*)["']/i)?.[1] ?? '';
+      const entrees = accept.split(',').map((e) => e.trim()).filter(Boolean);
+      if (!entrees.length || entrees.some((e) => !/^(image|video)\/\*$/.test(e))) {
+        echecs.push(
+          `${rel(f)} : « accept » n'est plus fait que de types MIME génériques — ` +
+            `${accept || '(vide)'}`,
+        );
+      }
+    }
   } else if (genre === 'guide') {
     controlerGuide(rel(f), html, cheminDe(f), lang);
   } else if (genre === 'sommaire') {

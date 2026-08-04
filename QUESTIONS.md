@@ -2453,3 +2453,100 @@ forme manquante. Montrer ce qu'on ne comprend pas n'est pas un aveu de faiblesse
 un défaut nommable.
 
 **Bloque :** non.
+
+---
+
+## [V1.7] Q-058 — La bulle n'ouvrait plus que l'appareil photo
+
+**Contexte :** un signalement d'iPhone, en une phrase : « il n'est plus possible de mettre une
+photo, on ne peut plus que prendre une nouvelle photo avec l'appareil ». Une ligne de balisage, un
+attribut, ajouté quatre jours plus tôt par `f853610` — « Ouvrir l'appareil photo depuis la bulle de
+choix de photo » :
+
+```
+- <input id="picker" type="file" accept="image/*,video/*" multiple />
++ <input id="picker" type="file" accept="image/*,video/*" multiple capture="environment" />
+```
+
+**`capture` ne dit pas « préfère l'appareil photo ».** Il dit d'ouvrir un AUTRE sélecteur. La norme
+est explicite — « the user agent SHOULD invoke a file picker of the specific capture control type ».
+Sur iPhone, Safari n'affiche donc plus la feuille « Photothèque / Prendre une photo ou une vidéo /
+Choisir un fichier » : il n'y a plus de feuille du tout, l'appareil photo part directement, et il
+n'existe aucune sortie vers la photothèque. Sous Android, Chrome déclenche l'intention d'appareil
+photo de la même façon. Le commit annonçait pourtant « users can still access their photo library as
+an alternative option » : c'est la phrase réfutable de tout le lot, et elle est FAUSSE.
+
+**Sur iPhone, ce champ est la seule porte.** C'est ce qui fait la différence entre une gêne et une
+perte totale. Des cinq entrées de l'outil, quatre n'existent pas là : le dépôt est de bureau, le
+collage n'a rien à viser dans l'état vide — l'écouteur se retire dès que la cible est un champ, et
+il n'y a aucun champ —, la cible de partage demande une interception de worker que Safari
+n'implémente pas, et l'ouverture système est de Chromium de bureau. Fermer `#picker`, c'est fermer
+l'application.
+
+**Et `multiple` est tombé avec, sans que personne le compte.** Une prise de vue rend UN fichier :
+l'attribut cesse de vouloir dire quelque chose partout où `capture` est honoré, donc sur tous les
+téléphones, Android compris. Le lot — `#lot`, l'export par `client-zip` — est ce que six pages de
+guides promettent en toutes lettres. Le commit annonçait « maintains backward compatibility with
+existing `accept` and `multiple` attributes ». Non.
+
+**L'attribut n'achetait rien.** iOS propose déjà « Prendre une photo ou une vidéo » dans sa propre
+feuille, sans qu'une page ait à le demander — c'est une affordance du système, pas une faveur du
+balisage. Le raccourci était donc déjà là, gratuit ; on l'a payé la photothèque et le lot. Pour la
+cohérence, `public/_headers` déclare par ailleurs `Permissions-Policy: … camera=() …` : le site dit
+lui-même à tous les navigateurs qu'il n'utilise pas d'appareil photo. Cette politique ne régit que
+`getUserMedia` et n'a donc rien bloqué ici — mais elle dit assez que l'appareil photo n'a jamais
+fait partie de la posture de ce site.
+
+**Retenu :** l'attribut est retiré, et rien d'autre ne change. Pas de second bouton, pas de nouvelle
+chaîne, pas de traduction : la question « choisir ou photographier » est posée par la feuille du
+système, et c'est là qu'elle doit être posée. Seule l'ABSENCE exprime « pas de capture » — le
+comportement tient à l'attribut SPÉCIFIÉ et non à sa valeur, si bien que `capture=""`, `"false"` ou
+`"none"` disent tous encore capture. Un contrôle écrit comme « `capture` doit valoir X » bénirait
+donc le balisage cassé : les deux contrôles jugent une présence, jamais un contenu.
+
+**Deux fois en huit jours sur la MÊME ligne, et deux fois tout est passé au vert.** `e3fc17c` le 31
+juillet rouvrait la galerie d'Android ; `f853610` le 4 août la refermait, sur iPhone cette fois.
+C'est le vrai sujet de cette entrée. La raison est mécanique : `test/e2e.test.mjs` pilote le champ
+par `setInputFiles` — dix-huit appels — qui pose les fichiers DANS l'élément sans jamais ouvrir le
+sélecteur du système. Aucun test fonctionnel, sur aucun navigateur, ne peut voir cette panne ; et
+`capture` est inerte sur un ordinateur, donc invisible aussi à qui relit son travail. Le balisage
+est la seule prise.
+
+**Pourquoi le commentaire n'a pas suffi, et ce qui le remplace.** La règle d'`e3fc17c` — rien que
+des types MIME dans `accept` — vivait dans un commentaire posé juste au-dessus de cette ligne. Il
+n'a arrêté personne, parce qu'il régit un ATTRIBUT et que le commit suivant en a ajouté un autre
+sans le contredire d'un mot. La contrainte est donc réécrite comme une règle sur l'ÉLÉMENT, et elle
+est tenue par du code aux deux bouts :
+
+- `scripts/check-build.mjs` juge le HTML SERVI, dans les deux langues, à chaque `npm run build` —
+  donc aussi sur la build de l'hébergeur, où seul le code de sortie est lu. Un `capture` qui revient
+  ne peut plus être déployé. Le même contrôle exige `multiple`, refuse un `accept` qui ne soit pas
+  fait de caractères génériques — ce qui ferme au passage le remède `android/allowCamera` qui
+  circule contre le bouton d'appareil photo disparu d'Android 14 —, et échoue si le champ est
+  absent, pour ne jamais passer à vide.
+- `test/e2e.test.mjs` juge le DOM VIVANT, aux côtés du contrôle d'`inputmode` dont il est le
+  jumeau : deux attributs qui ne font mal que sur un téléphone. Ce n'est pas deux fois le même
+  contrôle — celui-ci attrape un `capture` posé par un script après coup, qui est la forme la plus
+  probable de la prochaine tentative une fois la voie du balisage fermée.
+
+**Les contrôles.** Vérifiés en échec avant d'être vérifiés au vert, et les deux formes séparément.
+L'attribut remis à la source fait échouer la build avec DEUX lignes, `index.html` et `fr/index.html`
+— c'est la preuve que les deux langues sont vues — et met le test de bout en bout au rouge. Les
+branches ont été éprouvées une à une sur un `dist/` rapiécé : champ renommé, `multiple` retiré,
+`accept` pollué par `.heic` puis par `android/allowCamera`. Et l'asymétrie qui justifie de garder
+les deux a été mesurée plutôt qu'affirmée : un `setAttribute('capture', …)` ajouté au JavaScript
+produit laisse la build VERTE et met le bout en bout au ROUGE. 361 assertions au vert, deux de plus
+qu'avant.
+
+**Ce qui reste vrai, et qu'aucun contrôle ne couvre.** Deux choses, dites plutôt que laissées à
+supposer. Les navigations sont servies par le cache sans revalidation : un iPhone qui a déjà
+l'application ouvre l'ancienne page, reçoit le bandeau de mise à jour, et c'est son geste — un seul
+— qui apporte la correction ; qui répond « plus tard », ou qui tire pour rafraîchir, reste en panne.
+C'est la décision de Q-045, elle n'est pas rouverte ici. Et depuis Android 14, Chrome ouvre le
+sélecteur de photos du système, qui n'expose plus de tuile d'appareil photo : la galerie revient
+partout, l'appareil photo reste atteignable dans la feuille d'iOS, mais Android récent n'en offre
+plus le chemin depuis ce champ. C'est le choix du système. Si ce raccourci devait être rendu, ce
+serait un SECOND champ derrière son propre bouton — jamais un attribut sur celui-ci, et jamais par
+`accept`, qui rouvrirait le dossier WhatsApp vide.
+
+**Bloque :** non.

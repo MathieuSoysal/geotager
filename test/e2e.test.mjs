@@ -983,6 +983,32 @@ check("le lien d'évitement mène à l'outil, pas à la prose",
 check("le champ de coordonnées n'impose plus de pavé décimal",
   (await page.locator('#coords').getAttribute('inputmode')) === null);
 
+/*
+ * Deuxième attribut qui ne fait mal que sur un téléphone, et son voisin ci-dessus
+ * dit pourquoi ils sont ensemble : rien de ce que ce fichier sait faire ne les
+ * atteint. `setInputFiles` pose les fichiers DANS l'élément sans jamais ouvrir le
+ * sélecteur du système — les dix-huit appels de ce test seraient restés verts.
+ *
+ * `capture` ne dit pas « préfère l'appareil photo » : il fait ouvrir le sélecteur
+ * de CAPTURE à la place du sélecteur de fichiers. Sur iPhone la feuille
+ * « Photothèque / Prendre une photo ou une vidéo / Choisir un fichier » ne
+ * s'affiche plus, l'appareil photo part directement, et ouvrir une photo DÉJÀ
+ * PRISE — le geste pour lequel cet outil existe — redevenait impossible au doigt.
+ * L'appareil photo, lui, était déjà proposé par iOS dans cette feuille sans qu'on
+ * le demande : on l'avait payé le prix de la photothèque, et de `multiple`
+ * par-dessus, une prise de vue ne rendant qu'UN fichier.
+ *
+ * Le contrôle est doublé dans `scripts/check-build.mjs`, et ce n'est pas deux
+ * fois le même : là-bas c'est le HTML SERVI qui est jugé, dans les deux langues
+ * et sur chaque build ; ici c'est le DOM VIVANT, ce qui attrape en plus un
+ * `capture` qu'un script poserait après coup — la forme la plus probable de la
+ * prochaine tentative, une fois la voie du balisage fermée.
+ */
+check("le sélecteur de photo n'impose plus l'appareil photo",
+  (await page.locator('#picker').getAttribute('capture')) === null);
+check('et il prend toujours plusieurs fichiers à la fois',
+  await page.evaluate(() => document.getElementById('picker')?.multiple === true));
+
 // Le <h1> vivait dans l'état vide et disparaissait avec lui.
 await page.setInputFiles('#picker', source);
 await page.waitForFunction(() => !document.getElementById('etat-actif').hidden);
