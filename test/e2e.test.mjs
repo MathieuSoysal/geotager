@@ -981,6 +981,31 @@ check("le lien d'évitement mène à l'outil, pas à la prose",
 check("le champ de coordonnées n'impose plus de pavé décimal",
   (await page.locator('#coords').getAttribute('inputmode')) === null);
 
+/*
+ * A second attribute that only hurts on a phone, and its neighbour above says
+ * why they are together: nothing this file can do reaches them.
+ * `setInputFiles` puts the files into the element without ever opening the
+ * system picker, so all eighteen calls in this test would have stayed green.
+ *
+ * `capture` does not mean "prefer the camera": it opens the capture picker
+ * instead of the file picker. On iPhone the "Photo Library / Take Photo or
+ * Video / Choose File" sheet no longer appears, the camera starts straight
+ * away, and opening a photo already taken, the very gesture this tool exists
+ * for, became impossible with a finger. The camera was already offered by iOS
+ * in that sheet without being asked for: we had paid for it with the photo
+ * library, and with `multiple` on top, since a capture returns one file.
+ *
+ * The check is doubled in `scripts/check-build.mjs`, and it is not the same
+ * check twice: there it is the served HTML that is judged, in both languages
+ * and on every build; here it is the live DOM, which additionally catches a
+ * `capture` set after the fact by a script, the most likely shape of the next
+ * attempt once the markup route is closed.
+ */
+check("le sélecteur de photo n'impose plus l'appareil photo",
+  (await page.locator('#picker').getAttribute('capture')) === null);
+check('et il prend toujours plusieurs fichiers à la fois',
+  await page.evaluate(() => document.getElementById('picker')?.multiple === true));
+
 // The <h1> lived in the empty state and disappeared with it.
 await page.setInputFiles('#picker', source);
 await page.waitForFunction(() => !document.getElementById('etat-actif').hidden);
