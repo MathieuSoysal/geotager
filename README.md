@@ -1,7 +1,7 @@
 <div align="center">
 
 <a href="https://geotager.app">
-  <img src=".github/banner.png" alt="Geotager — view, change and remove the GPS location of a photo, entirely in the browser" width="100%">
+  <img src=".github/banner.png" alt="Geotager: view, change and remove the GPS location of a photo, entirely in the browser" width="100%">
 </a>
 
 [![Tests](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml/badge.svg)](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml)
@@ -20,7 +20,7 @@ happens in a Web Worker, on your machine.
 
 One thing, and one only, reaches outside: the map behind “Place it on a map”, which fetches its
 pictures from `tile.openstreetmap.org`. It is folded away until you click it, so a session that
-never opens it makes no outside request at all — and your photo is never part of one either way.
+never opens it makes no outside request at all, and your photo is never part of one either way.
 
 <details>
 <summary><b>Table of contents</b></summary>
@@ -54,7 +54,7 @@ never opens it makes no outside request at all — and your photo is never part 
 
 - 🔒 **Private by architecture, not by promise.** Static files plus a Web Worker; your photo never
   leaves your machine, and a build check fails the deployment if any page ever loads a third-party
-  resource.
+  resource beyond the allowlisted map tiles.
 - 🧬 **No re-encoding, ever.** Pixels are never touched. Changing or removing a location returns a
   file of **strictly identical size**; adding one appends a block without moving a single existing
   byte.
@@ -64,13 +64,13 @@ never opens it makes no outside request at all — and your photo is never part 
   read, rewritten and removed together, so the file never contradicts itself.
 - 📦 **One engine, three doors.** The [website](https://geotager.app), the
   [`geotager` CLI](#from-a-terminal) and the [`@geotager/core` library](#from-your-own-code) run
-  the same bytes through the same verification — there is no “lite” version.
+  the same bytes through the same verification; there is no “lite” version.
 - 📲 **Installable, and fully offline.** A hand-written service worker keeps the tool working with
   no network at all, without ever caching a map tile.
 
 ## Supported formats
 
-**V1.7 — all four operations on every format, videos included.**
+**V1.7: all four operations on every format, videos included.**
 
 | Format | Read | Change | Add | Remove |
 |---|---|---|---|---|
@@ -91,10 +91,10 @@ and a single address is repointed, so no existing byte moves. Changing and remov
 all: the file produced is exactly the size of the original.
 
 Two limits, announced *before* you act rather than after: a simple-form WebP has nowhere to put a
-location, and **a camera raw file — DNG, NEF, CR2 — will not accept having one added**, because a
+location, and **a camera raw file (DNG, NEF, CR2) will not accept having one added**, because a
 raw file is a TIFF and damaging an original would be irreversible.
 
-**Videos too, since V1.7** — MOV and MP4. A video keeps its location as text rather than in the
+**Videos too, since V1.7:** MOV and MP4. A video keeps its location as text rather than in the
 block a photo uses, and it keeps it in several places at once: the plain form every player reads,
 Samsung's variant, Apple's named keys, and the 3GPP form that writes the town out **in words** next
 to the numbers. All of them are read, all of them are rewritten together, and all of them are
@@ -103,7 +103,7 @@ so it is never produced.
 
 One video limit, and it is the honest one: **an action camera records where it went, second by
 second, from beginning to end.** That trail lives among the images themselves, which this engine
-never rewrites — that is what lets it work on an 8 MB file without decoding it. So on such a file
+never rewrites; that is what lets it work on an 8 MB file without decoding it. So on such a file
 the location can be *shown* but not changed, added or removed, and you are told so before you touch
 anything, not after. Changing the visible location while a second-by-second trail survives would be
 the worst thing this tool could do.
@@ -115,8 +115,8 @@ the same bytes through the same verification.
 
 ### In the browser
 
-Open **[geotager.app](https://geotager.app)** — nothing to install, nothing to create an account
-for. Load a photo, read its location, change it or remove it, and save the result. Your photo
+Open **[geotager.app](https://geotager.app)**. There is nothing to install and no account to
+create. Load a photo, read its location, change it or remove it, and save the result. Your photo
 never leaves the page.
 
 ### From a terminal
@@ -146,7 +146,7 @@ await setGps(bytes, { lat: 48.8584, lng: 2.2945 }); // new bytes
 await stripGps(bytes);                              // new bytes
 ```
 
-Bytes in, bytes out — no DOM, no filesystem, no network. It runs unchanged in Node, in a browser,
+Bytes in, bytes out: no DOM, no filesystem, no network. It runs unchanged in Node, in a browser,
 in a Web Worker and in an edge function. Writes throw rather than return a file that failed
 verification; `applyGps` returns the refusal as a value instead, for batches.
 
@@ -158,16 +158,16 @@ verification; `applyGps` returns the refusal as a value instead, for batches.
 https://geotager.app/?lat=48.8584&lng=2.2945&zoom=16
 ```
 
-It fills a text field and nothing else — no file is loaded, nothing is written, and the map stays
+It fills a text field and nothing else: no file is loaded, nothing is written, and the map stays
 closed until asked for. Both `lat` and `lng` must be present and in range, or the whole thing is
 ignored in silence: these links are built by programs and get truncated by messaging apps, and an
 error banner would accuse the wrong person.
 
 ### For AI agents
 
-[`/agent-setup/prompt.md`](public/agent-setup/prompt.md) — served at
-<https://geotager.app/agent-setup/prompt.md> — is a ready-to-use instruction document covering all
-three paths above, written so a model can act on it directly.
+[`/agent-setup/prompt.md`](public/agent-setup/prompt.md), served at
+<https://geotager.app/agent-setup/prompt.md>, is a ready-to-use instruction document covering the
+terminal, library and link paths above, written so a model can act on it directly.
 
 ## What the engine guarantees
 
@@ -177,20 +177,20 @@ three paths above, written so a model can act on it directly.
   segments survive *by construction*.
 - **Creation without rewriting.** Adding a location to a file that has none inserts nothing in the
   middle of the TIFF block: a new IFD0 is appended at the end and the header is repointed at it.
-  Existing absolute offsets stay valid — which is precisely what a naive rewrite breaks.
+  Existing absolute offsets stay valid, which is precisely what a naive rewrite breaks.
 - **Byte-exact proof.** The engine declares the ranges it writes, and the file produced is compared
   to the original **everywhere else**. Comparing sizes would prove nothing: a defect wiping 200 KB
   of vendor data would sail straight through. It is also what lets us write into a photo of several
   megabytes without ever decoding it: we do not prove the image is still readable, we prove its
   bytes did not move.
 - **Verification after writing, in three stages.** Our reader reads the file back from the first
-  byte. A **second engine, written by other people**, reads the location block — that is where the
+  byte. A **second engine, written by other people**, reads the location block: that is where the
   byte-order defect lives, the one a self-recheck cannot see. Then it reads the whole file, provided
   it could open the original: it does not know every format, and its silence about a file it cannot
   open would prove nothing. A gap of more than a metre, a residue after removal, or a disagreement
   cancels the operation and hands the original back intact.
-  **For a video that second engine does not exist in a browser** — none of the readers
-  we could ship opens MOV or MP4 — so it is replaced by two checks of our own: the structure is
+  **For a video that second engine does not exist in a browser**, because none of the readers
+  we could ship opens MOV or MP4, so it is replaced by two checks of our own: the structure is
   walked again from the first byte and every parent must be exactly filled by its children, and all
   the places that carry the location must agree on the same answer. The genuine independent oracle
   runs in continuous integration, on real files, column by column. Said plainly rather than left to
@@ -198,7 +198,7 @@ three paths above, written so a model can act on it directly.
   every real video. What now keeps it honest: it is exercised in both directions, and the browser
   journey clicks through to the produced file instead of stopping at the state of the buttons.
 - **No forgotten copy.** An image can keep the location a second time in a descriptive text packet.
-  It is purged — the location only, not the title or the author — then **swept again**: if any trace
+  It is purged (the location only, not the title or the author), then **swept again**: if any trace
   survives, or if the packet is compressed and therefore unreadable to this engine, the removal
   fails rather than hand back a file you would believe was clean.
 
@@ -208,18 +208,18 @@ three paths above, written so a model can act on it directly.
 
 English is served at `/`, French at `/fr/`. Both pages are rendered from the same components and the
 same capability matrix; only the words differ, and they live in `src/lib/i18n/`. The engine never
-returns a sentence — it returns a key — so a missing translation is a compile error, not a French
-sentence on an English page.
+returns a sentence but a key, so a missing translation is a compile error, not a French sentence on
+an English page.
 
 ### The guides
 
-Beyond the tool, the site publishes six written guides in each language — changing a photo's
+Beyond the tool, the site publishes six written guides in each language: changing a photo's
 location, checking it, removing it, adding one, doing all of that on an iPhone, and what social
 networks and messaging apps actually do with it. They live at
 [`/guides/`](https://geotager.app/guides/) and [`/fr/guides/`](https://geotager.app/fr/guides/).
 
 Their structure is derived, never written twice. `src/lib/guides/` holds one typed record per
-language — the URL segment, the title, the description, the one-line summary — and everything else
+language (the URL segment, the title, the description, the one-line summary) and everything else
 reads from it: the contents page, the cross-links between guides, the reciprocal `hreflang`, the
 sitemap, and the checks. A guide added in one language and not the other is a compile error, because
 every indexable page must declare every language. The prose itself stays in the page that carries it.
@@ -227,7 +227,7 @@ every indexable page must declare every language. The prose itself stays in the 
 Four things are enforced at build time rather than trusted:
 
 - **Nothing thin.** A guide under 700 words fails the build. The count is printed for each one.
-- **The answer first.** A guide must open with a `<p class="reponse">` — a direct answer in its first
+- **The answer first.** A guide must open with a `<p class="reponse">`: a direct answer in its first
   paragraph, not a preamble.
 - **No orphans.** Every guide must be listed on the contents page of its own language, and must link
   back to the tool and to that contents page.
@@ -235,18 +235,18 @@ Four things are enforced at build time rather than trusted:
   than redefining it; the check resolves every reference against the identifiers the site actually
   defines, across all pages.
 
-Guides ship **no JavaScript at all** — the end-to-end test asserts both that no script tag survives
+Guides ship **no JavaScript at all**; the end-to-end test asserts both that no script tag survives
 and that no module is fetched. Astro bundles hoisted scripts together, so importing the page
 decoration would drag the whole tool along with it, onto a page that has no tool.
 
 ### Installing it, and using it offline
 
-Geotager is installable, and it works with no network at all — which is the point: the tool already
+Geotager is installable, and it works with no network at all, which is the point: the tool already
 ran entirely on your device, and the only reason it used to stop working offline is that nothing
 kept a copy of it.
 
 **An “Install the app” button appears in the top bar, and only when it can do something.** It ships
-`hidden` in the served HTML and is revealed solely by the browser's install prompt — which browsers
+`hidden` in the served HTML and is revealed solely by the browser's install prompt, which browsers
 do not fire when the app is already installed. So it is absent for anyone who has installed it,
 absent inside the installed window, and absent in browsers that cannot install at all; there, the
 browser's own menu remains the way in. Nothing is remembered if you dismiss the dialog: this site
@@ -254,7 +254,7 @@ persists nothing, and the browser already decides how often to offer again.
 
 The app also *asks* rather than infers: the manifest lists its own two manifest URLs under
 `related_applications`, so `getInstalledRelatedApps()` can confirm the app is installed even from an
-ordinary tab — the one case where inferring from a missing install event could be wrong.
+ordinary tab, the one case where inferring from a missing install event could be wrong.
 
 A hand-written service worker (`scripts/sw-modele.js`, ~120 lines, no Workbox) precaches both pages,
 the stylesheet, the interface and the reading worker. Three rules govern it:
@@ -263,12 +263,12 @@ the stylesheet, the interface and the reading worker. Three rules govern it:
   anything else. A cached map tile would write a durable on-disk record of the places you looked at,
   which is exactly what this site promises not to do.
 - **No unconditional `skipWaiting()`.** Nothing is persisted here, so a forced reload would destroy
-  photos you have loaded and not yet downloaded. A new version waits behind a banner until you say so
-  — and a window that did not ask is not reloaded because another one said yes.
+  photos you have loaded and not yet downloaded. A new version waits behind a banner until you say
+  so, and a window that did not ask is not reloaded because another one said yes.
 - **No offline fallback page.** Both real pages are precached, so there is no navigation left for a
   fallback to catch.
 
-The precache list is derived from what the build actually produced — never written by hand — and
+The precache list is derived from what the build actually produced, never written by hand, and
 `scripts/gen-sw.mjs` refuses to emit a worker whose list is missing the reading worker or the
 stylesheet.
 
@@ -280,7 +280,7 @@ Once installed, Geotager appears in the OS share sheet and as an “Open with”
 and nothing to keep.
 
 Simple is not the same as safe, and this is where that sentence used to stop. A handle can point at
-a file that has moved since, or at one that has not come down from online storage yet — and the
+a file that has moved since, or at one that has not come down from online storage yet, and the
 system hands the batch over exactly once, so there is nothing to come back for. Each handle is
 therefore opened on its own, with a time limit: one photo that has gone missing no longer takes the
 rest of the batch with it, and an “Open with” that yields nothing usable says so on screen and out
@@ -289,17 +289,17 @@ what clicking the app's own icon looks like.
 
 The manifest also states which window receives the files: the one already open, brought forward as
 it is, with the new photos **joining** the ones already loaded rather than replacing them. Nothing
-is persisted here, so a launch that navigated the window would discard work — the same reason
+is persisted here, so a launch that navigated the window would discard work, the same reason
 updates wait behind a banner. The manifest itself is fetched from the network first: it is the only
 file the system reads on its own behalf, and served from cache a correction to it would never
 arrive.
 
 Sharing is not. The Web Share Target API delivers files as a `POST`, and there is no server here to
-receive one — the service worker intercepts it. Every other app that does this parks the file in
+receive one; the service worker intercepts it. Every other app that does this parks the file in
 Cache Storage, redirects, then reads it back and deletes it. That always works, and it also writes
 someone's photo to their disk, which this site says everywhere that it does not do. So the bytes
 stay in a variable in the worker instead, and the page claims them over a `MessageChannel`. The
-price is honest: if the browser stops the worker first — low memory, system arbitration — the photo
+price is honest: if the browser stops the worker first (low memory, system arbitration), the photo
 does not arrive and the page says so. You lose a gesture, never a file; the original never moved
 from the gallery.
 
@@ -316,7 +316,7 @@ npm run icons      # regenerates public/icons/, og.png and the README banners (c
 ```
 
 `npm run verifier:en-ligne` fetches the live site and fails if the host has injected anything into
-it — a Cloudflare analytics beacon, `/cdn-cgi/` endpoints, Rocket Loader, Zaraz, a cookie — or if any
+it (a Cloudflare analytics beacon, `/cdn-cgi/` endpoints, Rocket Loader, Zaraz, a cookie), or if any
 served header differs from `public/_headers`. Every other check in this repository looks at `dist/`
 and therefore cannot see what is added on the way out. It is deliberately outside `npm run build`
 (Cloudflare's build has nothing to fetch) and outside `npm run test:all` (CI must reach no network).
@@ -325,10 +325,10 @@ and therefore cannot see what is added on the way out. It is deliberately outsid
 
 ```bash
 npm run fixtures   # fetches real test photos (not committed)
-npm test           # EXIF engine, with ExifTool as an independent oracle — 722 assertions
-npm run test:api   # the @geotager/core public surface, same oracle — 57 assertions
-npm run test:cli   # the geotager command line, by launching it — 82 assertions
-npm run test:e2e   # full journey in Chromium, files read back by ExifTool — 359 assertions
+npm test           # EXIF engine, with ExifTool as an independent oracle: 722 assertions
+npm run test:api   # the @geotager/core public surface, same oracle: 57 assertions
+npm run test:cli   # the geotager command line, by launching it: 82 assertions
+npm run test:e2e   # full journey in Chromium, files read back by ExifTool: 359 assertions
 npm run test:all   # the whole chain
 ```
 
@@ -338,23 +338,23 @@ importing anything: an exit code, the separation of stdout from stderr, and glob
 exist inside a function call.
 
 Every cell of the table above is backed by a test that actually performs the operation on a real
-photo of that format — including the “not yet” cells, whose test requires that no witness file
+photo of that format, including the “not yet” cells, whose test requires that no witness file
 exists. It is therefore no longer a discipline but a property: opening a cell without proof fails
 the chain.
 
 ExifTool is required for the tests (`apt install libimage-exiftool-perl`). It is **never** used by
 the application: it serves as an external oracle, because an engine that reads itself back proves
-nothing — an encoder and a decoder that are symmetrically wrong agree perfectly. libheif
+nothing: an encoder and a decoder that are symmetrically wrong agree perfectly. libheif
 (`apt install libheif-examples` plus its decoder plugins) plays the same role for decoding: ExifTool
 says what a file *contains*, libheif says it still *decodes*.
 
-The corpus is not committed and not fabricated: these are real photos from real devices — iPhone 11
-Pro Max, iPhone 11 Pro, Nokia 8.3, Galaxy S10, Pixel 4a, HTC Desire, Nikon — plus four real digital
+The corpus is not committed and not fabricated: these are real photos from real devices (iPhone 11
+Pro Max, iPhone 11 Pro, Nokia 8.3, Galaxy S10, Pixel 4a, HTC Desire, Nikon), plus four real digital
 negatives (DNG, NEF, CR2, and a Kodak DCS whose filename says `.TIF`). A file generated for the
 occasion validates the code against itself; only a photo that genuinely came out of a device exposes
 the cases that break, and this corpus exposes several: reversed byte order, a block stored at the
 end of the file, zeroed coordinates, a parasitic preamble. As no public corpus provides a geotagged
-PNG or TIFF, the starting location is written into a real device file by ExifTool — an
+PNG or TIFF, the starting location is written into a real device file by ExifTool, an
 implementation independent of ours. Sources and licences in [`CREDITS.md`](CREDITS.md).
 
 ### Releasing
@@ -363,11 +363,11 @@ implementation independent of ours. Sources and licences in [`CREDITS.md`](CREDI
 published**. Not on merge: an npm version is immutable, so publishing on every merge would
 fail on the ones that do not bump the number and succeed irreversibly on the ones that do.
 
-Three refusals run before a single byte is sent — the release tag must match both manifests,
+Three refusals run before a single byte is sent: the release tag must match both manifests,
 the CLI's dependency range must accept the core being published, and the whole test chain
 must pass again on the tagged commit. Then core is published first (the CLI depends on it),
 with `--provenance` so the tarball is publicly linked to this repository and commit. Finally
-the *published* package is installed from npm and made to read a real photo — the only check
+the *published* package is installed from npm and made to read a real photo, the only check
 that covers a too-narrow `files` list or a `bin` that lost its executable bit.
 
 To cut a release: bump `version` in both `packages/*/package.json` to the same number, merge,
@@ -388,10 +388,10 @@ build only runs `npm run build`, and its image contains neither ExifTool nor lib
 
 ### Build checks
 
-`scripts/check-build.mjs` exits **non-zero** — the only thing Cloudflare reads — if:
+`scripts/check-build.mjs` exits **non-zero**, the only thing Cloudflare reads, if:
 
-- a page loads a third-party resource from a host that is not on the resource allowlist — which
-  holds exactly one entry, the map tiles, recorded in `CREDITS.md`;
+- a page loads a third-party resource from a host that is not on the resource allowlist, which
+  holds exactly one entry: the map tiles, recorded in `CREDITS.md`;
 - a served JavaScript file contains an absolute URL whose host is on no list at all (the regexes
   above only see HTML- and CSS-shaped references; a URL built by concatenation escaped them);
 - a `<title>` exceeds 60 characters or a meta description 155;
@@ -403,7 +403,7 @@ build only runs `npm run build`, and its image contains neither ExifTool nor lib
 - an `X-Robots-Tag` appears under a relative pattern in `_headers`;
 - the manifest's `file_handlers` action does not resolve to a page that is served without a
   redirect, or the never-standardized `launch_type` reappears beside `launch_handler`;
-- `robots.txt` disallows crawling, or advertises a sitemap the build does not produce — which is
+- `robots.txt` disallows crawling, or advertises a sitemap the build does not produce, which is
   exactly what happened once, and went unnoticed;
 - the sitemap does not list precisely the indexable pages, carries a `changefreq` or `priority`
   that search engines ignore anyway, or declares languages that contradict the page's own
@@ -420,14 +420,14 @@ Cloudflare Workers with static assets, through the Git integration. `wrangler.js
 `main` field: there is no Worker code, only files being served.
 
 `scripts/deploy.mjs` decides, from the branch being built, whether to upload a version or promote to
-production — a decision that used to live only in a dashboard setting, and that once put unreviewed
+production, a decision that used to live only in a dashboard setting and that once put unreviewed
 code online. For it to protect anything, **both** build commands in the dashboard must be
 `npm run deploy`.
 
 ## Contributing
 
 Bug reports, fixes, format knowledge, wording corrections and translations are all welcome. Start
-with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it explains the promises every change must keep (most
+with [`CONTRIBUTING.md`](CONTRIBUTING.md): it explains the promises every change must keep (most
 are enforced by the build), how to run the test chain, and what a good bug report looks like. In
 short: never attach a photo whose location you would mind publishing.
 

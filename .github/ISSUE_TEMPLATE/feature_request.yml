@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Worth knowing before you write: some promises are non-negotiable here, and a feature that
-        breaks one will be declined however good it is — nothing leaves the user's machine, pixels
+        breaks one will be declined however good it is: nothing leaves the user's machine, pixels
         are never re-encoded, and a capability only opens with a test that proves it on a real
         file. [`CONTRIBUTING.md`](https://github.com/MathieuSoysal/geotager/blob/main/CONTRIBUTING.md) has the full list.
   - type: textarea

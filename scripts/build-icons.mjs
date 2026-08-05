@@ -150,14 +150,14 @@ await png(
  */
 await png(
   pageBanniere(
-    'View, change and remove the GPS location of a photo — entirely in the browser.',
+    'View, change and remove the GPS location of a photo, entirely in the browser.',
     'No server · No account · No ads · No trackers',
   ),
   1760, 440, '.github/banner.png',
 );
 await png(
   pageBanniere(
-    'Voir, modifier et supprimer la position GPS d’une photo — entièrement dans le navigateur.',
+    'Voir, modifier et supprimer la position GPS d’une photo, entièrement dans le navigateur.',
     'Aucun serveur · Aucun compte · Aucune publicité · Aucun traceur',
   ),
   1760, 440, '.github/banner.fr.png',
