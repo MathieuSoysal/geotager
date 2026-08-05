@@ -622,7 +622,19 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
  * by erasing it — one mechanism, no class to desynchronise.
  */
 .agents { position: relative; display: flex; justify-content: center; padding: 2.8rem 0 0; }
-.agents .btn { display: inline-flex; align-items: center; gap: .65rem; font-size: .88rem; padding: .55rem .7rem .55rem 1.15rem; }
+/* It moves like the bubble does: a slight lift on hover, a press on click.
+   The global reduced-motion rule strips the transitions, and the states then
+   apply instantly, which is exactly what that preference asks for. */
+.agents .btn {
+  display: inline-flex; align-items: center; gap: .65rem;
+  font-size: .88rem; padding: .55rem .7rem .55rem 1.15rem;
+  transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+}
+.agents .btn:hover, .agents .btn:focus-visible {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 .6rem 1.4rem -.6rem rgba(0, 0, 0, .7);
+}
+.agents .btn:active { transform: translateY(0) scale(.96); transition-duration: .07s; }
 .agents-icones { display: inline-flex; align-items: center; gap: .32rem; }
 .agents-icones svg { width: 1.15rem; height: 1.15rem; display: block; }
 .agents-fait {
