@@ -674,6 +674,14 @@ for (const langue of LANGUES) {
     check(`${langue} / « introuvable.${cle} » : une phrase sans jargon`,
       Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
   }
+  // Le bouton d'embarquement et ses deux réponses : des phrases du parcours
+  // comme les autres, écrites par le script, donc vues par aucun balayage de
+  // page.
+  for (const cle of Object.keys(T.agents)) {
+    const p = T.agents[cle];
+    check(`${langue} / « agents.${cle} » : une phrase sans jargon`,
+      Boolean(p) && !MOTS_INTERDITS[langue].test(p), (p ?? '(absente)').slice(0, 90));
+  }
   for (const cle of ['ouvertureIncomplete', 'ajoutees', 'lotPlafonne']) {
     for (const n of [1, 3]) {
       const p = T.app[cle](n);
@@ -707,6 +715,60 @@ check('les deux langues sont déclarées réciproquement',
   enHref?.endsWith('/') && frHref?.endsWith('/fr/'), `${enHref} | ${frHref}`);
 check('la page française est canonique sur elle-même',
   (await page.locator('link[rel="canonical"]').getAttribute('href')).endsWith('/fr/'));
+
+/*
+ * Le bouton d'embarquement d'un agent, jugé sur son geste réel : un clic, puis
+ * la lecture du presse-papier du navigateur. Le texte attendu est importé du
+ * module qui le sert plutôt que recopié ici — même discipline que `HOTE_TUILES`
+ * ou la CSP : une valeur recopiée dans un test finit par diverger de celle qui
+ * part en production.
+ */
+console.log('\nEmbarquer un agent');
+const { INVITE_AGENT } = await import('../src/lib/ui/invite-agent.ts');
+await contexte.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+check('le bouton est servi sous la ligne de flottaison',
+  await page.locator('#contenu #copier-invite').isVisible());
+check('et la confirmation est servie vide',
+  (await page.locator('#invite-copiee').textContent()).trim() === '');
+
+await page.click('#copier-invite');
+await page.waitForFunction(
+  () => document.getElementById('invite-copiee').textContent.length > 0,
+  null, { timeout: 5_000 },
+);
+check('la confirmation annonce la copie',
+  (await page.locator('#invite-copiee').textContent()) === 'Setup prompt copied',
+  await page.locator('#invite-copiee').textContent());
+const presse = await page.evaluate(() => navigator.clipboard.readText());
+check('le presse-papier contient exactement la consigne du module',
+  presse === INVITE_AGENT, `${presse.length} car. vs ${INVITE_AGENT.length}`);
+check('la consigne désigne le document qui fait foi',
+  presse.includes('https://geotager.app/agent-setup/prompt.md'));
+const effacee = await page.waitForFunction(
+  () => document.getElementById('invite-copiee').textContent === '',
+  null, { timeout: 6_000 },
+).then(() => true, () => false);
+check('la confirmation s\'efface ensuite d\'elle-même', effacee);
+
+// La version française : mêmes octets copiés — la consigne s'adresse à la
+// machine, en anglais par choix — mais le geste et sa confirmation en français.
+await page.goto(`http://127.0.0.1:${PORT}/fr/`, { waitUntil: 'networkidle' });
+check('le bouton français porte sa phrase',
+  (await page.locator('#copier-invite span').first().textContent()) ===
+    'Formez votre agent à Geotager',
+  await page.locator('#copier-invite span').first().textContent());
+await page.click('#copier-invite');
+await page.waitForFunction(
+  () => document.getElementById('invite-copiee').textContent.length > 0,
+  null, { timeout: 5_000 },
+);
+check('la confirmation est en français',
+  (await page.locator('#invite-copiee').textContent()) === 'Instructions copiées',
+  await page.locator('#invite-copiee').textContent());
+check('et les octets copiés sont les mêmes',
+  (await page.evaluate(() => navigator.clipboard.readText())) === INVITE_AGENT);
 
 /*
  * What we tell the engines, actually served.

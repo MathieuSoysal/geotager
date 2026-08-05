@@ -611,6 +611,29 @@ details.details dd { margin: 0; font-family: var(--mono); overflow-wrap: anywher
 .scrollcue a:hover { color: var(--pink); }
 
 /* Content below the fold */
+/*
+ * Onboarding an agent: the first thing under the fold. A pill, centred, that
+ * reads as a continuation of the hero rather than as the start of the article.
+ *
+ * The confirmation is positioned OUT of flow, in the space `.pitch` already
+ * reserves above the cards: a sentence appearing in flow would push the whole
+ * article down at the exact moment the eye is on the button. `:empty` carries
+ * visibility, since the script shows the sentence by writing it and hides it
+ * by erasing it — one mechanism, no class to desynchronise.
+ */
+.agents { position: relative; display: flex; justify-content: center; padding: 2.8rem 0 0; }
+.agents .btn { display: inline-flex; align-items: center; gap: .65rem; font-size: .88rem; padding: .55rem .7rem .55rem 1.15rem; }
+.agents-icones { display: inline-flex; align-items: center; gap: .32rem; }
+.agents-icones svg { width: 1.15rem; height: 1.15rem; display: block; }
+.agents-fait {
+  position: absolute; top: calc(100% + .55rem); left: 50%; translate: -50% 0;
+  margin: 0; padding: .28rem .85rem; border-radius: 999px;
+  font-size: .78rem; white-space: nowrap;
+  background: var(--panel-haut); border: 1px solid var(--bordure); color: var(--text);
+  transition: opacity .18s ease;
+}
+.agents-fait:empty { opacity: 0; }
+
 .pitch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; padding: 2.6rem 0 0; }
 @container prose (max-width: 52rem) { .pitch { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--bordure); border-radius: 2rem 1.4rem 1.8rem 1.2rem; padding: 1.4rem; }
@@ -831,7 +854,7 @@ footer nav.main { margin: 0 0 1.2rem -.8rem; }
     background: #fff; background-image: none; color: #000;
     font-size: 11pt; line-height: 1.45;
   }
-  .decor, .app, .scrollcue, .pitch, footer nav.main, .saut, .maj { display: none; }
+  .decor, .app, .scrollcue, .agents, .pitch, footer nav.main, .saut, .maj { display: none; }
   #contenu { padding: 0; }
   article.contenu { max-width: none; margin: 0; }
   article.contenu a { color: #000; }

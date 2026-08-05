@@ -420,6 +420,39 @@ const jsonLd = {
            `main` jusque-là : le pied de page est un frère à l'intérieur de
            `#contenu`, et l'y enfermer lui ferait perdre son propre rôle. -->
       <section aria-label={T.nav.enSavoirPlus}>
+      <!-- Embarquer un agent. Le bouton copie une consigne prête à coller dans
+           un assistant IA ; le texte copié vit dans `lib/ui/invite-agent.ts`,
+           à côté de ce qu'il doit continuer de désigner. Rien n'est demandé au
+           réseau : la page porte déjà tout ce que le clic dépose.
+
+           Le paragraphe qui suit est la confirmation. C'est une région
+           `role="status"`, présente dès le HTML servi et vide : y écrire est
+           l'annonce elle-même, pour l'écran comme pour le lecteur d'écran, et
+           la vider la fait disparaître. Les pictogrammes sont décoratifs, et
+           retirés de l'arbre d'accessibilité : le libellé dit déjà tout. -->
+      <div class="agents">
+        <button class="btn ghost" type="button" id="copier-invite">
+          <span>{T.agents.bouton}</span>
+          <span class="agents-icones" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#D97757" stroke-width="2.1" stroke-linecap="round">
+              <path d="M16.5 12H22M15.9 14.25l4.76 2.75M14.25 15.9l2.75 4.76M12 16.5V22M9.75 15.9 7 20.66M8.1 14.25l-4.76 2.75M7.5 12H2M8.1 9.75 3.34 7M9.75 8.1 7 3.34M12 7.5V2M14.25 8.1 17 3.34M15.9 9.75 20.66 7"></path>
+            </svg>
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect x="2.75" y="6" width="18.5" height="12.5" rx="6.2" stroke="currentColor" stroke-width="1.8"></rect>
+              <rect x="7.6" y="9.4" width="2.7" height="5.2" rx="1.35" fill="currentColor"></rect>
+              <rect x="13.7" y="9.4" width="2.7" height="5.2" rx="1.35" fill="currentColor"></rect>
+            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+              <path d="M12 2.8 20 7.4v9.2l-8 4.6-8-4.6V7.4Z"></path>
+              <path d="M4 7.4l8 4.6 8-4.6M12 21.2V12"></path>
+            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="8.9" y="3.9" width="6.2" height="16.2" rx="3.1"></rect>
+            </svg>
+          </span>
+        </button>
+        <p class="agents-fait" id="invite-copiee" role="status"></p>
+      </div>
       <div class="pitch">
         {
           T.pitch.map((c, i) => (

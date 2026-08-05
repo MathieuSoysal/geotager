@@ -169,6 +169,11 @@ error banner would accuse the wrong person.
 <https://geotager.app/agent-setup/prompt.md>, is a ready-to-use instruction document covering the
 terminal, library and link paths above, written so a model can act on it directly.
 
+The home page carries an **"Onboard your agent to Geotager"** button, right under the hero: one
+click copies a short prompt that points at that document and summarises it, ready to paste into
+Claude, Copilot, Cursor or any other assistant. The copied text lives in
+[`src/lib/ui/invite-agent.ts`](src/lib/ui/invite-agent.ts).
+
 ## What the engine guarantees
 
 - **No re-encoding.** Pixels are never touched. Only the bytes of the location change.
