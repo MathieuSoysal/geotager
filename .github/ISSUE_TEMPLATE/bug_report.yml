@@ -1,0 +1,60 @@
+name: Bug report
+description: Something read wrong, wrote wrong, or refused when it should not have
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. One thing before anything else:
+
+        > **Never attach a photo whose location you would mind publishing.** Coordinates in
+        > metadata are the very subject of this tool, and a GitHub attachment is public forever.
+        > Strip the file first, or reproduce with a test photo.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you got, and what you expected instead.
+      placeholder: I loaded a HEIC from an iPhone 13, chose “Remove”, and the produced file still shows a location in …
+    validations:
+      required: true
+  - type: dropdown
+    id: operation
+    attributes:
+      label: Operation
+      options:
+        - Read
+        - Change
+        - Add
+        - Remove
+        - Several / other
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - Website (geotager.app)
+        - Installed app (PWA / share / “Open with”)
+        - CLI (npx geotager)
+        - Library (@geotager/core)
+        - Guides / site content
+    validations:
+      required: true
+  - type: input
+    id: file-details
+    attributes:
+      label: File format and source device
+      description: Byte-level bugs are chased by format and device, not by screenshot.
+      placeholder: HEIC, iPhone 13 · or MP4, GoPro Hero 11 · or PNG, exported from Lightroom
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and OS — or Node version for the CLI and library
+      placeholder: Chrome 138 on Android 16 · or Node 22.16 on Windows 11
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: ExifTool output, console errors, a link to a shareable sample file…

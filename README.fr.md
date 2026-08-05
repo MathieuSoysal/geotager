@@ -5,7 +5,7 @@
 </a>
 
 [![Tests](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml/badge.svg)](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml)
-[![Licence : MIT](https://img.shields.io/badge/licence-MIT-8b87ff)](#licence)
+[![Licence : MIT](https://img.shields.io/badge/licence-MIT-8b87ff)](LICENSE)
 [![PWA : fonctionne hors ligne](https://img.shields.io/badge/PWA-fonctionne%20hors%20ligne-00d3c5)](#linstaller-et-sen-servir-hors-ligne)
 [![Traceurs : aucun](https://img.shields.io/badge/traceurs-aucun-ff3385)](#points-clés)
 
@@ -46,6 +46,7 @@ photo n'entre dans aucune, dans un cas comme dans l'autre.
   - [Intégration continue](#intégration-continue)
   - [Contrôles de build](#contrôles-de-build)
 - [Déploiement](#déploiement)
+- [Contribuer](#contribuer)
 - [Licence](#licence)
 
 </details>
@@ -441,7 +442,20 @@ en production — une décision qui ne vivait auparavant que dans un réglage du
 a un jour mis en ligne du code non relu. Pour qu'il protège quoi que ce soit, **les deux** commandes
 de build du tableau de bord doivent être `npm run deploy`.
 
+## Contribuer
+
+Rapports de bogue, corrections, connaissance des formats, reformulations et traductions sont tous
+bienvenus. Commencez par [`CONTRIBUTING.md`](CONTRIBUTING.md) — il explique les promesses que tout
+changement doit tenir (la plupart sont imposées par la build), comment lancer la chaîne de tests,
+et à quoi ressemble un bon rapport de bogue. En bref&nbsp;: ne joignez jamais une photo dont le
+lieu vous gênerait s'il était publié.
+
+Questions et problèmes vont au
+[suivi des tickets](https://github.com/MathieuSoysal/geotager/issues)&nbsp;; ce que vous croyez
+exploitable passe par le [signalement privé de vulnérabilité](SECURITY.md). Toute personne qui
+interagit avec le projet est tenue de suivre le [code de conduite](CODE_OF_CONDUCT.md).
+
 ## Licence
 
-MIT. Sur un outil qui affirme ne rien envoyer, un code lisible est le seul argument que vous pouvez
-vérifier vous-même.
+[MIT](LICENSE). Sur un outil qui affirme ne rien envoyer, un code lisible est le seul argument que
+vous pouvez vérifier vous-même.

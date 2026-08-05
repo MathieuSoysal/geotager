@@ -5,7 +5,7 @@
 </a>
 
 [![Tests](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml/badge.svg)](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml)
-[![Licence: MIT](https://img.shields.io/badge/licence-MIT-8b87ff)](#licence)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-8b87ff)](LICENSE)
 [![PWA: works offline](https://img.shields.io/badge/PWA-works%20offline-00d3c5)](#installing-it-and-using-it-offline)
 [![Trackers: none](https://img.shields.io/badge/trackers-none-ff3385)](#highlights)
 
@@ -45,6 +45,7 @@ never opens it makes no outside request at all — and your photo is never part 
   - [Continuous integration](#continuous-integration)
   - [Build checks](#build-checks)
 - [Deployment](#deployment)
+- [Contributing](#contributing)
 - [Licence](#licence)
 
 </details>
@@ -423,7 +424,19 @@ production — a decision that used to live only in a dashboard setting, and tha
 code online. For it to protect anything, **both** build commands in the dashboard must be
 `npm run deploy`.
 
+## Contributing
+
+Bug reports, fixes, format knowledge, wording corrections and translations are all welcome. Start
+with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it explains the promises every change must keep (most
+are enforced by the build), how to run the test chain, and what a good bug report looks like. In
+short: never attach a photo whose location you would mind publishing.
+
+Questions and problems go to the [issue tracker](https://github.com/MathieuSoysal/geotager/issues);
+anything you believe is exploitable goes through
+[private vulnerability reporting](SECURITY.md) instead. Everyone interacting with the project is
+expected to follow the [code of conduct](CODE_OF_CONDUCT.md).
+
 ## Licence
 
-MIT. On a tool that claims to send nothing anywhere, readable code is the only argument you can
-check for yourself.
+[MIT](LICENSE). On a tool that claims to send nothing anywhere, readable code is the only argument
+you can check for yourself.
