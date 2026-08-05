@@ -1,6 +1,6 @@
 {
   "name": "geotager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Read, write and remove EXIF GPS geotags from the command line: photo and video location metadata for JPEG, HEIC, PNG, WebP, TIFF, MP4. Nothing is uploaded.",
   "license": "MIT",
@@ -53,7 +53,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@geotager/core": "^1.0.0"
+    "@geotager/core": "^1.0.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

@@ -1,6 +1,6 @@
 {
   "name": "@geotager/core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Read, write and remove EXIF GPS geotags: photo and video location metadata for JPEG, HEIC, AVIF, PNG, WebP, TIFF and MP4. Lossless, Node and browser.",
   "license": "MIT",

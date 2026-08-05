@@ -20,7 +20,10 @@
  * survive a pipe badly and make help unpleasant for a machine to read.
  */
 
-export const VERSION = '1.0.0';
+// Kept in step with `packages/cli/package.json` by a test: `--version` is the
+// number a user reports in a bug, and a stale constant makes them report the
+// wrong one.
+export const VERSION = '1.0.1';
 
 const ENTETE = `geotager ${VERSION} — read, write and remove GPS location in photos and videos.
 

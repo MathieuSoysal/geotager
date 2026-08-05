@@ -105,6 +105,19 @@ function principal(): void {
     }
 
     check('--version rend le seul numéro', /^\d+\.\d+\.\d+\n$/.test(lancer(['--version']).stdout));
+
+    // `--version` lit une constante écrite à la main dans `aide.ts` : rien ne
+    // la relie au manifeste, et la publication v1.0.1 est partie avec des
+    // manifestes en 1.0.0. Le numéro annoncé par la commande est celui qu'un
+    // utilisateur recopie dans un rapport de bogue ; s'il ment, le rapport
+    // porte sur une version qui n'est pas celle qui tourne.
+    const manifeste = (p: string): string =>
+      JSON.parse(readFileSync(p, 'utf8')).version;
+    const annonce = lancer(['--version']).stdout.trim();
+    const cli = manifeste('packages/cli/package.json');
+    const core = manifeste('packages/core/package.json');
+    check('--version dit le numéro du manifeste', annonce === cli, `${annonce} ≠ ${cli}`);
+    check('les deux paquets portent le même numéro', cli === core, `${cli} ≠ ${core}`);
   }
 
   // read
