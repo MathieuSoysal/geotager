@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/MathieuSoysal/geotager/security/advisories/new
+    about: Please report anything exploitable privately, never as a public issue.
+  - name: How-to questions
+    url: https://geotager.app/guides/
+    about: The written guides cover checking, changing and removing a photo's location.
