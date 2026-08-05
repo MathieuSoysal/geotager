@@ -265,6 +265,12 @@ export const fr: Dictionnaire = {
     },
   ],
 
+  agents: {
+    bouton: 'Formez votre agent à Geotager',
+    copie: 'Instructions copiées',
+    echec: 'La copie a échoué — le texte est sur geotager.app/agent-setup/prompt.md',
+  },
+
   pied: 'Geotager — outil gratuit, sans compte et sans traceur. Code source sous licence MIT :',
 
   introuvable: {

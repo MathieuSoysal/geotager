@@ -252,6 +252,22 @@ export interface Dictionnaire {
 
   pitch: Array<{ titre: string; texte: string }>;
 
+  /**
+   * The onboarding button at the top of the article, right under the hero.
+   *
+   * It copies an instruction sheet for an AI agent into the clipboard. Only
+   * the words around the gesture live here: the copied text itself is
+   * addressed to a machine, is deliberately English in both languages, and is
+   * written once in `src/lib/ui/invite-agent.ts`.
+   */
+  agents: {
+    bouton: string;
+    /** Confirmation once the text is in the clipboard. It fades on its own. */
+    copie: string;
+    /** The clipboard refused. Says where the text lives, and stays on screen. */
+    echec: string;
+  };
+
   pied: string;
 
   /**

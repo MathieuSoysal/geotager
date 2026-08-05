@@ -265,6 +265,12 @@ export const en: Dictionnaire = {
     },
   ],
 
+  agents: {
+    bouton: 'Onboard your agent to Geotager',
+    copie: 'Setup prompt copied',
+    echec: 'Copying failed — the text lives at geotager.app/agent-setup/prompt.md',
+  },
+
   pied: 'Geotager — free, no account, no trackers. Source code under the MIT licence:',
 
   introuvable: {

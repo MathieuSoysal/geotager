@@ -176,6 +176,11 @@ personne.
 couvre les voies terminal, bibliothèque et lien ci-dessus, écrit pour qu'un modèle puisse agir
 directement dessus.
 
+La page d'accueil porte un bouton **«&nbsp;Formez votre agent à Geotager&nbsp;»**, juste sous le
+héros&nbsp;: un clic copie une consigne d'une phrase qui envoie l'assistant chercher ce document,
+prête à coller dans Claude, Codex, Cursor ou tout autre agent. Le texte copié vit dans
+[`src/lib/ui/invite-agent.ts`](src/lib/ui/invite-agent.ts).
+
 ## Ce que le moteur garantit
 
 - **Aucun réencodage.** Les pixels ne sont jamais touchés. Seuls les octets de la position changent.

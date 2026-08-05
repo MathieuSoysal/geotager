@@ -14,6 +14,7 @@ import type { Carte } from './carte.ts';
 import type { FromWorker, LatLon, PhotoRead, ToWorker, WriteResult } from '@geotager/core/types';
 import { dicoDuDocument, type CodeErreur } from '../i18n/index.ts';
 import { typeDeclare } from '@geotager/core/capabilities';
+import { INVITE_AGENT } from './invite-agent.ts';
 
 // The words for this page. The document's `lang` attribute was written at
 // build time: we do not guess the language, we read it.
@@ -103,6 +104,8 @@ const el = {
   coordsAideFort: $('coords-aide-fort'),
   carteAvis: $('carte-avis'),
   annonce: $('annonce'),
+  copierInvite: $<HTMLButtonElement>('copier-invite'),
+  inviteCopiee: $('invite-copiee'),
 };
 
 interface Item {
@@ -1448,4 +1451,34 @@ document.addEventListener('paste', (e) => {
     e.preventDefault();
     void charger(files);
   }
+});
+
+// Onboarding an agent.
+
+/*
+ * The button below the fold copies `INVITE_AGENT` — see `invite-agent.ts` for
+ * what the text owes and to whom. Nothing is fetched: the page already carries
+ * what the click hands over, so the copy works offline and the network tab
+ * stays as empty as the article above promises.
+ *
+ * The confirmation is written into `#invite-copiee`, a `role="status"` region
+ * served empty: writing into it is the announcement, on screen and in a screen
+ * reader at once, and erasing it is what lets the next copy announce again. A
+ * refusal, on the other hand, stays: it names where the text lives, and a
+ * sentence that vanishes before it is read helps nobody.
+ */
+let minuterieInvite: ReturnType<typeof setTimeout> | undefined;
+el.copierInvite.addEventListener('click', () => {
+  clearTimeout(minuterieInvite);
+  navigator.clipboard.writeText(INVITE_AGENT).then(
+    () => {
+      el.inviteCopiee.textContent = T.agents.copie;
+      minuterieInvite = setTimeout(() => {
+        el.inviteCopiee.textContent = '';
+      }, 2600);
+    },
+    () => {
+      el.inviteCopiee.textContent = T.agents.echec;
+    },
+  );
 });
