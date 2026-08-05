@@ -177,8 +177,8 @@ couvre les voies terminal, bibliothèque et lien ci-dessus, écrit pour qu'un mo
 directement dessus.
 
 La page d'accueil porte un bouton **«&nbsp;Formez votre agent à Geotager&nbsp;»**, juste sous le
-héros&nbsp;: un clic copie une consigne courte qui désigne ce document et le résume, prête à coller
-dans Claude, Copilot, Cursor ou tout autre assistant. Le texte copié vit dans
+héros&nbsp;: un clic copie une consigne d'une phrase qui envoie l'assistant chercher ce document,
+prête à coller dans Claude, Codex, Cursor ou tout autre agent. Le texte copié vit dans
 [`src/lib/ui/invite-agent.ts`](src/lib/ui/invite-agent.ts).
 
 ## Ce que le moteur garantit
