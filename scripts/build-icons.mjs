@@ -71,6 +71,35 @@ function pageOg(titre, sous) {
 <p>${sous}</p>`;
 }
 
+/**
+ * The repository banner: the marker, the name, the site's sentence, and the
+ * promise in one line. Same palette and same gradients as the share image, so
+ * the README and a shared link look like the same object.
+ */
+function pageBanniere(phrase, promesse) {
+  return `<!doctype html><meta charset="utf-8">
+<style>
+  html,body{margin:0;padding:0}
+  body{width:1760px;height:440px;background:${FOND};
+       background-image:
+         radial-gradient(1100px 900px at 4% -32%, rgba(255,51,133,.42), transparent 62%),
+         radial-gradient(1000px 850px at 97% -8%, rgba(139,135,255,.36), transparent 64%),
+         radial-gradient(950px 800px at 48% 132%, rgba(0,211,197,.26), transparent 62%);
+       display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+       box-sizing:border-box;
+       font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+       color:#f4f1f5}
+  .marque{display:flex;align-items:center;gap:24px;font-size:92px;font-weight:800;
+          letter-spacing:-.035em}
+  .marque svg{width:104px;height:104px}
+  p{margin:0;font-size:33px;color:#ded9e2;max-width:1600px;text-align:center}
+  .promesse{font-size:24px;color:#a89fb2;letter-spacing:.02em}
+</style>
+<div class="marque"><svg viewBox="0 0 40 40">${REPERE}</svg>Geotager</div>
+<p>${phrase}</p>
+<p class="promesse">${promesse}</p>`;
+}
+
 const CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const navigateur = await chromium.launch(existsSync(CHROME) ? { executablePath: CHROME } : {});
 
@@ -114,5 +143,25 @@ await png(
   1200, 630, 'public/og.png',
 );
 
+/*
+ * The README banners live in `.github/` rather than `public/`: GitHub reads
+ * them, the site never serves them. One per language, like the READMEs they
+ * head.
+ */
+await png(
+  pageBanniere(
+    'View, change and remove the GPS location of a photo — entirely in the browser.',
+    'No server · No account · No ads · No trackers',
+  ),
+  1760, 440, '.github/banner.png',
+);
+await png(
+  pageBanniere(
+    'Voir, modifier et supprimer la position GPS d’une photo — entièrement dans le navigateur.',
+    'Aucun serveur · Aucun compte · Aucune publicité · Aucun traceur',
+  ),
+  1760, 440, '.github/banner.fr.png',
+);
+
 await navigateur.close();
-console.log('\nIcônes et image de partage prêtes.');
+console.log('\nIcônes, image de partage et bannières prêtes.');

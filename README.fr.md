@@ -1,6 +1,17 @@
-# Geotager
+<div align="center">
 
-*[English version](README.md)*
+<a href="https://geotager.app/fr/">
+  <img src=".github/banner.fr.png" alt="Geotager — voir, modifier et supprimer la position GPS d'une photo, entièrement dans le navigateur" width="100%">
+</a>
+
+[![Tests](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml/badge.svg)](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml)
+[![Licence : MIT](https://img.shields.io/badge/licence-MIT-8b87ff)](#licence)
+[![PWA : fonctionne hors ligne](https://img.shields.io/badge/PWA-fonctionne%20hors%20ligne-00d3c5)](#linstaller-et-sen-servir-hors-ligne)
+[![Traceurs : aucun](https://img.shields.io/badge/traceurs-aucun-ff3385)](#points-clés)
+
+**[geotager.app](https://geotager.app/fr/)** · [Guides](https://geotager.app/fr/guides/) · [CLI](#depuis-un-terminal) · [Bibliothèque](#depuis-votre-propre-code) · *[English version](README.md)*
+
+</div>
 
 Voir, modifier et supprimer la position GPS d'une photo, **entièrement dans le navigateur**.
 
@@ -12,13 +23,74 @@ carte&nbsp;», qui demande ses images à `tile.openstreetmap.org`. Elle reste re
 clique pas dessus&nbsp;: une visite qui ne l'ouvre jamais n'émet aucune requête sortante — et votre
 photo n'entre dans aucune, dans un cas comme dans l'autre.
 
-## État
+<details>
+<summary><b>Sommaire</b></summary>
 
-**V1.7 — les quatre opérations sur tous les formats, vidéos comprises.** Lire, corriger, ajouter
-et effacer un lieu sur JPEG, HEIC, AVIF, PNG, WebP, TIFF, MOV et MP4. Ajouter n'agrandit rien sur place&nbsp;: sur une
-photo d'iPhone, le nouveau bloc est ajouté en fin de fichier et une seule adresse est repointée,
-si bien qu'aucun octet existant ne bouge. Corriger et effacer ne déplacent pas un octet du tout&nbsp;:
-le fichier produit a exactement la taille de l'original.
+- [Points clés](#points-clés)
+- [Formats pris en charge](#formats-pris-en-charge)
+- [Démarrage rapide](#démarrage-rapide)
+  - [Dans le navigateur](#dans-le-navigateur)
+  - [Depuis un terminal](#depuis-un-terminal)
+  - [Depuis votre propre code](#depuis-votre-propre-code)
+  - [Depuis un lien](#depuis-un-lien)
+  - [Pour les agents](#pour-les-agents)
+- [Ce que le moteur garantit](#ce-que-le-moteur-garantit)
+- [Le site](#le-site)
+  - [Les langues](#les-langues)
+  - [Les guides](#les-guides)
+  - [L'installer, et s'en servir hors ligne](#linstaller-et-sen-servir-hors-ligne)
+  - [Lui envoyer une photo depuis le système](#lui-envoyer-une-photo-depuis-le-système)
+- [Développement](#développement)
+  - [Tests](#tests)
+  - [Publier une version](#publier-une-version)
+  - [Intégration continue](#intégration-continue)
+  - [Contrôles de build](#contrôles-de-build)
+- [Déploiement](#déploiement)
+- [Licence](#licence)
+
+</details>
+
+## Points clés
+
+- 🔒 **Privé par architecture, pas par promesse.** Des fichiers statiques et un Web Worker&nbsp;;
+  votre photo ne quitte jamais votre machine, et un contrôle de build fait échouer le déploiement
+  si une page charge un jour une ressource tierce.
+- 🧬 **Aucun réencodage, jamais.** Les pixels ne sont jamais touchés. Corriger ou effacer un lieu
+  rend un fichier de **taille strictement identique**&nbsp;; en ajouter un ajoute un bloc sans
+  déplacer un seul octet existant.
+- 🔎 **Preuve à l'octet près.** Le moteur annonce les plages qu'il écrit, le fichier produit est
+  comparé à l'original partout ailleurs, et un second moteur indépendant relit le résultat.
+- 🎞️ **Les vidéos aussi.** MOV et MP4 rangent leur lieu à plusieurs endroits à la fois&nbsp;; tous
+  sont lus, réécrits et effacés ensemble, si bien que le fichier ne se contredit jamais.
+- 📦 **Un moteur, trois portes.** Le [site](https://geotager.app/fr/), la
+  [ligne de commande `geotager`](#depuis-un-terminal) et la
+  [bibliothèque `@geotager/core`](#depuis-votre-propre-code) font passer les mêmes octets par la
+  même vérification — il n'existe pas de version allégée.
+- 📲 **Installable, et entièrement hors ligne.** Un service worker écrit à la main garde l'outil en
+  état de marche sans le moindre réseau, sans jamais mettre une tuile de carte en cache.
+
+## Formats pris en charge
+
+**V1.7 — les quatre opérations sur tous les formats, vidéos comprises.**
+
+| Format | Lire | Corriger | Ajouter | Effacer |
+|---|---|---|---|---|
+| JPEG | oui | oui | oui | oui |
+| HEIC, AVIF *(iPhone)* | oui | oui | oui | oui |
+| PNG | oui | oui | oui | oui |
+| WebP *(forme étendue)* | oui | oui | oui | oui |
+| TIFF *(hors fichiers bruts)* | oui | oui | oui | oui |
+| Vidéos (MOV, MP4) | oui | oui | oui | oui |
+
+*« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont
+deux opérations différentes&nbsp;: la première ne change pas la taille du fichier, la seconde si.
+Le tableau de la page d'accueil est rendu depuis `packages/core/src/capacites.ts`, que le moteur lit
+aussi&nbsp;; il ne peut donc pas dériver de ce que le code sait faire.*
+
+Ajouter n'agrandit rien sur place&nbsp;: sur une photo d'iPhone, le nouveau bloc est ajouté en fin
+de fichier et une seule adresse est repointée, si bien qu'aucun octet existant ne bouge. Corriger et
+effacer ne déplacent pas un octet du tout&nbsp;: le fichier produit a exactement la taille de
+l'original.
 
 Deux limites, dites *avant* l'action et non après&nbsp;: un WebP de forme simple n'a aucun
 emplacement prévu pour un lieu, et **un négatif numérique — DNG, NEF, CR2 — n'accepte pas qu'on lui
@@ -39,28 +111,76 @@ ajouté, ni effacé, et cela vous est dit avant que vous n'agissiez, pas après.
 visible en laissant survivre une trace seconde par seconde serait le pire que cet outil puisse
 faire.
 
-| Format | Lire | Corriger | Ajouter | Effacer |
-|---|---|---|---|---|
-| JPEG | oui | oui | oui | oui |
-| HEIC, AVIF *(iPhone)* | oui | oui | oui | oui |
-| PNG | oui | oui | oui | oui |
-| WebP *(forme étendue)* | oui | oui | oui | oui |
-| TIFF *(hors fichiers bruts)* | oui | oui | oui | oui |
-| Vidéos (MOV, MP4) | oui | oui | oui | oui |
+## Démarrage rapide
 
-*« Corriger » remplace un lieu déjà présent, « ajouter » en crée un là où il n'y en a pas. Ce sont
-deux opérations différentes&nbsp;: la première ne change pas la taille du fichier, la seconde si.
-Le tableau de la page d'accueil est rendu depuis `packages/core/src/capacites.ts`, que le moteur lit
-aussi&nbsp;; il ne peut donc pas dériver de ce que le code sait faire.*
+Le moteur est un paquet autonome. Le site, la ligne de commande et ce que vous construirez font
+passer les mêmes octets par la même vérification.
+
+### Dans le navigateur
+
+Ouvrez **[geotager.app](https://geotager.app/fr/)** — rien à installer, aucun compte à créer.
+Chargez une photo, lisez son lieu, corrigez-le ou effacez-le, puis enregistrez le résultat. Votre
+photo ne quitte jamais la page.
+
+### Depuis un terminal
+
+```bash
+npx geotager read photo.jpg                              # affiche du JSON
+npx geotager set photo.jpg --lat 48.8584 --lng 2.2945    # écrit photo-geotagged.jpg
+npx geotager strip '*.heic' --out ./clean                # en lot, originaux intacts
+```
+
+Les originaux ne sont jamais écrasés sans `--in-place`. Les motifs sont développés par l'outil
+lui-même, donc ils se comportent pareil sous Windows et dans un `spawn()` sans shell. Les codes de
+sortie sont `0` réussite, `1` des fichiers ont échoué et sont restés intacts, `2` faute d'usage,
+`3` aucun fichier trouvé. `npx geotager --help` documente le reste.
+
+### Depuis votre propre code
+
+```bash
+npm install @geotager/core
+```
+
+```js
+import { readGps, setGps, stripGps } from '@geotager/core';
+
+readGps(bytes);                                     // { lat, lng, alt? } | null
+await setGps(bytes, { lat: 48.8584, lng: 2.2945 }); // de nouveaux octets
+await stripGps(bytes);                              // de nouveaux octets
+```
+
+Des octets entrent, des octets sortent — aucun DOM, aucun système de fichiers, aucun réseau. Le
+paquet tourne à l'identique dans Node, dans un navigateur, dans un Web Worker et dans une fonction
+de bord. Les écritures lèvent plutôt que de rendre un fichier qui n'a pas passé la vérification&nbsp;;
+`applyGps` rend le refus au lieu de le lever, pour les lots.
+
+### Depuis un lien
+
+`?lat=&lng=&zoom=` pré-remplit le champ de coordonnées et centre la carte&nbsp;:
+
+```
+https://geotager.app/?lat=48.8584&lng=2.2945&zoom=16
+```
+
+Le lien remplit un champ de saisie et rien d'autre — aucun fichier n'est chargé, rien n'est écrit,
+et la carte reste fermée tant que personne ne l'ouvre. `lat` et `lng` doivent être présents et dans
+les bornes, sinon tout est ignoré en silence&nbsp;: ces adresses sont fabriquées par des programmes
+et se font tronquer par les messageries, et un bandeau d'erreur accuserait la mauvaise personne.
+
+### Pour les agents
+
+[`/agent-setup/prompt.md`](public/agent-setup/prompt.md) — servi sur
+<https://geotager.app/agent-setup/prompt.md> — est un document d'instructions prêt à l'emploi qui
+couvre les trois voies ci-dessus, écrit pour qu'un modèle puisse agir directement dessus.
 
 ## Ce que le moteur garantit
 
 - **Aucun réencodage.** Les pixels ne sont jamais touchés. Seuls les octets de la position changent.
 - **Édition sur place quand c'est possible.** Corriger ou effacer une position produit un fichier de
-  **taille strictement identique** : rien n'est déplacé, donc MakerNote, vignette, profil
+  **taille strictement identique**&nbsp;: rien n'est déplacé, donc MakerNote, vignette, profil
   colorimétrique et segments constructeur sont préservés *par construction*.
 - **Création sans réécriture.** Ajouter une position à un fichier qui n'en a pas n'insère rien au
-  milieu du bloc TIFF : un nouvel IFD0 est ajouté à la fin et l'en-tête est repointé dessus. Les
+  milieu du bloc TIFF&nbsp;: un nouvel IFD0 est ajouté à la fin et l'en-tête est repointé dessus. Les
   offsets absolus existants restent valides — c'est précisément ce qu'une réécriture classique casse.
 - **Preuve à l'octet près.** Le moteur annonce les plages qu'il écrit, et le fichier produit est
   comparé à l'original **partout ailleurs**. Une comparaison de tailles ne prouverait rien&nbsp;: un
@@ -73,27 +193,35 @@ aussi&nbsp;; il ne peut donc pas dériver de ce que le code sait faire.*
   relit le fichier entier, sous réserve qu'il ait su ouvrir l'original&nbsp;: il ne connaît pas tous
   les formats, et son silence sur un fichier qu'il n'ouvre pas ne prouverait rien. Un écart de plus
   d'un mètre, un résidu après effacement ou un désaccord annulent l'opération et rendent l'original
-  intact. Voir. **Pour une vidéo, ce second moteur
-  n'existe pas dans un navigateur** — aucun des lecteurs que nous pourrions embarquer n'ouvre MOV ni
-  MP4 —, et il est remplacé par deux contrôles à nous&nbsp;: la structure est reparcourue depuis le
-  premier octet et chaque parent doit être exactement rempli par ses enfants, et tous les endroits
-  qui portent le lieu doivent s'accorder sur la même réponse. Le vrai lecteur indépendant passe en
-  intégration continue, sur de vrais fichiers, colonne par colonne. Dit franchement plutôt que
-  laissé à supposer&nbsp;: ce contrôle
-  de remplacement, écrit là où aucun test ne l'atteignait, a passé une version à refuser toutes les
-  vidéos réelles, et ce qui le tient désormais honnête&nbsp;: il s'éprouve dans les deux sens, et le
+  intact. **Pour une vidéo, ce second moteur n'existe pas dans un navigateur** — aucun des lecteurs
+  que nous pourrions embarquer n'ouvre MOV ni MP4 —, et il est remplacé par deux contrôles à
+  nous&nbsp;: la structure est reparcourue depuis le premier octet et chaque parent doit être
+  exactement rempli par ses enfants, et tous les endroits qui portent le lieu doivent s'accorder sur
+  la même réponse. Le vrai lecteur indépendant passe en intégration continue, sur de vrais fichiers,
+  colonne par colonne. Dit franchement plutôt que laissé à supposer&nbsp;: ce contrôle de
+  remplacement, écrit là où aucun test ne l'atteignait, a passé une version à refuser toutes les
+  vidéos réelles. Ce qui le tient désormais honnête&nbsp;: il s'éprouve dans les deux sens, et le
   parcours navigateur va jusqu'au fichier produit au lieu de s'arrêter à l'état des boutons.
 - **Aucune copie oubliée.** Une image peut ranger le lieu une seconde fois dans un paquet de texte
   descriptif. Il est purgé — le lieu seul, pas le titre ni l'auteur —, puis **re-balayé**&nbsp;: s'il
   en subsiste la moindre trace, ou si le paquet est compressé et donc illisible pour ce moteur,
   l'effacement échoue plutôt que de rendre un fichier qu'on croirait propre.
 
-## Les guides
+## Le site
+
+### Les langues
+
+L'anglais est servi à `/`, le français à `/fr/`. Les deux pages sont rendues depuis les mêmes
+composants et la même matrice de capacités&nbsp;; seuls les mots changent, et ils vivent dans
+`src/lib/i18n/`. Le moteur ne rend jamais une phrase — il rend une clé —, si bien qu'une traduction
+manquante est une erreur de compilation, pas une phrase française sur une page anglaise.
+
+### Les guides
 
 En plus de l'outil, le site publie six guides écrits dans chaque langue&nbsp;: modifier la
 géolocalisation d'une photo, la vérifier, la supprimer, en ajouter une, faire tout cela sur un
 iPhone, et ce que les réseaux sociaux et les messageries en font réellement. Ils vivent sous
-`/guides/` et `/fr/guides/`.
+[`/guides/`](https://geotager.app/guides/) et [`/fr/guides/`](https://geotager.app/fr/guides/).
 
 Leur structure est **dérivée**, jamais écrite deux fois. `src/lib/guides/` porte une fiche typée par
 langue — le segment d'adresse, le titre, la description, le résumé d'une ligne — et tout le reste
@@ -119,7 +247,7 @@ aucune balise de script ne subsiste, et aucun module n'est demandé au réseau. 
 scripts hissés en un seul paquet&nbsp;: importer la décoration de la page y amènerait tout l'outil,
 sur une page qui n'en a pas.
 
-## L'installer, et s'en servir hors ligne
+### L'installer, et s'en servir hors ligne
 
 Geotager s'installe, et fonctionne sans le moindre réseau — ce qui est bien le sujet&nbsp;: l'outil
 tournait déjà entièrement sur votre appareil, et la seule raison pour laquelle il cessait de marcher
@@ -133,9 +261,10 @@ où l'installation n'existe pas&nbsp;; le menu du navigateur y reste le chemin. 
 vous refermez la boîte&nbsp;: ce site ne persiste rien, et le navigateur décide déjà lui-même de la
 fréquence à laquelle il repropose.
 
-L'outil ne se contente d'ailleurs pas de déduire&nbsp;: le manifeste se désigne lui-même, dans les
-deux langues, ce qui permet de DEMANDER au navigateur si l'application est déjà installée — le seul
-cas où déduire de l'absence d'invitation pouvait se tromper.
+L'application *demande* d'ailleurs plutôt que de déduire&nbsp;: le manifeste liste ses deux propres
+adresses sous `related_applications`, si bien que `getInstalledRelatedApps()` peut confirmer
+l'installation même depuis un onglet ordinaire — le seul cas où déduire de l'absence d'invitation
+pouvait se tromper.
 
 Un service worker écrit à la main (`scripts/sw-modele.js`, ~120 lignes, sans Workbox) précharge les
 deux pages, la feuille de style, l'interface et le worker de lecture. Trois règles le gouvernent&nbsp;:
@@ -188,69 +317,13 @@ geste, jamais un fichier&nbsp;; l'original n'a pas bougé de la galerie.
 Le partage vaut pour Android et Chrome/Edge sur ordinateur&nbsp;; iOS ne l'implémente pas.
 L'ouverture de fichiers vaut pour Chrome/Edge sur ordinateur.
 
-## Se servir du moteur hors du site
-
-Le moteur est un paquet autonome. Le site, la ligne de commande et ce que vous construirez font
-passer les mêmes octets par la même vérification — il n'existe pas de version allégée.
-
-### Depuis un terminal
-
-```bash
-npx geotager read photo.jpg                              # affiche du JSON
-npx geotager set photo.jpg --lat 48.8584 --lng 2.2945    # écrit photo-geotagged.jpg
-npx geotager strip '*.heic' --out ./clean                # en lot, originaux intacts
-```
-
-Les originaux ne sont jamais écrasés sans `--in-place`. Les motifs sont développés par l'outil
-lui-même, donc ils se comportent pareil sous Windows et dans un `spawn()` sans shell. Les codes de
-sortie sont `0` réussite, `1` des fichiers ont échoué et sont restés intacts, `2` faute d'usage,
-`3` aucun fichier trouvé. `npx geotager --help` documente le reste.
-
-### Depuis votre propre code
-
-```bash
-npm install @geotager/core
-```
-
-```js
-import { readGps, setGps, stripGps } from '@geotager/core';
-
-readGps(bytes);                                     // { lat, lng, alt? } | null
-await setGps(bytes, { lat: 48.8584, lng: 2.2945 }); // de nouveaux octets
-await stripGps(bytes);                              // de nouveaux octets
-```
-
-Des octets entrent, des octets sortent — aucun DOM, aucun système de fichiers, aucun réseau. Le
-paquet tourne à l'identique dans Node, dans un navigateur, dans un Web Worker et dans une fonction
-de bord. Les écritures lèvent plutôt que de rendre un fichier qui n'a pas passé la vérification ;
-`applyGps` rend le refus au lieu de le lever, pour les lots.
-
-### Depuis un lien
-
-`?lat=&lng=&zoom=` pré-remplit le champ de coordonnées et centre la carte :
-
-```
-https://geotager.app/?lat=48.8584&lng=2.2945&zoom=16
-```
-
-Le lien remplit un champ de saisie et rien d'autre — aucun fichier n'est chargé, rien n'est écrit,
-et la carte reste fermée tant que personne ne l'ouvre. `lat` et `lng` doivent être présents et dans
-les bornes, sinon tout est ignoré en silence : ces adresses sont fabriquées par des programmes et se
-font tronquer par les messageries, et un bandeau d'erreur accuserait la mauvaise personne.
-
-### Pour les agents
-
-[`/agent-setup/prompt.md`](public/agent-setup/prompt.md) — servi sur
-<https://geotager.app/agent-setup/prompt.md> — est un document d'instructions prêt à l'emploi qui
-couvre les trois voies ci-dessus, écrit pour qu'un modèle puisse agir directement dessus.
-
 ## Développement
 
 ```bash
 npm install
 npm run dev        # serveur local
 npm run build      # construit dist/, génère sw.js, puis exécute les contrôles bloquants
-npm run icons      # régénère public/icons/ et og.png (committés ; nécessite Playwright)
+npm run icons      # régénère public/icons/, og.png et les bannières du README (committés ; nécessite Playwright)
 ```
 
 `npm run verifier:en-ligne` va chercher le site en ligne et échoue si l'hébergeur y a injecté quoi
@@ -272,33 +345,35 @@ npm run test:all   # la chaîne entière
 ```
 
 `test:api` et `test:cli` existent parce que la frontière du paquet est la seule partie du dépôt
-dont une rupture ne se verrait pas dans le site. `test:cli` lance un VRAI processus plutôt que
-d'importer quoi que ce soit : un code de sortie, la séparation des deux flux et le développement
+dont une rupture ne se verrait pas dans le site. `test:cli` lance un vrai processus plutôt que
+d'importer quoi que ce soit&nbsp;: un code de sortie, la séparation des deux flux et le développement
 des motifs n'existent pas à l'intérieur d'un appel de fonction.
 
 Chaque case du tableau ci-dessus est adossée à un test qui l'exécute réellement sur une vraie photo
-de ce format&nbsp;— y compris les cases à « pas encore », dont le test exige qu'aucun fichier
+de ce format — y compris les cases à «&nbsp;pas encore&nbsp;», dont le test exige qu'aucun fichier
 témoin n'existe. Ce n'est donc plus une discipline mais une propriété&nbsp;: une case ouverte sans
-preuve fait échouer la chaîne. Le tableau de la page d'accueil est rendu depuis la même constante que celle que lit
-le moteur, et le script de corpus fait échouer la chaîne si un fichier requis manque.
+preuve fait échouer la chaîne.
 
 ExifTool est requis pour les tests (`apt install libimage-exiftool-perl`). Il n'est **jamais**
 utilisé par l'application&nbsp;: il sert d'oracle externe, parce qu'un moteur qui se relit lui-même
-ne prouve rien — un encodeur et un décodeur symétriquement faux s'accordent parfaitement.
+ne prouve rien — un encodeur et un décodeur symétriquement faux s'accordent parfaitement. libheif
+(`apt install libheif-examples`, plus ses greffons de décodage) joue le même rôle pour le
+décodage&nbsp;: ExifTool dit ce qu'un fichier *contient*, libheif dit qu'il se *décode* encore.
 
-Le corpus n'est pas committé et n'est pas fabriqué : ce sont de vraies photos d'appareils réels —
-iPhone 11 Pro Max, iPhone 11 Pro, Nokia 8.3, Galaxy S10, Pixel 4a, HTC Desire, Nikon. Un fichier
-généré pour l'occasion valide le code contre lui-même ; seule une photo réellement sortie d'un
-appareil expose les cas qui cassent, et ce corpus-là en expose plusieurs : ordre des octets inversé,
-bloc rangé en fin de fichier, coordonnées à zéro, préambule parasite. Aucun corpus public ne
-fournissant de PNG ni de TIFF géolocalisé, le lieu de départ y est inscrit par ExifTool — une
-implémentation indépendante de la nôtre — dans un vrai fichier d'appareil. Sources et licences dans
-[`CREDITS.md`](CREDITS.md).
+Le corpus n'est pas committé et n'est pas fabriqué&nbsp;: ce sont de vraies photos d'appareils réels
+— iPhone 11 Pro Max, iPhone 11 Pro, Nokia 8.3, Galaxy S10, Pixel 4a, HTC Desire, Nikon — plus
+quatre vrais négatifs numériques (DNG, NEF, CR2, et un Kodak DCS dont le nom de fichier dit `.TIF`).
+Un fichier généré pour l'occasion valide le code contre lui-même&nbsp;; seule une photo réellement
+sortie d'un appareil expose les cas qui cassent, et ce corpus-là en expose plusieurs&nbsp;: ordre
+des octets inversé, bloc rangé en fin de fichier, coordonnées à zéro, préambule parasite. Aucun
+corpus public ne fournissant de PNG ni de TIFF géolocalisé, le lieu de départ y est inscrit par
+ExifTool — une implémentation indépendante de la nôtre — dans un vrai fichier d'appareil. Sources et
+licences dans [`CREDITS.md`](CREDITS.md).
 
 ### Publier une version
 
 `.github/workflows/cd.yml` publie les deux paquets sur npm quand une **publication GitHub
-paraît**. Pas à la fusion : une version npm est immuable, si bien que publier à chaque fusion
+paraît**. Pas à la fusion&nbsp;: une version npm est immuable, si bien que publier à chaque fusion
 échouerait sur toutes celles qui ne changent pas le numéro, et réussirait irrémédiablement sur
 celles qui le changent.
 
@@ -306,14 +381,14 @@ Trois refus tombent avant le premier octet envoyé — l'étiquette doit dire la
 deux manifestes, la dépendance de la ligne de commande doit accepter le cœur qu'on publie, et
 toute la chaîne de tests doit repasser sur le commit étiqueté. Le cœur part ensuite en premier
 — la ligne de commande en dépend —, avec `--provenance`, qui lie publiquement le paquet à ce
-dépôt et à ce commit. Enfin le paquet PUBLIÉ est installé depuis npm et mis à lire une vraie
-photo : c'est le seul contrôle qui attrape un `files` trop étroit ou un `bin` qui a perdu son
+dépôt et à ce commit. Enfin le paquet *publié* est installé depuis npm et mis à lire une vraie
+photo&nbsp;: c'est le seul contrôle qui attrape un `files` trop étroit ou un `bin` qui a perdu son
 droit d'exécution.
 
-Pour publier : porter `version` au même numéro dans les deux `packages/*/package.json`,
+Pour publier&nbsp;: porter `version` au même numéro dans les deux `packages/*/package.json`,
 fusionner, puis publier une release GitHub étiquetée `v<ce numéro>`.
 
-Un secret est nécessaire : `NPM_TOKEN`, un jeton d'automatisation granulaire ayant le droit
+Un secret est nécessaire&nbsp;: `NPM_TOKEN`, un jeton d'automatisation granulaire ayant le droit
 d'écrire sur `@geotager/core` et `geotager`, rangé dans l'environnement `npm`. Y ajouter des
 relecteurs obligatoires si l'on veut une main humaine avant toute publication.
 
@@ -322,41 +397,49 @@ workflow sans rien publier.
 
 ### Intégration continue
 
-`.github/workflows/ci.yml` installe ExifTool et rejoue `npm run test:all` sur chaque proposition de
-modification. Sans cela, la matrice ci-dessus ne serait vérifiée par rien d'automatique : la build
-Cloudflare ne lance que `npm run build`, et son image ne contient pas ExifTool.
+`.github/workflows/ci.yml` installe les oracles externes et rejoue `npm run test:all` sur chaque
+proposition de modification. Sans cela, la matrice ci-dessus ne serait vérifiée par rien
+d'automatique&nbsp;: la build Cloudflare ne lance que `npm run build`, et son image ne contient ni
+ExifTool ni libheif.
 
 ### Contrôles de build
 
 `scripts/check-build.mjs` échoue **en code non nul** — Cloudflare ne lit que cela — si&nbsp;:
 
 - une ressource tierce est chargée depuis un hôte absent de la liste blanche des ressources — qui
-  compte exactement une entrée, les tuiles de la carte, consignée dans `CREDITS.md` ;
+  compte exactement une entrée, les tuiles de la carte, consignée dans `CREDITS.md`&nbsp;;
 - un fichier JavaScript servi contient une URL absolue dont l'hôte n'est sur aucune liste (les
   motifs ci-dessus ne voient que des formes HTML et CSS&nbsp;; une URL construite par concaténation
-  leur échappait) ;
-- un `<title>` dépasse 60 caractères ou une meta description 155 ;
-- une page n'a pas exactement un `<h1>` ;
-- un des blocs de contenu obligatoires manque du HTML servi ;
-- le JavaScript dépasse 150 Ko gzip ;
-- un `X-Robots-Tag` apparaît sous un motif relatif dans `_headers` ;
+  leur échappait)&nbsp;;
+- un `<title>` dépasse 60 caractères ou une meta description 155&nbsp;;
+- une page n'a pas exactement un `<h1>`&nbsp;;
+- un des blocs de contenu obligatoires manque du HTML servi, dans la langue de la page&nbsp;;
+- une page n'annonce pas toutes les langues, elle comprise, plus `x-default`&nbsp;;
+- le tableau d'un README contredit le tableau réellement servi&nbsp;;
+- le JavaScript dépasse 150 Ko gzip&nbsp;;
+- un `X-Robots-Tag` apparaît sous un motif relatif dans `_headers`&nbsp;;
 - l'action `file_handlers` du manifeste ne désigne pas une page servie sans redirection, ou le
-  champ jamais normalisé `launch_type` réapparaît à côté de `launch_handler` ;
+  champ jamais normalisé `launch_type` réapparaît à côté de `launch_handler`&nbsp;;
 - `robots.txt` interdit le parcours, ou annonce un plan du site que la build ne produit pas — ce
-  qui est arrivé une fois, sans que rien ne s'en aperçoive ;
+  qui est arrivé une fois, sans que rien ne s'en aperçoive&nbsp;;
 - le plan du site n'annonce pas exactement les pages indexables, porte un `changefreq` ou un
   `priority` que les moteurs ignorent de toute façon, ou déclare des langues qui contredisent les
-  `hreflang` de la page ;
-- le canonique d'une page ne pointe pas sur elle-même, ou `og:url` le contredit ;
+  `hreflang` de la page&nbsp;;
+- le canonique d'une page ne pointe pas sur elle-même, ou `og:url` le contredit&nbsp;;
 - le JSON-LD d'une page n'est pas du JSON valide, ou cesse de décrire l'application, le site et son
-  éditeur ;
-- une page indexable porte `noindex`, ou la page 404 le perd.
+  éditeur&nbsp;;
+- une page indexable porte `noindex`, ou la page 404 le perd&nbsp;;
+- le garde-fou de déploiement a été retiré du dépôt.
 
 ## Déploiement
 
 Cloudflare Workers avec assets statiques, en intégration Git. `wrangler.jsonc` ne déclare aucun
-champ `main` : il n'y a pas de code Worker, seulement des fichiers servis. `workers_dev` est à
-`false` pour qu'aucun domaine technique indexable ne double le site.
+champ `main`&nbsp;: il n'y a pas de code Worker, seulement des fichiers servis.
+
+`scripts/deploy.mjs` décide, d'après la branche construite, s'il téléverse une version ou promeut
+en production — une décision qui ne vivait auparavant que dans un réglage du tableau de bord, et qui
+a un jour mis en ligne du code non relu. Pour qu'il protège quoi que ce soit, **les deux** commandes
+de build du tableau de bord doivent être `npm run deploy`.
 
 ## Licence
 

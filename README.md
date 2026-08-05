@@ -1,6 +1,17 @@
-# Geotager
+<div align="center">
 
-*[Version française](README.fr.md)*
+<a href="https://geotager.app">
+  <img src=".github/banner.png" alt="Geotager — view, change and remove the GPS location of a photo, entirely in the browser" width="100%">
+</a>
+
+[![Tests](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml/badge.svg)](https://github.com/MathieuSoysal/geotager/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-8b87ff)](#licence)
+[![PWA: works offline](https://img.shields.io/badge/PWA-works%20offline-00d3c5)](#installing-it-and-using-it-offline)
+[![Trackers: none](https://img.shields.io/badge/trackers-none-ff3385)](#highlights)
+
+**[geotager.app](https://geotager.app)** · [Guides](https://geotager.app/guides/) · [CLI](#from-a-terminal) · [Library](#from-your-own-code) · *[Version française](README.fr.md)*
+
+</div>
 
 View, change and remove the GPS location of a photo, **entirely in the browser**.
 
@@ -11,13 +22,72 @@ One thing, and one only, reaches outside: the map behind “Place it on a map”
 pictures from `tile.openstreetmap.org`. It is folded away until you click it, so a session that
 never opens it makes no outside request at all — and your photo is never part of one either way.
 
-## Status
+<details>
+<summary><b>Table of contents</b></summary>
 
-**V1.7 — all four operations on every format, videos included.** Read, change, add and remove a
-location on JPEG, HEIC, AVIF, PNG, WebP, TIFF, MOV and MP4. Adding grows nothing in place: on an iPhone photo, the new
-block is appended at the end of the file and a single address is repointed, so no existing byte
-moves. Changing and removing move no byte at all: the file produced is exactly the size of the
-original.
+- [Highlights](#highlights)
+- [Supported formats](#supported-formats)
+- [Quick start](#quick-start)
+  - [In the browser](#in-the-browser)
+  - [From a terminal](#from-a-terminal)
+  - [From your own code](#from-your-own-code)
+  - [From a link](#from-a-link)
+  - [For AI agents](#for-ai-agents)
+- [What the engine guarantees](#what-the-engine-guarantees)
+- [The website](#the-website)
+  - [Languages](#languages)
+  - [The guides](#the-guides)
+  - [Installing it, and using it offline](#installing-it-and-using-it-offline)
+  - [Sending a photo to it from the system](#sending-a-photo-to-it-from-the-system)
+- [Development](#development)
+  - [Tests](#tests)
+  - [Releasing](#releasing)
+  - [Continuous integration](#continuous-integration)
+  - [Build checks](#build-checks)
+- [Deployment](#deployment)
+- [Licence](#licence)
+
+</details>
+
+## Highlights
+
+- 🔒 **Private by architecture, not by promise.** Static files plus a Web Worker; your photo never
+  leaves your machine, and a build check fails the deployment if any page ever loads a third-party
+  resource.
+- 🧬 **No re-encoding, ever.** Pixels are never touched. Changing or removing a location returns a
+  file of **strictly identical size**; adding one appends a block without moving a single existing
+  byte.
+- 🔎 **Byte-exact proof.** The engine declares the ranges it writes, the produced file is compared
+  to the original everywhere else, and an independent second engine re-reads the result.
+- 🎞️ **Videos too.** MOV and MP4 keep their location in several places at once; all of them are
+  read, rewritten and removed together, so the file never contradicts itself.
+- 📦 **One engine, three doors.** The [website](https://geotager.app), the
+  [`geotager` CLI](#from-a-terminal) and the [`@geotager/core` library](#from-your-own-code) run
+  the same bytes through the same verification — there is no “lite” version.
+- 📲 **Installable, and fully offline.** A hand-written service worker keeps the tool working with
+  no network at all, without ever caching a map tile.
+
+## Supported formats
+
+**V1.7 — all four operations on every format, videos included.**
+
+| Format | Read | Change | Add | Remove |
+|---|---|---|---|---|
+| JPEG | yes | yes | yes | yes |
+| HEIC, AVIF *(iPhone)* | yes | yes | yes | yes |
+| PNG | yes | yes | yes | yes |
+| WebP *(extended form)* | yes | yes | yes | yes |
+| TIFF *(excluding camera raw)* | yes | yes | yes | yes |
+| Videos (MOV, MP4) | yes | yes | yes | yes |
+
+*“Change” replaces a location that is already there, “add” creates one where there is none. They are
+two different operations: the first does not change the file size, the second does. The table on
+each page is rendered from `packages/core/src/capacites.ts`, which the engine reads too, so it cannot
+drift from what the code can actually do.*
+
+Adding grows nothing in place: on an iPhone photo, the new block is appended at the end of the file
+and a single address is repointed, so no existing byte moves. Changing and removing move no byte at
+all: the file produced is exactly the size of the original.
 
 Two limits, announced *before* you act rather than after: a simple-form WebP has nowhere to put a
 location, and **a camera raw file — DNG, NEF, CR2 — will not accept having one added**, because a
@@ -37,19 +107,66 @@ the location can be *shown* but not changed, added or removed, and you are told 
 anything, not after. Changing the visible location while a second-by-second trail survives would be
 the worst thing this tool could do.
 
-| Format | Read | Change | Add | Remove |
-|---|---|---|---|---|
-| JPEG | yes | yes | yes | yes |
-| HEIC, AVIF *(iPhone)* | yes | yes | yes | yes |
-| PNG | yes | yes | yes | yes |
-| WebP *(extended form)* | yes | yes | yes | yes |
-| TIFF *(excluding camera raw)* | yes | yes | yes | yes |
-| Videos (MOV, MP4) | yes | yes | yes | yes |
+## Quick start
 
-*“Change” replaces a location that is already there, “add” creates one where there is none. They are
-two different operations: the first does not change the file size, the second does. The table on
-each page is rendered from `packages/core/src/capacites.ts`, which the engine reads too, so it cannot
-drift from what the code can actually do.*
+The engine is a standalone package. The website, the command line and anything you build all run
+the same bytes through the same verification.
+
+### In the browser
+
+Open **[geotager.app](https://geotager.app)** — nothing to install, nothing to create an account
+for. Load a photo, read its location, change it or remove it, and save the result. Your photo
+never leaves the page.
+
+### From a terminal
+
+```bash
+npx geotager read photo.jpg                              # prints JSON
+npx geotager set photo.jpg --lat 48.8584 --lng 2.2945    # writes photo-geotagged.jpg
+npx geotager strip '*.heic' --out ./clean                # batch, originals untouched
+```
+
+Originals are never overwritten unless you pass `--in-place`. Globs are expanded by the tool
+itself, so they behave the same on Windows and inside a `spawn()` with no shell. Exit codes are
+`0` success, `1` some files failed and were left untouched, `2` usage error, `3` nothing matched.
+`npx geotager --help` documents the rest.
+
+### From your own code
+
+```bash
+npm install @geotager/core
+```
+
+```js
+import { readGps, setGps, stripGps } from '@geotager/core';
+
+readGps(bytes);                                     // { lat, lng, alt? } | null
+await setGps(bytes, { lat: 48.8584, lng: 2.2945 }); // new bytes
+await stripGps(bytes);                              // new bytes
+```
+
+Bytes in, bytes out — no DOM, no filesystem, no network. It runs unchanged in Node, in a browser,
+in a Web Worker and in an edge function. Writes throw rather than return a file that failed
+verification; `applyGps` returns the refusal as a value instead, for batches.
+
+### From a link
+
+`?lat=&lng=&zoom=` pre-fills the coordinate field and centres the map:
+
+```
+https://geotager.app/?lat=48.8584&lng=2.2945&zoom=16
+```
+
+It fills a text field and nothing else — no file is loaded, nothing is written, and the map stays
+closed until asked for. Both `lat` and `lng` must be present and in range, or the whole thing is
+ignored in silence: these links are built by programs and get truncated by messaging apps, and an
+error banner would accuse the wrong person.
+
+### For AI agents
+
+[`/agent-setup/prompt.md`](public/agent-setup/prompt.md) — served at
+<https://geotager.app/agent-setup/prompt.md> — is a ready-to-use instruction document covering all
+three paths above, written so a model can act on it directly.
 
 ## What the engine guarantees
 
@@ -70,32 +187,35 @@ drift from what the code can actually do.*
   byte-order defect lives, the one a self-recheck cannot see. Then it reads the whole file, provided
   it could open the original: it does not know every format, and its silence about a file it cannot
   open would prove nothing. A gap of more than a metre, a residue after removal, or a disagreement
-  cancels the operation and hands the original back intact. See. **For a video that second engine does not exist in a browser** — none of the readers
+  cancels the operation and hands the original back intact.
+  **For a video that second engine does not exist in a browser** — none of the readers
   we could ship opens MOV or MP4 — so it is replaced by two checks of our own: the structure is
   walked again from the first byte and every parent must be exactly filled by its children, and all
   the places that carry the location must agree on the same answer. The genuine independent oracle
   runs in continuous integration, on real files, column by column. Said plainly rather than left to
-  be assumed: that replacement check, written
-  where no test could reach it, spent a release refusing every real video, and what now keeps it
-  honest: it is exercised in both directions, and the browser journey clicks through to the produced
-  file instead of stopping at the state of the buttons.
+  be assumed: that replacement check, written where no test could reach it, spent a release refusing
+  every real video. What now keeps it honest: it is exercised in both directions, and the browser
+  journey clicks through to the produced file instead of stopping at the state of the buttons.
 - **No forgotten copy.** An image can keep the location a second time in a descriptive text packet.
   It is purged — the location only, not the title or the author — then **swept again**: if any trace
   survives, or if the packet is compressed and therefore unreadable to this engine, the removal
   fails rather than hand back a file you would believe was clean.
 
-## Languages
+## The website
+
+### Languages
 
 English is served at `/`, French at `/fr/`. Both pages are rendered from the same components and the
 same capability matrix; only the words differ, and they live in `src/lib/i18n/`. The engine never
 returns a sentence — it returns a key — so a missing translation is a compile error, not a French
 sentence on an English page.
 
-## The guides
+### The guides
 
 Beyond the tool, the site publishes six written guides in each language — changing a photo's
 location, checking it, removing it, adding one, doing all of that on an iPhone, and what social
-networks and messaging apps actually do with it. They live at `/guides/` and `/fr/guides/`.
+networks and messaging apps actually do with it. They live at
+[`/guides/`](https://geotager.app/guides/) and [`/fr/guides/`](https://geotager.app/fr/guides/).
 
 Their structure is derived, never written twice. `src/lib/guides/` holds one typed record per
 language — the URL segment, the title, the description, the one-line summary — and everything else
@@ -118,7 +238,7 @@ Guides ship **no JavaScript at all** — the end-to-end test asserts both that n
 and that no module is fetched. Astro bundles hoisted scripts together, so importing the page
 decoration would drag the whole tool along with it, onto a page that has no tool.
 
-## Installing it, and using it offline
+### Installing it, and using it offline
 
 Geotager is installable, and it works with no network at all — which is the point: the tool already
 ran entirely on your device, and the only reason it used to stop working offline is that nothing
@@ -185,68 +305,13 @@ from the gallery.
 Share target is Android and desktop Chrome/Edge; iOS does not implement it. File handling is
 desktop Chrome/Edge.
 
-## Using the engine outside the website
-
-The engine is a standalone package. The website, the command line and anything you build all run
-the same bytes through the same verification — there is no "lite" version.
-
-### From a terminal
-
-```bash
-npx geotager read photo.jpg                              # prints JSON
-npx geotager set photo.jpg --lat 48.8584 --lng 2.2945    # writes photo-geotagged.jpg
-npx geotager strip '*.heic' --out ./clean                # batch, originals untouched
-```
-
-Originals are never overwritten unless you pass `--in-place`. Globs are expanded by the tool
-itself, so they behave the same on Windows and inside a `spawn()` with no shell. Exit codes are
-`0` success, `1` some files failed and were left untouched, `2` usage error, `3` nothing matched.
-`npx geotager --help` documents the rest.
-
-### From your own code
-
-```bash
-npm install @geotager/core
-```
-
-```js
-import { readGps, setGps, stripGps } from '@geotager/core';
-
-readGps(bytes);                                    // { lat, lng, alt? } | null
-await setGps(bytes, { lat: 48.8584, lng: 2.2945 }); // new bytes
-await stripGps(bytes);                              // new bytes
-```
-
-Bytes in, bytes out — no DOM, no filesystem, no network. It runs unchanged in Node, in a browser,
-in a Web Worker and in an edge function. Writes throw rather than return a file that failed
-verification; `applyGps` returns the refusal as a value instead, for batches.
-
-### From a link
-
-`?lat=&lng=&zoom=` pre-fills the coordinate field and centres the map:
-
-```
-https://geotager.app/?lat=48.8584&lng=2.2945&zoom=16
-```
-
-It fills a text field and nothing else — no file is loaded, nothing is written, and the map stays
-closed until asked for. Both `lat` and `lng` must be present and in range, or the whole thing is
-ignored in silence: these links are built by programs and get truncated by messaging apps, and an
-error banner would accuse the wrong person.
-
-### For AI agents
-
-[`/agent-setup/prompt.md`](public/agent-setup/prompt.md) — served at
-<https://geotager.app/agent-setup/prompt.md> — is a ready-to-use instruction document covering all
-three paths above, written so a model can act on it directly.
-
 ## Development
 
 ```bash
 npm install
 npm run dev        # local server
 npm run build      # builds dist/, generates sw.js, then runs the blocking checks
-npm run icons      # regenerates public/icons/ and og.png (committed; needs Playwright)
+npm run icons      # regenerates public/icons/, og.png and the README banners (committed; needs Playwright)
 ```
 
 `npm run verifier:en-ligne` fetches the live site and fails if the host has injected anything into
